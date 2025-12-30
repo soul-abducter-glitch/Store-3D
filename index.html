@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store-3D | Professional Engineering Suite</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=JetBrains+Mono&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --obsidian: #050505;
+            --gold: #D4AF37;
+            --cyber-blue: #00A3FF;
+            --grid-color: rgba(255, 255, 255, 0.03);
+            --rim-light: radial-gradient(circle at 50% 0%, rgba(0, 163, 255, 0.1) 0%, transparent 70%);
+        }
+
+        body {
+            background-color: var(--obsidian);
+            background-image: var(--rim-light);
+            color: #E0E0E0;
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            overflow-x: hidden;
+        }
+
+        .cad-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(var(--grid-color) 1px, transparent 1px),
+                linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+            background-size: 40px 40px;
+            pointer-events: none;
+            z-index: -1;
+        }
+
+        .mono {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            letter-spacing: 0.05em;
+        }
+
+        .gold-glow {
+            text-shadow: 0 0 10px rgba(212, 175, 55, 0.5);
+            color: var(--gold);
+        }
+
+        .verified-glow {
+            box-shadow: 0 0 15px rgba(212, 175, 55, 0.2);
+            border: 1px solid var(--gold);
+        }
+
+        .coordinate-marker {
+            position: absolute;
+            color: rgba(255, 255, 255, 0.2);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+        }
+
+        .pillar-card {
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }
+
+        .pillar-card:hover {
+            border-color: var(--cyber-blue);
+            background: rgba(0, 163, 255, 0.05);
+        }
+
+        .hud-data {
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .viewport-3d {
+            background: radial-gradient(circle at center, #111 0%, #050505 100%);
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .viewport-3d::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            background-image: 
+                linear-gradient(rgba(255, 255, 255, 0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.02) 1px, transparent 1px);
+            background-size: 20px 20px;
+        }
+
+        .wireframe-overlay {
+            background-image: 
+                repeating-linear-gradient(0deg, transparent, transparent 1px, rgba(0, 163, 255, 0.05) 1px, rgba(0, 163, 255, 0.05) 2px);
+            pointer-events: none;
+        }
+
+        @keyframes spin-slow {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        .animate-spin-slow {
+            animation: spin-slow 20s linear infinite;
+        }
+
+        /* Custom Scrollbar */
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--obsidian);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #333;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--cyber-blue);
+        }
+    </style>
+
+</head>
+<body>
+    <div class="cad-grid"></div>
+    
+    <!-- Coordinate Markers -->
+    <div class="coordinate-marker top-4 left-4">X: 0.000<br>Y: 0.000<br>Z: 0.000</div>
+    <div class="coordinate-marker top-4 right-4">AUTODESK_VIEWPORT_01</div>
+    <div class="coordinate-marker bottom-4 left-4">GRID_STEP: 40mm</div>
+    <div class="coordinate-marker bottom-4 right-4">ENGINEERING_SUITE_v1.0</div>
+
+    <!-- Navigation Header -->
+    <nav class="fixed top-0 w-full z-50 border-b border-white/5 bg-obsidian/80 backdrop-blur-md px-8 py-4 flex justify-between items-center">
+        <div class="text-xl font-bold tracking-tighter">STORE<span class="text-cyber-blue">-3D</span></div>
+        <div class="flex gap-8 mono uppercase">
+            <a href="#" class="hover:text-cyber-blue transition-colors">Physical Shop</a>
+            <a href="#" class="hover:text-cyber-blue transition-colors">Digital Library</a>
+            <a href="#" class="hover:text-cyber-blue transition-colors">Print Service</a>
+        </div>
+        <div class="flex items-center gap-4">
+            <span class="mono text-[10px] text-white/40">LINK_ESTABLISHED</span>
+            <div class="w-2 h-2 rounded-full bg-cyber-blue animate-pulse"></div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="pt-32 px-8 max-w-7xl mx-auto">
+        <!-- Hero Concept -->
+        <section class="mb-24 text-center">
+            <h1 class="text-6xl font-bold mb-6 tracking-tight">Verified Print-Ready.</h1>
+            <p class="text-white/50 mono mb-12">PRECISION ENGINEERING MEETS COLLECTIBLE ART</p>
+            
+            <div class="flex justify-center gap-4">
+                <button class="px-8 py-3 bg-white text-black font-bold text-sm uppercase tracking-widest hover:bg-cyber-blue hover:text-white transition-all">Explore Collections</button>
+                <button class="px-8 py-3 border border-white/20 text-white font-bold text-sm uppercase tracking-widest hover:border-cyber-blue transition-all">Upload STL</button>
+            </div>
+        </section>
+
+        <!-- Pillars -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-24">
+            <div class="pillar-card p-8 rounded-sm">
+                <div class="mono text-cyber-blue mb-4">01_PHYSICAL</div>
+                <h3 class="text-xl font-bold mb-2">Physical Shop</h3>
+                <p class="text-sm text-white/40">Ready-to-ship hand-painted masterpieces.</p>
+            </div>
+            <div class="pillar-card p-8 rounded-sm">
+                <div class="mono text-cyber-blue mb-4">02_DIGITAL</div>
+                <h3 class="text-xl font-bold mb-2">Digital Library</h3>
+                <p class="text-sm text-white/40">Optimized STL/OBJ files for local manufacturing.</p>
+            </div>
+            <div class="pillar-card p-8 rounded-sm">
+                <div class="mono text-cyber-blue mb-4">03_SERVICE</div>
+                <h3 class="text-xl font-bold mb-2">Print Service</h3>
+                <p class="text-sm text-white/40">Industrial grade custom manufacturing solutions.</p>
+            </div>
+        </div>
+
+        <!-- Filters HUD -->
+        <div class="mb-12">
+            <div class="flex flex-wrap justify-between items-end gap-6 border-b border-white/5 pb-6">
+                <div class="space-y-4">
+                    <div class="mono text-[10px] text-white/20 uppercase tracking-widest">Technology_Hierarchy</div>
+                    <div class="flex gap-6 mono uppercase text-[10px]">
+                        <a href="#" class="text-cyber-blue border-b border-cyber-blue pb-1">All_Tech</a>
+                        <div class="group relative">
+                            <a href="#" class="hover:text-white transition-colors">SLA_Resin (Liquid)</a>
+                            <div class="absolute top-full left-0 hidden group-hover:block bg-obsidian border border-white/10 p-2 z-10 w-48 mt-2">
+                                <div class="text-[8px] text-white/40 mb-1">SUB_GENRES:</div>
+                                <a href="#" class="block hover:text-cyber-blue py-1">Jewelry</a>
+                                <a href="#" class="block hover:text-cyber-blue py-1">Miniatures</a>
+                                <a href="#" class="block hover:text-cyber-blue py-1">Art</a>
+                            </div>
+                        </div>
+                        <a href="#" class="hover:text-white transition-colors">FDM_Plastic (Filament)</a>
+                    </div>
+                </div>
+
+                <div class="space-y-4 text-right">
+                    <div class="mono text-[10px] text-white/20 uppercase tracking-widest">Quality_Assurance</div>
+                    <div class="flex items-center gap-4">
+                        <span class="mono text-[10px] text-gold">VERIFIED_PRINT_READY</span>
+                        <label class="relative inline-flex items-center cursor-pointer">
+                            <input type="checkbox" value="" class="sr-only peer" checked>
+                            <div class="w-11 h-6 bg-white/10 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-gold peer-checked:shadow-[0_0_15px_rgba(212,175,55,0.4)]"></div>
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 3D Vitrine (Viewport Concept) -->
+        <section class="mb-32 grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div class="lg:col-span-2 viewport-3d aspect-video rounded-sm flex items-center justify-center group cursor-crosshair">
+                <div class="wireframe-overlay absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                
+                <!-- Rotating Pedestal Placeholder -->
+                <div class="relative">
+                    <div class="w-64 h-64 border-2 border-white/10 rounded-full animate-spin-slow flex items-center justify-center">
+                        <div class="w-48 h-48 border border-cyber-blue/20 rounded-full"></div>
+                    </div>
+                    <div class="absolute inset-0 flex items-center justify-center">
+                        <div class="text-center">
+                            <div class="mono text-[10px] text-white/20 animate-pulse">LOADING_MESH...</div>
+                            <div class="text-4xl font-bold opacity-20">360° VIEW</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Viewport HUD -->
+                <div class="absolute top-6 left-6 mono text-[10px] space-y-2">
+                    <div class="flex gap-2 items-center"><span class="w-2 h-2 bg-green-500 rounded-full"></span> RENDER_ACTIVE</div>
+                    <div class="text-white/40">FPS: 60.0</div>
+                    <div class="text-white/40">SAMPLES: 128</div>
+                </div>
+
+                <div class="absolute bottom-6 left-6 flex gap-2">
+                    <button class="px-3 py-1 bg-white/5 border border-white/10 mono text-[8px] hover:bg-cyber-blue transition-all">WIRE_MODE</button>
+                    <button class="px-3 py-1 bg-white/5 border border-white/10 mono text-[8px] hover:bg-cyber-blue transition-all">TEXTURES</button>
+                    <button class="px-3 py-1 bg-white/5 border border-white/10 mono text-[8px] hover:bg-cyber-blue transition-all">X-RAY</button>
+                </div>
+
+                <div class="absolute bottom-6 right-6">
+                    <button class="px-4 py-2 bg-gold/10 border border-gold/40 text-gold mono text-[10px] hover:bg-gold hover:text-black transition-all">VIEW_IN_INTERIOR</button>
+                </div>
+            </div>
+
+            <div class="space-y-8">
+                <div>
+                    <div class="mono text-gold text-xs mb-2">● VERIFIED_PRINT_READY</div>
+                    <h2 class="text-4xl font-bold mb-4">ARCHANGEL_MK_IV</h2>
+                    <p class="text-white/40 text-sm leading-relaxed">High-detail SLA resin model. Optimized for 0.05mm layer height. Pre-supported and hollowed for maximum efficiency.</p>
+                </div>
+
+                <div class="hud-data p-6 space-y-4">
+                    <div class="flex justify-between border-b border-white/5 pb-2">
+                        <span class="mono text-[10px] text-white/40">POLYGON_COUNT</span>
+                        <span class="mono text-[10px]">1,240,500</span>
+                    </div>
+                    <div class="flex justify-between border-b border-white/5 pb-2">
+                        <span class="mono text-[10px] text-white/40">LAYER_HEIGHT</span>
+                        <span class="mono text-[10px]">0.05 mm</span>
+                    </div>
+                    <div class="flex justify-between border-b border-white/5 pb-2">
+                        <span class="mono text-[10px] text-white/40">EST_PRINT_TIME</span>
+                        <span class="mono text-[10px]">18h 45m</span>
+                    </div>
+                    <div class="flex justify-between border-b border-white/5 pb-2">
+                        <span class="mono text-[10px] text-white/40">FILE_WEIGHT</span>
+                        <span class="mono text-[10px]">842 MB</span>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <button class="col-span-2 py-4 bg-cyber-blue text-white font-bold mono text-sm hover:shadow-[0_0_20px_rgba(0,163,255,0.4)] transition-all">BUY_DIGITAL_STL $24.00</button>
+                    <button class="py-3 border border-white/10 mono text-[10px] hover:bg-white hover:text-black transition-all">PHYSICAL_RAW</button>
+                    <button class="py-3 border border-white/10 mono text-[10px] hover:bg-white hover:text-black transition-all">PRO_PAINTED</button>
+                </div>
+            </div>
+        </section>
+
+        <!-- Homepage Feed -->
+        <div class="mb-12 flex justify-between items-center">
+            <h2 class="text-2xl font-bold tracking-tight uppercase">Featured_Masterpieces</h2>
+            <div class="mono text-[10px] text-white/20">SORT: [RELEVANCE]</div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+            <!-- Product Card 1 -->
+            <div class="relative group aspect-[4/5] viewport-3d border border-white/5 overflow-hidden cursor-pointer transition-all hover:border-cyber-blue/50">
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <div class="w-32 h-32 border border-dashed border-white/10 rounded-full group-hover:animate-spin-slow transition-all"></div>
+                </div>
+                <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60 group-hover:opacity-100"></div>
+                
+                <div class="absolute bottom-0 left-0 w-full p-6">
+                    <div class="mono text-[8px] text-cyber-blue mb-2">SLA_LIQUID // #9921</div>
+                    <div class="font-bold text-lg uppercase tracking-tight">Ancient Dragon</div>
+                    <div class="mt-4 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span class="text-gold mono text-[10px]">VERIFIED</span>
+                        <span class="mono text-[10px]">$18.00</span>
+                    </div>
+                </div>
+
+                <!-- Hover HUD -->
+                <div class="absolute top-4 left-4 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                    <div class="hud-data p-3 mono text-[7px] space-y-1">
+                        <div>SCALE: 1:12</div>
+                        <div>PARTS: 12_PCS</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Card 2 (Tall) -->
+            <div class="relative group aspect-[4/6] viewport-3d border border-white/5 overflow-hidden cursor-pointer lg:row-span-2 transition-all hover:border-cyber-blue/50">
+                <div class="absolute inset-0 flex items-center justify-center">
+                    <div class="w-48 h-48 border-l border-t border-gold/20 group-hover:scale-110 transition-transform"></div>
+                </div>
+                <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent opacity-60"></div>
+                
+                <div class="absolute bottom-0 left-0 w-full p-6">
+                    <div class="mono text-[8px] text-cyber-blue mb-2">FDM_FILAMENT // #0042</div>
+                    <div class="font-bold text-lg uppercase tracking-tight">Power Armor Suit</div>
+                    <div class="mt-4 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span class="text-white/40 mono text-[10px]">RAW_STL</span>
+                        <span class="mono text-[10px]">$45.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Card 3 -->
+            <div class="relative group aspect-square viewport-3d border border-white/5 overflow-hidden cursor-pointer transition-all hover:border-cyber-blue/50">
+                <div class="absolute bottom-0 left-0 w-full p-6">
+                    <div class="mono text-[8px] text-cyber-blue mb-2">SLA_LIQUID // #5521</div>
+                    <div class="font-bold text-lg uppercase tracking-tight">Sci-Fi Console</div>
+                    <div class="mt-4 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span class="text-gold mono text-[10px]">VERIFIED</span>
+                        <span class="mono text-[10px]">$12.00</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Product Card 4 -->
+            <div class="relative group aspect-[4/3] viewport-3d border border-white/5 overflow-hidden cursor-pointer transition-all hover:border-cyber-blue/50">
+                <div class="absolute bottom-0 left-0 w-full p-6">
+                    <div class="mono text-[8px] text-cyber-blue mb-2">FDM_FILAMENT // #8812</div>
+                    <div class="font-bold text-lg uppercase tracking-tight">Planetary Gear</div>
+                    <div class="mt-4 flex justify-between items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span class="text-gold mono text-[10px]">VERIFIED</span>
+                        <span class="mono text-[10px]">$15.00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <footer class="mt-48 py-12 border-t border-white/5 px-8 flex justify-between items-center mono text-[10px] text-white/20">
+        <div>© 2025 STORE-3D. ALL RIGHTS RESERVED.</div>
+        <div class="flex gap-8">
+            <a href="#" class="hover:text-white">API_DOCS</a>
+            <a href="#" class="hover:text-white">MANUFACTURING_SPECS</a>
+            <a href="#" class="hover:text-white">TERMS_OF_SERVICE</a>
+        </div>
+    </footer>
+
+    <script>
+        // Placeholder for future 3D interactivity (Three.js or similar)
+        console.log("ENGINEERING_SUITE_INITIALIZED");
+    </script>
+</body>
+</html>
