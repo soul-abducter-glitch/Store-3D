@@ -9,6 +9,14 @@ const isAdminMode =
 const baseConfig = {
   reactStrictMode: true,
   distDir: isAdminMode ? ".next-admin" : ".next-frontend",
+  serverActions: {
+    bodySizeLimit: "100mb",
+  },
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "100mb",
+    },
+  },
 };
 
 module.exports = isAdminMode ? withPayload(baseConfig) : baseConfig;

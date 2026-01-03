@@ -10,6 +10,9 @@ import {
 
 export const dynamic = "force-dynamic";
 
+// Allow large file uploads (100MB)
+export const maxDuration = 60; // seconds
+
 export const GET = REST_GET(payloadConfig);
 export const POST = REST_POST(payloadConfig);
 export const PATCH = REST_PATCH(payloadConfig);

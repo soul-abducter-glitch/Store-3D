@@ -13,12 +13,25 @@ import { Users } from "./src/payload/collections/Users.ts";
 const serverURL = (process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000").trim();
 const payloadSecret = process.env.PAYLOAD_SECRET;
 const databaseURL = process.env.DATABASE_URL;
+const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID;
+const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
+const s3Bucket = process.env.S3_BUCKET;
+const s3Endpoint = process.env.S3_ENDPOINT;
+
 if (!payloadSecret) {
   throw new Error("PAYLOAD_SECRET is missing");
 }
 
 if (!databaseURL) {
   throw new Error("DATABASE_URL is missing");
+}
+
+if (!s3AccessKeyId || !s3SecretAccessKey || !s3Bucket || !s3Endpoint) {
+  console.warn("⚠️ S3 credentials missing. File uploads may fail.");
+  console.warn("S3_ACCESS_KEY_ID:", s3AccessKeyId ? "✓" : "✗");
+  console.warn("S3_SECRET_ACCESS_KEY:", s3SecretAccessKey ? "✓" : "✗");
+  console.warn("S3_BUCKET:", s3Bucket ? "✓" : "✗");
+  console.warn("S3_ENDPOINT:", s3Endpoint ? "✓" : "✗");
 }
 
 export default buildConfig({
@@ -31,6 +44,11 @@ export default buildConfig({
       elements: {
         CodeEditor: "./components/PatchedCodeEditor",
       },
+    },
+  },
+  upload: {
+    limits: {
+      fileSize: 100 * 1024 * 1024, // 100MB
     },
   },
   collections: [Users, Categories, Media, Products],
@@ -48,19 +66,22 @@ export default buildConfig({
   editor: lexicalEditor({}),
   plugins: [
     s3Storage({
-      bucket: process.env.S3_BUCKET || "",
+      bucket: s3Bucket || "",
       config: {
         credentials: {
-          accessKeyId: process.env.S3_ACCESS_KEY_ID || "",
-          secretAccessKey: process.env.S3_SECRET_ACCESS_KEY || "",
+          accessKeyId: s3AccessKeyId || "",
+          secretAccessKey: s3SecretAccessKey || "",
         },
-        endpoint: process.env.S3_ENDPOINT,
+        endpoint: s3Endpoint,
         region: process.env.S3_REGION || "us-east-1",
         forcePathStyle: true,
       },
       collections: {
         media: {
           prefix: "media",
+          generateFileURL: ({ filename, prefix }) => {
+            return `${s3Endpoint}/${s3Bucket}/${prefix ? prefix + "/" : ""}${filename}`;
+          },
         },
       },
     }),
