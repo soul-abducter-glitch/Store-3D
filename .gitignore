@@ -1,2 +1,11 @@
 node_modules
 .next
+.next-admin
+.next-frontend
+.env*
+payload-types.ts
+*.log
+models/
+todo.md
+next.admin.config.js
+run-frontend-3002.bat
