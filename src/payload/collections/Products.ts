@@ -29,16 +29,16 @@ export const Products: CollectionConfig = {
       },
       hooks: {
         beforeValidate: [
-          ({ data }) => {
-            if (!data) {
-              return data;
+          ({ data, value }) => {
+            if (value) {
+              return value;
             }
 
-            if (!data.slug && data.name) {
-              data.slug = formatSlug(String(data.name));
+            if (data?.name) {
+              return formatSlug(String(data.name));
             }
 
-            return data;
+            return value;
           },
         ],
       },
