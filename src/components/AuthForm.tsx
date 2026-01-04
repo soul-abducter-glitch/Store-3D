@@ -15,6 +15,21 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+
+  const getErrorMessage = async (response: Response) => {
+    try {
+      const data = await response.json();
+      return (
+        data?.errors?.[0]?.data?.errors?.[0]?.message ||
+        data?.errors?.[0]?.message ||
+        data?.message ||
+        "Request failed."
+      );
+    } catch {
+      return "Request failed.";
+    }
+  };
 
   const toggleMode = () => {
     setError(null);
@@ -23,36 +38,65 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (submitting) {
+      return;
+    }
+
     setSubmitting(true);
     setError(null);
+    const trimmedEmail = email.trim();
+    const trimmedName = name.trim();
 
     try {
-      const apiUrl = mode === "login" 
-        ? `${process.env.NEXT_PUBLIC_API_URL || ""}/api/users/login`
-        : `${process.env.NEXT_PUBLIC_API_URL || ""}/api/users`;
+      if (mode === "login") {
+        const response = await fetch(`${apiBase}/api/users/login`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmedEmail, password }),
+        });
 
-      const body = mode === "login"
-        ? { email, password }
-        : { email, password, name };
+        if (!response.ok) {
+          setError(await getErrorMessage(response));
+          setSubmitting(false);
+          return;
+        }
+      } else {
+        const response = await fetch(`${apiBase}/api/users`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: trimmedEmail,
+            password,
+            ...(trimmedName ? { name: trimmedName } : {}),
+          }),
+        });
 
-      const response = await fetch(apiUrl, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+        if (!response.ok) {
+          setError(await getErrorMessage(response));
+          setSubmitting(false);
+          return;
+        }
 
-      if (!response.ok) {
-        const data = await response.json();
-        setError(data.message || "Ошибка авторизации");
-        setSubmitting(false);
-        return;
+        const loginResponse = await fetch(`${apiBase}/api/users/login`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmedEmail, password }),
+        });
+
+        if (!loginResponse.ok) {
+          setError(await getErrorMessage(loginResponse));
+          setSubmitting(false);
+          return;
+        }
       }
 
       onSuccess?.();
       window.location.reload();
     } catch (err) {
-      setError("Не удалось подключиться к серверу");
+      setError("Network error. Please try again.");
       setSubmitting(false);
     }
   };

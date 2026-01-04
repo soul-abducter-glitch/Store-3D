@@ -9,9 +9,13 @@ export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "settings">("orders");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState<string | null>(null);
+  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
 
   useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL || ""}/api/users/me`, {
+    fetch(`${apiBase}/api/users/me`, {
       credentials: "include",
     })
       .then((res) => (res.ok ? res.json() : null))
@@ -23,11 +27,49 @@ export default function ProfilePage() {
         setUser(null);
         setLoading(false);
       });
-  }, []);
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (!user?.id) {
+      setOrders([]);
+      setOrdersError(null);
+      setOrdersLoading(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    const params = new URLSearchParams();
+    params.set("where[user][equals]", String(user.id));
+    params.set("depth", "2");
+    params.set("limit", "20");
+
+    setOrdersLoading(true);
+    setOrdersError(null);
+
+    fetch(`${apiBase}/api/orders?${params.toString()}`, {
+      credentials: "include",
+      signal: controller.signal,
+    })
+      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+      .then((data) => {
+        setOrders(Array.isArray(data?.docs) ? data.docs : []);
+      })
+      .catch((err) => {
+        if (err?.name === "AbortError") {
+          return;
+        }
+        setOrdersError("Unable to load orders.");
+      })
+      .finally(() => {
+        setOrdersLoading(false);
+      });
+
+    return () => controller.abort();
+  }, [user, apiBase]);
 
   const handleLogout = async () => {
     try {
-      await fetch(`${process.env.NEXT_PUBLIC_API_URL || ""}/api/users/logout`, {
+      await fetch(`${apiBase}/api/users/logout`, {
         method: "POST",
         credentials: "include",
       });
@@ -36,6 +78,122 @@ export default function ProfilePage() {
       console.error("Logout failed:", error);
     }
   };
+
+  const formatDate = (value?: string) => {
+    if (!value) {
+      return "";
+    }
+
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+      return "";
+    }
+
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const year = date.getFullYear();
+    return `${day}.${month}.${year}`;
+  };
+
+  const formatFileSize = (bytes?: number) => {
+    if (typeof bytes !== "number" || Number.isNaN(bytes)) {
+      return "N/A";
+    }
+
+    const units = ["B", "KB", "MB", "GB"];
+    let size = bytes;
+    let unitIndex = 0;
+
+    while (size >= 1024 && unitIndex < units.length - 1) {
+      size /= 1024;
+      unitIndex += 1;
+    }
+
+    const formatted = size < 10 && unitIndex > 0 ? size.toFixed(1) : Math.round(size).toString();
+    return `${formatted} ${units[unitIndex]}`;
+  };
+
+  const getOrderProduct = (order: any) => {
+    if (order?.product && typeof order.product === "object") {
+      return order.product;
+    }
+
+    return null;
+  };
+
+  const getOrderProductName = (order: any) => {
+    const product = getOrderProduct(order);
+    return product?.name || "Product";
+  };
+
+  const getOrderFormatLabel = (format?: string) => {
+    if (format === "Digital") {
+      return "Digital STL";
+    }
+    if (format === "Physical") {
+      return "Physical Print";
+    }
+
+    return format || "Unknown";
+  };
+
+  const getOrderStatusLabel = (status?: string) => {
+    return status || "Pending";
+  };
+
+  const getOrderStatusClass = (status?: string) => {
+    if (status === "Shipped") {
+      return "text-emerald-400";
+    }
+    if (status === "Printing") {
+      return "text-[#2ED1FF]";
+    }
+
+    return "text-white/60";
+  };
+
+  const downloads = orders.reduce(
+    (
+      acc: {
+        id: string;
+        product: string;
+        fileSize: string;
+        downloadUrl: string;
+        ready: boolean;
+      }[],
+      order: any
+    ) => {
+      if (order?.format !== "Digital") {
+        return acc;
+      }
+
+      const product = getOrderProduct(order);
+      const productName = product?.name || "Digital STL";
+      const rawModel = product?.rawModel;
+      const paintedModel = product?.paintedModel;
+      const file =
+        rawModel && typeof rawModel === "object"
+          ? rawModel
+          : paintedModel && typeof paintedModel === "object"
+            ? paintedModel
+            : null;
+      const downloadUrl = typeof file?.url === "string" ? file.url : "";
+      const fileSize =
+        typeof file?.filesize === "number" ? formatFileSize(file.filesize) : formatFileSize();
+      const id = String(order?.id || product?.id || productName);
+
+      acc.push({
+        id,
+        product: productName,
+        fileSize,
+        downloadUrl,
+        ready: Boolean(downloadUrl),
+      });
+
+      return acc;
+    },
+    []
+  );
 
   if (loading) {
     return (
@@ -78,40 +236,7 @@ export default function ProfilePage() {
     );
   }
 
-  // Mock data - will be replaced with real API calls
-  const orders = [
-    {
-      id: "ORD-001",
-      product: "Seraph Sentinel",
-      format: "Physical Print",
-      status: "Печатается",
-      date: "03.01.2026",
-    },
-    {
-      id: "ORD-002",
-      product: "Gilded Wyvern",
-      format: "Digital STL",
-      status: "Завершен",
-      date: "02.01.2026",
-    },
-  ];
-
-  const downloads = [
-    {
-      id: "DL-001",
-      product: "Gilded Wyvern",
-      fileSize: "124 MB",
-      downloadUrl: "#",
-    },
-    {
-      id: "DL-002",
-      product: "Warden of the Rift",
-      fileSize: "98 MB",
-      downloadUrl: "#",
-    },
-  ];
-
-  return (
+    return (
     <div className="min-h-screen bg-[#050505] text-white">
       <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
       <div className="pointer-events-none fixed inset-0">
@@ -198,63 +323,102 @@ export default function ProfilePage() {
         <div className="mt-8">
           {activeTab === "orders" && (
             <div className="space-y-4">
-              {orders.map((order) => (
-                <div
-                  key={order.id}
-                  className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                        {order.id}
-                      </p>
-                      <h3 className="mt-2 text-xl font-semibold text-white">{order.product}</h3>
-                      <p className="mt-1 text-sm text-white/60">{order.format}</p>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                        {order.date}
-                      </p>
-                      <p
-                        className={`mt-2 text-sm font-semibold ${
-                          order.status === "Завершен" ? "text-emerald-400" : "text-[#2ED1FF]"
-                        }`}
-                      >
-                        {order.status}
-                      </p>
+              {ordersLoading && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  Loading orders...
+                </div>
+              )}
+              {!ordersLoading && ordersError && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-red-200 backdrop-blur-xl">
+                  {ordersError}
+                </div>
+              )}
+              {!ordersLoading && !ordersError && orders.length === 0 && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  No orders yet.
+                </div>
+              )}
+              {!ordersLoading &&
+                !ordersError &&
+                orders.map((order) => (
+                  <div
+                    key={order.id}
+                    className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                          {order.id}
+                        </p>
+                        <h3 className="mt-2 text-xl font-semibold text-white">
+                          {getOrderProductName(order)}
+                        </h3>
+                        <p className="mt-1 text-sm text-white/60">{getOrderFormatLabel(order.format)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                          {formatDate(order.createdAt || order.updatedAt)}
+                        </p>
+                        <p className={`mt-2 text-sm font-semibold ${getOrderStatusClass(order.status)}`}>
+                          {getOrderStatusLabel(order.status)}
+                        </p>
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                ))}
             </div>
           )}
-
           {activeTab === "downloads" && (
             <div className="space-y-4">
-              {downloads.map((download) => (
-                <div
-                  key={download.id}
-                  className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <h3 className="text-xl font-semibold text-white">{download.product}</h3>
-                      <p className="mt-1 text-sm text-white/60">Размер файла: {download.fileSize}</p>
-                    </div>
-                    <a
-                      href={download.downloadUrl}
-                      className="flex items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30"
-                    >
-                      <Download className="h-4 w-4" />
-                      Скачать STL
-                    </a>
-                  </div>
+              {ordersLoading && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  Loading library...
                 </div>
-              ))}
+              )}
+              {!ordersLoading && ordersError && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-red-200 backdrop-blur-xl">
+                  {ordersError}
+                </div>
+              )}
+              {!ordersLoading && !ordersError && downloads.length === 0 && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  No downloads yet.
+                </div>
+              )}
+              {!ordersLoading &&
+                !ordersError &&
+                downloads.map((download) => (
+                  <div
+                    key={download.id}
+                    className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div>
+                        <h3 className="text-xl font-semibold text-white">{download.product}</h3>
+                        <p className="mt-1 text-sm text-white/60">File size: {download.fileSize}</p>
+                      </div>
+                      {download.ready ? (
+                        <a
+                          href={download.downloadUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30"
+                        >
+                          <Download className="h-4 w-4" />
+                          Download STL
+                        </a>
+                      ) : (
+                        <span className="flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40">
+                          <Download className="h-4 w-4" />
+                          Not ready
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
             </div>
           )}
-
-          {activeTab === "settings" && (
+{activeTab === "settings" && (
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
               <form className="space-y-6">
                 <div className="space-y-2">
