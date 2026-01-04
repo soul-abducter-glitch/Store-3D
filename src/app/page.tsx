@@ -1,6 +1,14 @@
 "use client";
 
-import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Component,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
@@ -18,6 +26,7 @@ import {
   Sparkles,
   Upload,
   User,
+  X,
 } from "lucide-react";
 import ModelView from "@/components/ModelView";
 
@@ -115,6 +124,17 @@ const formatCount = (value?: number | null) => {
   return new Intl.NumberFormat("ru-RU").format(value);
 };
 
+const splitTokens = (value: string) =>
+  value.split(/[^\p{L}\p{N}]+/gu).filter(Boolean);
+
+const matchesQuery = (value: string, query: string) => {
+  const normalized = value.toLowerCase();
+  if (normalized.startsWith(query)) {
+    return true;
+  }
+  return splitTokens(normalized).some((token) => token.startsWith(query));
+};
+
 const resolveMediaUrl = (value?: MediaDoc | string | null) => {
   if (!value) {
     return null;
@@ -156,6 +176,7 @@ export default function Home() {
   const [format, setFormat] = useState<FormatMode>("digital");
   const [technology, setTechnology] = useState<TechMode>("sla");
   const [activeCategory, setActiveCategory] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductDoc[]>([]);
   const [categoriesData, setCategoriesData] = useState<CategoryDoc[]>([]);
@@ -357,6 +378,8 @@ export default function Home() {
     });
   }, [products, categoriesById]);
 
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+
   const filteredProducts = useMemo(() => {
     const activeGroup = sidebarCategories.find(
       (category) => category.title === activeCategory
@@ -371,15 +394,32 @@ export default function Home() {
           (activeItems.length > 0 &&
             product.categoryTitles.some((title) => activeItems.includes(title)))
         : true;
-      return matchesFormat && matchesTech && matchesCategory;
+      const matchesSearch =
+        !normalizedQuery ||
+        [
+          product.name,
+          product.sku,
+          product.slug,
+          ...product.categoryTitles,
+        ].some((value) => value && matchesQuery(String(value), normalizedQuery));
+      return matchesFormat && matchesTech && matchesCategory && matchesSearch;
     });
-  }, [normalizedProducts, format, technology, activeCategory, sidebarCategories]);
+  }, [normalizedProducts, format, technology, activeCategory, sidebarCategories, normalizedQuery]);
 
   const countBasisProducts = useMemo(() => {
     return normalizedProducts.filter(
-      (product) => product.formatKey === format && product.techKey === technology
+      (product) =>
+        product.formatKey === format &&
+        product.techKey === technology &&
+        (!normalizedQuery ||
+          [
+            product.name,
+            product.sku,
+            product.slug,
+            ...product.categoryTitles,
+          ].some((value) => value && matchesQuery(String(value), normalizedQuery)))
     );
-  }, [normalizedProducts, format, technology]);
+  }, [normalizedProducts, format, technology, normalizedQuery]);
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -495,7 +535,7 @@ export default function Home() {
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
       <GlobalHudMarkers />
-      <Header onFormatChange={setFormat} />
+      <Header onFormatChange={setFormat} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
       <div className="relative z-10 mx-auto max-w-[1400px] px-6 pb-24">
         <div className="grid gap-8 xl:grid-cols-[280px_1fr]">
           <Sidebar
@@ -733,9 +773,37 @@ export default function Home() {
 
 type HeaderProps = {
   onFormatChange: (value: FormatMode) => void;
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
 };
 
-function Header({ onFormatChange }: HeaderProps) {
+function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (isSearchOpen) {
+      inputRef.current?.focus();
+    }
+  }, [isSearchOpen]);
+
+  const toggleSearch = () => {
+    setIsSearchOpen((prev) => {
+      if (prev) {
+        onSearchChange("");
+      }
+      return !prev;
+    });
+  };
+
+  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Escape") {
+      onSearchChange("");
+      setIsSearchOpen(false);
+      event.currentTarget.blur();
+    }
+  };
+
   return (
     <header className="sticky top-0 z-20 border-b border-white/10 bg-[#050505]/80 backdrop-blur-xl">
       <motion.div
@@ -798,12 +866,26 @@ function Header({ onFormatChange }: HeaderProps) {
           variants={itemVariants}
           className="flex items-center justify-start gap-3 lg:justify-end"
         >
+          {isSearchOpen && (
+            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
+              <input
+                ref={inputRef}
+                type="search"
+                value={searchQuery}
+                onChange={(event) => onSearchChange(event.target.value)}
+                onKeyDown={handleSearchKeyDown}
+                placeholder="Поиск: название, категория, артикул"
+                className="w-52 bg-transparent text-xs uppercase tracking-[0.2em] text-white/80 placeholder:text-white/40 focus:outline-none"
+              />
+            </div>
+          )}
           <button
             type="button"
             aria-label="Поиск"
             className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+            onClick={toggleSearch}
           >
-            <Search className="h-5 w-5" />
+            {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
           </button>
           <button
             type="button"
