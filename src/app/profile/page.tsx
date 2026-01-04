@@ -1,11 +1,70 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, Package, Settings, User } from "lucide-react";
+import AuthForm from "@/components/AuthForm";
 
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "settings">("orders");
+  const [user, setUser] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL || ""}/api/users/me`, {
+      credentials: "include",
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        setUser(data?.user || data?.doc || null);
+        setLoading(false);
+      })
+      .catch(() => {
+        setUser(null);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white">
+        <div className="flex min-h-screen items-center justify-center">
+          <p className="text-xs uppercase tracking-[0.3em] text-white/60">Загрузка...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-[#050505] text-white">
+        <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
+        <div className="pointer-events-none fixed inset-0">
+          <div className="absolute -left-40 top-[-20%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(46,209,255,0.2),transparent_70%)] blur-2xl" />
+          <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
+        </div>
+
+        <div className="relative z-10 mx-auto max-w-[600px] px-6 py-24">
+          <div className="mb-8 flex items-center justify-between">
+            <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+              Доступ к системе
+            </p>
+            <Link
+              href="/"
+              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              На главную
+            </Link>
+          </div>
+
+          <div className="rounded-[32px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
+            <AuthForm />
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // Mock data - will be replaced with real API calls
   const orders = [
@@ -72,9 +131,9 @@ export default function ProfilePage() {
             </div>
             <div>
               <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                demo@example.com
+                {user.email}
               </p>
-              <p className="mt-1 text-lg font-semibold text-white">Демо пользователь</p>
+              <p className="mt-1 text-lg font-semibold text-white">{user.name || "Пользователь"}</p>
             </div>
           </div>
         </div>
