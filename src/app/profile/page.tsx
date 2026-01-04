@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, Package, Settings, User } from "lucide-react";
+import { ArrowLeft, Download, LogOut, Package, Settings, User } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
 
 export default function ProfilePage() {
@@ -24,6 +24,18 @@ export default function ProfilePage() {
         setLoading(false);
       });
   }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${process.env.NEXT_PUBLIC_API_URL || ""}/api/users/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+      window.location.reload();
+    } catch (error) {
+      console.error("Logout failed:", error);
+    }
+  };
 
   if (loading) {
     return (
@@ -115,13 +127,22 @@ export default function ProfilePage() {
             </p>
             <h1 className="mt-3 text-3xl font-semibold text-white">Профиль 3D-STORE</h1>
           </div>
-          <Link
-            href="/"
-            className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
-          >
-            <ArrowLeft className="h-4 w-4" />
-            Назад в магазин
-          </Link>
+          <div className="flex gap-3">
+            <button
+              onClick={handleLogout}
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-red-500/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
+            >
+              <LogOut className="h-4 w-4" />
+              Выход
+            </button>
+            <Link
+              href="/"
+              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Назад в магазин
+            </Link>
+          </div>
         </div>
 
         <div className="mt-10 flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-white/10 bg-white/[0.04] px-6 py-5">
