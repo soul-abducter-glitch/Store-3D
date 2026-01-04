@@ -3,10 +3,12 @@
 import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import {
   CheckCircle2,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Layers,
   RotateCw,
   Scan,
@@ -65,6 +67,9 @@ type ProductDoc = {
   format?: string;
   technology?: string;
   price?: number;
+  polyCount?: number;
+  printTime?: string;
+  scale?: string;
   isVerified?: boolean;
   isFeatured?: boolean;
   category?: CategoryDoc | string | null;
@@ -100,6 +105,13 @@ const formatPrice = (value?: number) => {
     return "N/A";
   }
 
+  return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const formatCount = (value?: number | null) => {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return null;
+  }
   return new Intl.NumberFormat("ru-RU").format(value);
 };
 
@@ -144,11 +156,14 @@ export default function Home() {
   const [format, setFormat] = useState<FormatMode>("digital");
   const [technology, setTechnology] = useState<TechMode>("sla");
   const [activeCategory, setActiveCategory] = useState("");
+  const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [products, setProducts] = useState<ProductDoc[]>([]);
   const [categoriesData, setCategoriesData] = useState<CategoryDoc[]>([]);
   const [productsError, setProductsError] = useState(false);
   const [categoriesError, setCategoriesError] = useState(false);
   const [dataLoading, setDataLoading] = useState(true);
+  const [isScanning, setIsScanning] = useState(false);
+  const [scanPulse, setScanPulse] = useState(0);
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
   useEffect(() => {
@@ -220,7 +235,7 @@ export default function Home() {
 
   const sidebarCategories = useMemo<SidebarCategory[]>(() => {
     const baseTitles = new Set(CATEGORY_SHELL.map((category) => category.title));
-    const childrenByParent = new Map<string, string[]>();
+    const childrenByParent = new Map<string, { items: string[]; seen: Set<string> }>();
 
     categoriesData?.forEach((category) => {
       if (!category?.title) {
@@ -238,20 +253,25 @@ export default function Home() {
       }
 
       if (parentTitle && baseTitles.has(parentTitle)) {
-        const items = childrenByParent.get(parentTitle) ?? [];
-        items.push(category.title);
-        childrenByParent.set(parentTitle, items);
+        const entry =
+          childrenByParent.get(parentTitle) ?? { items: [], seen: new Set<string>() };
+        if (!entry.seen.has(category.title)) {
+          entry.items.push(category.title);
+          entry.seen.add(category.title);
+        }
+        childrenByParent.set(parentTitle, entry);
       }
     });
 
     const baseCategories = CATEGORY_SHELL.map((category) => {
-      const items = childrenByParent.get(category.title);
+      const items = childrenByParent.get(category.title)?.items;
       return {
         title: category.title,
-        items: items && items.length > 0 ? items : category.items,
+        items: items && items.length > 0 ? items : Array.from(new Set(category.items)),
       };
     });
 
+    const extraTitles = new Set<string>();
     const extraCategories =
       categoriesData
         ?.filter((category) => {
@@ -263,10 +283,15 @@ export default function Home() {
           }
           return !category.parent;
         })
-        .map((category) => ({
-          title: category.title ?? "",
-          items: [],
-        })) ?? [];
+        .reduce((acc, category) => {
+          const title = category.title ?? "";
+          if (!title || extraTitles.has(title)) {
+            return acc;
+          }
+          extraTitles.add(title);
+          acc.push({ title, items: [] });
+          return acc;
+        }, [] as SidebarCategory[]) ?? [];
 
     return [...baseCategories, ...extraCategories.filter((category) => category.title)];
   }, [categoriesData, categoriesById]);
@@ -305,6 +330,9 @@ export default function Home() {
       const paintedModelUrl = resolveMediaUrl(product.paintedModel ?? null);
       const priceValue = typeof product.price === "number" ? product.price : null;
       const priceLabel = formatPrice(product.price);
+      const polyCount = typeof product.polyCount === "number" ? product.polyCount : null;
+      const printTime = product.printTime ?? null;
+      const scale = product.scale ?? null;
 
       return {
         id: String(product.id ?? product.name ?? ""),
@@ -315,6 +343,9 @@ export default function Home() {
         tech: product.technology ?? (techKey === "sla" ? "SLA" : "FDM"),
         price: priceLabel,
         priceValue,
+        polyCount,
+        printTime,
+        scale,
         verified: Boolean(product.isVerified),
         isFeatured: Boolean(product.isFeatured),
         formatKey,
@@ -335,10 +366,8 @@ export default function Home() {
     return normalizedProducts.filter((product) => {
       const matchesFormat = product.formatKey === format;
       const matchesTech = product.techKey === technology;
-      const hasCategoryInfo = product.categoryTitles.length > 0;
       const matchesCategory = activeCategory
-        ? !hasCategoryInfo ||
-          product.categoryTitles.includes(activeCategory) ||
+        ? product.categoryTitles.includes(activeCategory) ||
           (activeItems.length > 0 &&
             product.categoryTitles.some((title) => activeItems.includes(title)))
         : true;
@@ -346,35 +375,117 @@ export default function Home() {
     });
   }, [normalizedProducts, format, technology, activeCategory, sidebarCategories]);
 
+  const countBasisProducts = useMemo(() => {
+    return normalizedProducts.filter(
+      (product) => product.formatKey === format && product.techKey === technology
+    );
+  }, [normalizedProducts, format, technology]);
+
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
-    normalizedProducts.forEach((product) => {
+    countBasisProducts.forEach((product) => {
       product.categoryTitles.forEach((title) => {
         counts.set(title, (counts.get(title) ?? 0) + 1);
       });
     });
     return counts;
+  }, [countBasisProducts]);
+
+  const defaultModelId = useMemo(() => {
+    const featured = normalizedProducts.find((product) => product.isFeatured);
+    return featured?.id ?? normalizedProducts[0]?.id ?? null;
   }, [normalizedProducts]);
 
-  const featuredProduct = filteredProducts.find((product) => product.isFeatured);
-  const heroProduct = featuredProduct ?? filteredProducts[0] ?? null;
-  const heroName = heroProduct?.name ?? "ARCHANGEL";
-  const heroSku = heroProduct?.sku || heroProduct?.slug || "ARC_V4_88";
+  useEffect(() => {
+    if (currentModelId || !defaultModelId) {
+      return;
+    }
+    setCurrentModelId(defaultModelId);
+  }, [currentModelId, defaultModelId]);
+
+  useEffect(() => {
+    if (filteredProducts.length === 0) {
+      return;
+    }
+    const hasCurrent =
+      currentModelId && filteredProducts.some((product) => product.id === currentModelId);
+    if (!hasCurrent) {
+      setCurrentModelId(filteredProducts[0].id);
+    }
+  }, [filteredProducts, currentModelId]);
+
+  const currentProduct = useMemo(() => {
+    if (!currentModelId) {
+      return null;
+    }
+    return filteredProducts.find((product) => product.id === currentModelId) ?? null;
+  }, [filteredProducts, currentModelId]);
+
+  const activeModelUrl = useMemo(() => {
+    if (!currentProduct) {
+      return null;
+    }
+    if (finish === "pro") {
+      return currentProduct.paintedModelUrl ?? currentProduct.rawModelUrl;
+    }
+    return currentProduct.rawModelUrl;
+  }, [currentProduct, finish]);
+
+  useEffect(() => {
+    if (!currentProduct) {
+      return;
+    }
+    setScanPulse((prev) => prev + 1);
+    setIsScanning(true);
+    const timeout = setTimeout(() => setIsScanning(false), 500);
+    return () => clearTimeout(timeout);
+  }, [activeModelUrl, currentProduct]);
+
+  const heroName = currentProduct?.name ?? "Нет модели";
+  const heroSku = currentProduct?.sku || currentProduct?.slug || "—";
   const heroPriceLabel =
-    heroProduct?.priceValue != null ? `₽${heroProduct.price}` : "N/A";
-  const showHeroStandby = productsError || dataLoading || !heroProduct;
+    currentProduct?.priceValue != null ? `₽${currentProduct.price}` : "N/A";
+  const heroPolyCount = currentProduct?.polyCount ?? null;
+  const heroPrintTime = currentProduct?.printTime ?? null;
+  const heroScale = currentProduct?.scale ?? null;
+  const emptyCategoryMessage = "В этой категории пока нет моделей. Ожидайте пополнения";
+  const showHeroStandby = productsError || dataLoading || !currentProduct;
   const heroStandbyMessage = productsError
     ? "System Standby: No Data"
     : dataLoading
       ? "Loading Data..."
-      : "System Standby: No Product";
+      : emptyCategoryMessage;
+  const currentIndex = useMemo(() => {
+    if (!currentModelId) {
+      return -1;
+    }
+    return filteredProducts.findIndex((product) => product.id === currentModelId);
+  }, [filteredProducts, currentModelId]);
+  const canQuickSwitch = filteredProducts.length > 1;
+  const handlePrev = () => {
+    if (!filteredProducts.length) {
+      return;
+    }
+    const index = currentIndex > 0 ? currentIndex - 1 : filteredProducts.length - 1;
+    setCurrentModelId(filteredProducts[index].id);
+  };
+  const handleNext = () => {
+    if (!filteredProducts.length) {
+      return;
+    }
+    const index =
+      currentIndex >= 0 && currentIndex < filteredProducts.length - 1
+        ? currentIndex + 1
+        : 0;
+    setCurrentModelId(filteredProducts[index].id);
+  };
 
   const showSystemStandby = productsError || dataLoading || filteredProducts.length === 0;
   const standbyMessage = productsError
     ? "System Standby: No Data"
     : dataLoading
       ? "Loading Data..."
-      : "System Standby: No Data";
+      : emptyCategoryMessage;
 
   return (
     <div className="relative min-h-screen bg-[#050505] text-white font-[var(--font-inter)]">
@@ -408,7 +519,7 @@ export default function Home() {
                 variants={itemVariants}
                 className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-6 rim-light"
               >
-                <HUD />
+                <HUD polyCount={heroPolyCount} printTime={heroPrintTime} scale={heroScale} />
                 <div className="relative h-[420px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth">
                   {showHeroStandby ? (
                     <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
@@ -421,12 +532,53 @@ export default function Home() {
                         wireframe={wireframe}
                         finish={finish}
                         preview={preview}
-                        rawModelUrl={heroProduct?.rawModelUrl ?? null}
-                        paintedModelUrl={heroProduct?.paintedModelUrl ?? null}
+                        rawModelUrl={currentProduct?.rawModelUrl ?? null}
+                        paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
                       />
                     </ErrorBoundary>
                   )}
+                  <AnimatePresence>
+                    {isScanning && !showHeroStandby && (
+                      <motion.div
+                        key={scanPulse}
+                        className="pointer-events-none absolute inset-0 z-10"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.15 }}
+                      >
+                        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(46,209,255,0.18),transparent_45%,rgba(46,209,255,0.12))]" />
+                        <motion.div
+                          className="absolute left-0 right-0 h-16 bg-[#2ED1FF]/25 blur-sm"
+                          initial={{ y: "-20%" }}
+                          animate={{ y: "120%" }}
+                          transition={{ duration: 0.5, ease: "easeInOut" }}
+                        />
+                        <div className="absolute inset-0 border border-[#2ED1FF]/15" />
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
                 </div>
+                {canQuickSwitch && (
+                  <>
+                    <button
+                      type="button"
+                      aria-label="Предыдущая модель"
+                      className="absolute left-8 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-3 text-white/70 transition hover:text-white"
+                      onClick={handlePrev}
+                    >
+                      <ChevronLeft className="h-5 w-5" />
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="Следующая модель"
+                      className="absolute right-8 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-3 text-white/70 transition hover:text-white"
+                      onClick={handleNext}
+                    >
+                      <ChevronRight className="h-5 w-5" />
+                    </button>
+                  </>
+                )}
                 <div className="absolute inset-x-8 bottom-8 flex flex-wrap items-end justify-between gap-4">
                   <div className="order-1 max-w-[420px]">
                   <p className="text-sm font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -528,12 +680,21 @@ export default function Home() {
                     variants={containerVariants}
                     className="columns-1 gap-6 md:columns-2 xl:columns-3"
                   >
-                    {filteredProducts?.map((card) => (
-                      <motion.article
-                        key={card.id}
-                        variants={itemVariants}
-                        className="mb-6 break-inside-avoid rounded-3xl bg-white/5 p-6 backdrop-blur-xl light-sweep"
-                      >
+                    {filteredProducts?.map((card) => {
+                      const isSelected = card.id === currentModelId;
+                      return (
+                        <motion.button
+                          key={card.id}
+                          type="button"
+                          variants={itemVariants}
+                          aria-pressed={isSelected}
+                          onClick={() => setCurrentModelId(card.id)}
+                          className={`mb-6 w-full break-inside-avoid rounded-3xl bg-white/5 p-6 text-left backdrop-blur-xl light-sweep transition ${
+                            isSelected
+                              ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
+                              : "border border-transparent"
+                          }`}
+                        >
                         <div className="flex items-start justify-between">
                           <div>
                             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
@@ -556,8 +717,9 @@ export default function Home() {
                             {card.price}
                           </span>
                         </div>
-                      </motion.article>
-                    ))}
+                        </motion.button>
+                      );
+                    })}
                   </motion.div>
                 )}
               </ErrorBoundary>
@@ -771,11 +933,11 @@ function Sidebar({
           Категории
         </p>
         <div className="space-y-2">
-          {categories?.map((category) => {
+          {categories?.map((category, categoryIndex) => {
             const isOpen = openCategory === category.title;
             return (
               <div
-                key={category.title}
+                key={`${category.title}-${categoryIndex}`}
                 className="rounded-2xl bg-white/5 px-4 py-3"
               >
                 <button
@@ -795,12 +957,12 @@ function Sidebar({
                 </button>
                 {isOpen && (
                   <div className="mt-3 space-y-2 text-sm text-white/60">
-                    {category.items?.map((item) => {
+                    {category.items?.map((item, itemIndex) => {
                       const count = categoryCounts.get(item) ?? 0;
                       const isActive = activeCategory === item;
                       return (
                         <button
-                          key={item}
+                          key={`${category.title}-${item}-${itemIndex}`}
                           type="button"
                           className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
                             isActive
@@ -927,20 +1089,30 @@ function Experience({
   );
 }
 
-function HUD() {
+type HUDProps = {
+  polyCount?: number | null;
+  printTime?: string | null;
+  scale?: string | null;
+};
+
+function HUD({ polyCount, printTime, scale }: HUDProps) {
+  const polyLabel = formatCount(polyCount) ?? "2,452,900";
+  const printLabel = printTime || "14h 22m";
+  const scaleLabel = scale || "1:1 REAL";
+
   return (
     <div className="absolute left-8 top-8 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 font-[var(--font-jetbrains-mono)] text-xs uppercase tracking-[0.2em] text-white/70">
       <div className="flex items-center gap-2 text-[#2ED1FF]">
         <span>ПОЛИГОНЫ:</span>
-        <span className="text-white">2,452,900</span>
+        <span className="text-white">{polyLabel}</span>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <span>ВРЕМЯ_ПЕЧАТИ:</span>
-        <span className="text-white">14h 22m</span>
+        <span className="text-white">{printLabel}</span>
       </div>
       <div className="mt-2 flex items-center gap-2">
         <span>МАСШТАБ:</span>
-        <span className="text-white">1:1 REAL</span>
+        <span className="text-white">{scaleLabel}</span>
       </div>
     </div>
   );
