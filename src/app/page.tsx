@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
-import { Environment, OrbitControls, Stage } from "@react-three/drei";
+import { Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
 import { motion } from "framer-motion";
 import {
   CheckCircle2,
@@ -17,6 +17,7 @@ import {
   Upload,
   User,
 } from "lucide-react";
+import ModelView from "@/components/ModelView";
 
 const categories = [
   {
@@ -131,7 +132,12 @@ export default function Home() {
               >
                 <HUD />
                 <div className="relative h-[420px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth">
-                  <Experience autoRotate={autoRotate} wireframe={wireframe} finish={finish} />
+                  <Experience
+                    autoRotate={autoRotate}
+                    wireframe={wireframe}
+                    finish={finish}
+                    preview={preview}
+                  />
                 </div>
                 <div className="absolute bottom-8 left-8">
                   <p className="text-sm font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -522,38 +528,46 @@ type ExperienceProps = {
   autoRotate: boolean;
   wireframe: boolean;
   finish: FinishMode;
+  preview: PreviewMode;
 };
 
-function Experience({ autoRotate, wireframe, finish }: ExperienceProps) {
-  const material = useMemo(
-    () => ({
-      color: finish === "pro" ? "#d7d0c7" : "#5c5c5c",
-      metalness: finish === "pro" ? 0.7 : 0.2,
-      roughness: finish === "pro" ? 0.25 : 0.65,
-    }),
-    [finish]
-  );
+function Experience({ autoRotate, wireframe, finish, preview }: ExperienceProps) {
+  const isAR = preview === "ar";
+  const modelFinish = finish === "pro" ? "Painted" : "Raw";
+  const modelUrl = "/models/DamagedHelmet.glb";
 
   return (
     <Canvas
       camera={{ position: [2.6, 2.1, 3.1], fov: 42 }}
       dpr={[1, 2]}
       className="h-full w-full"
-      gl={{ antialias: true }}
+      gl={{ antialias: true, alpha: isAR }}
     >
-      <color attach="background" args={["#070707"]} />
+      {!isAR && <color attach="background" args={["#070707"]} />}
       <Stage environment={null} intensity={1} shadows={false} adjustCamera={false}>
-        <mesh castShadow receiveShadow>
-          <torusKnotGeometry args={[0.9, 0.28, 300, 32]} />
-          <meshStandardMaterial
-            color={material.color}
-            metalness={material.metalness}
-            roughness={material.roughness}
-            wireframe={wireframe}
-          />
-        </mesh>
+        <group position={[0, -0.6, 0]} scale={2}>
+          <ModelView rawModelUrl={modelUrl} finish={modelFinish} wireframe={wireframe} />
+        </group>
       </Stage>
-      <Environment preset="city" />
+      {isAR ? (
+        <>
+          <Grid
+            position={[0, -1.4, 0]}
+            cellSize={0.3}
+            cellThickness={0.6}
+            cellColor="#2ED1FF"
+            sectionSize={1.5}
+            sectionThickness={1}
+            sectionColor="#2ED1FF"
+            fadeDistance={12}
+            fadeStrength={1}
+            infiniteGrid
+          />
+          <Environment preset="studio" />
+        </>
+      ) : (
+        <Environment preset="city" />
+      )}
       <OrbitControls
         autoRotate={autoRotate}
         autoRotateSpeed={0.6}

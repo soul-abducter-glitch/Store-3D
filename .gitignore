@@ -5,7 +5,9 @@ node_modules
 .env*
 payload-types.ts
 *.log
-models/
+/models/
+!public/models/
+!public/models/**
 media/
 todo.md
 next.admin.config.js
