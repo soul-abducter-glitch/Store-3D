@@ -6,5 +6,16 @@ export const Users: CollectionConfig = {
   admin: {
     useAsTitle: "email",
   },
-  fields: [],
+  fields: [
+    {
+      name: "name",
+      type: "text",
+      label: "Имя",
+    },
+    {
+      name: "shippingAddress",
+      type: "textarea",
+      label: "Адрес доставки",
+    },
+  ],
 };
