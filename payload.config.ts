@@ -47,6 +47,14 @@ export default buildConfig({
       },
     },
   },
+  cors: [
+    "http://localhost:3000",
+    "http://localhost:3001",
+  ],
+  csrf: [
+    "http://localhost:3000",
+    "http://localhost:3001",
+  ],
   upload: {
     limits: {
       fileSize: 100 * 1024 * 1024, // 100MB
