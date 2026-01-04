@@ -281,9 +281,11 @@ function Header({ onFormatChange }: HeaderProps) {
       >
         <motion.div variants={itemVariants} className="flex items-center gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-[0.2em] text-white">
-              3D-STORE
-            </h1>
+            <a href="/" className="block transition hover:opacity-80">
+              <h1 className="text-3xl font-bold tracking-[0.2em] text-white">
+                3D-STORE
+              </h1>
+            </a>
             <div className="mt-1 flex items-center gap-2 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
               <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
               <span>СИСТЕМА: ONLINE</span>
@@ -348,13 +350,13 @@ function Header({ onFormatChange }: HeaderProps) {
               3
             </span>
           </button>
-          <button
-            type="button"
+          <a
+            href="/profile"
             aria-label="Профиль"
             className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
           >
             <User className="h-5 w-5" />
-          </button>
+          </a>
         </motion.div>
       </motion.div>
     </header>
