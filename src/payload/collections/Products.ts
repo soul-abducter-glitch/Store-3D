@@ -69,6 +69,15 @@ export const Products: CollectionConfig = {
       required: true,
     },
     {
+      name: "categories",
+      type: "relationship",
+      relationTo: "categories",
+      hasMany: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "isVerified",
       type: "checkbox",
       defaultValue: false,
