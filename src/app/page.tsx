@@ -51,15 +51,26 @@ type CategoryDoc = {
   parent?: string | { id?: string; title?: string } | null;
 };
 
+type MediaDoc = {
+  id?: string;
+  url?: string;
+  filename?: string;
+};
+
 type ProductDoc = {
   id?: string;
   name?: string;
+  slug?: string;
+  sku?: string;
   format?: string;
   technology?: string;
   price?: number;
   isVerified?: boolean;
+  isFeatured?: boolean;
   category?: CategoryDoc | string | null;
   categories?: CategoryDoc[] | string[] | null;
+  rawModel?: MediaDoc | string | null;
+  paintedModel?: MediaDoc | string | null;
 };
 
 const normalizeFormat = (value?: string) => {
@@ -90,6 +101,22 @@ const formatPrice = (value?: number) => {
   }
 
   return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const resolveMediaUrl = (value?: MediaDoc | string | null) => {
+  if (!value) {
+    return null;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  if (value.url) {
+    return value.url;
+  }
+  if (value.filename) {
+    return `/media/${value.filename}`;
+  }
+  return null;
 };
 
 const containerVariants = {
@@ -274,17 +301,27 @@ export default function Home() {
 
       const formatKey = normalizeFormat(product.format);
       const techKey = normalizeTechnology(product.technology);
+      const rawModelUrl = resolveMediaUrl(product.rawModel ?? null);
+      const paintedModelUrl = resolveMediaUrl(product.paintedModel ?? null);
+      const priceValue = typeof product.price === "number" ? product.price : null;
+      const priceLabel = formatPrice(product.price);
 
       return {
         id: String(product.id ?? product.name ?? ""),
         name: product.name ?? "Untitled",
+        slug: product.slug ?? "",
+        sku: product.sku ?? "",
         type: product.format ?? (formatKey === "digital" ? "Digital STL" : "Physical Print"),
         tech: product.technology ?? (techKey === "sla" ? "SLA" : "FDM"),
-        price: formatPrice(product.price),
+        price: priceLabel,
+        priceValue,
         verified: Boolean(product.isVerified),
+        isFeatured: Boolean(product.isFeatured),
         formatKey,
         techKey,
         categoryTitles,
+        rawModelUrl,
+        paintedModelUrl,
       };
     });
   }, [products, categoriesById]);
@@ -318,6 +355,19 @@ export default function Home() {
     });
     return counts;
   }, [normalizedProducts]);
+
+  const featuredProduct = filteredProducts.find((product) => product.isFeatured);
+  const heroProduct = featuredProduct ?? filteredProducts[0] ?? null;
+  const heroName = heroProduct?.name ?? "ARCHANGEL";
+  const heroSku = heroProduct?.sku || heroProduct?.slug || "ARC_V4_88";
+  const heroPriceLabel =
+    heroProduct?.priceValue != null ? `₽${heroProduct.price}` : "N/A";
+  const showHeroStandby = productsError || dataLoading || !heroProduct;
+  const heroStandbyMessage = productsError
+    ? "System Standby: No Data"
+    : dataLoading
+      ? "Loading Data..."
+      : "System Standby: No Product";
 
   const showSystemStandby = productsError || dataLoading || filteredProducts.length === 0;
   const standbyMessage = productsError
@@ -360,27 +410,34 @@ export default function Home() {
               >
                 <HUD />
                 <div className="relative h-[420px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth">
-                  <ErrorBoundary
-                    fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
-                  >
-                    <Experience
-                      autoRotate={autoRotate}
-                      wireframe={wireframe}
-                      finish={finish}
-                      preview={preview}
-                    />
-              </ErrorBoundary>
+                  {showHeroStandby ? (
+                    <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
+                  ) : (
+                    <ErrorBoundary
+                      fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
+                    >
+                      <Experience
+                        autoRotate={autoRotate}
+                        wireframe={wireframe}
+                        finish={finish}
+                        preview={preview}
+                        rawModelUrl={heroProduct?.rawModelUrl ?? null}
+                        paintedModelUrl={heroProduct?.paintedModelUrl ?? null}
+                      />
+                    </ErrorBoundary>
+                  )}
                 </div>
-                <div className="absolute bottom-8 left-8">
+                <div className="absolute inset-x-8 bottom-8 flex flex-wrap items-end justify-between gap-4">
+                  <div className="order-1 max-w-[420px]">
                   <p className="text-sm font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-                    TECH_ID: ARC_V4_88
+                    TECH_ID: {heroSku}
                   </p>
                   <h2 className="text-4xl font-bold italic tracking-wide text-white">
-                    ARCHANGEL
+                    {heroName}
                   </h2>
                   <div className="mt-4 flex flex-wrap items-center gap-4">
                     <span className="text-2xl font-semibold text-white">
-                      ₽24 900
+                      {heroPriceLabel}
                     </span>
                     <button
                       type="button"
@@ -390,8 +447,8 @@ export default function Home() {
                       В корзину
                     </button>
                   </div>
-                </div>
-                <div className="absolute bottom-8 left-1/2 flex -translate-x-1/2 items-center gap-3 rounded-full px-4 py-2 glass-dock">
+                  </div>
+                  <div className="order-3 w-full flex items-center justify-center gap-3 rounded-full px-4 py-2 glass-dock">
                   <DockButton
                     active={autoRotate}
                     label="Авто-поворот"
@@ -416,8 +473,8 @@ export default function Home() {
                     icon={<Sparkles className="h-4 w-4" />}
                     onClick={() => setPreview("ar")}
                   />
-                </div>
-                <div className="absolute bottom-8 right-8 flex items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-xs uppercase tracking-[0.2em] text-white/70">
+                  </div>
+                  <div className="order-2 flex items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-xs uppercase tracking-[0.2em] text-white/70">
                   <button
                     className={`rounded-full px-3 py-1 ${
                       finish === "raw"
@@ -438,6 +495,7 @@ export default function Home() {
                   >
                     Мастерская покраска
                   </button>
+                  </div>
                 </div>
               </motion.div>
             </motion.section>
@@ -805,12 +863,21 @@ type ExperienceProps = {
   wireframe: boolean;
   finish: FinishMode;
   preview: PreviewMode;
+  rawModelUrl?: string | null;
+  paintedModelUrl?: string | null;
 };
 
-function Experience({ autoRotate, wireframe, finish, preview }: ExperienceProps) {
+function Experience({
+  autoRotate,
+  wireframe,
+  finish,
+  preview,
+  rawModelUrl,
+  paintedModelUrl,
+}: ExperienceProps) {
   const isAR = preview === "ar";
   const modelFinish = finish === "pro" ? "Painted" : "Raw";
-  const modelUrl = "/models/DamagedHelmet.glb";
+  const modelUrl = rawModelUrl ?? "/models/DamagedHelmet.glb";
 
   return (
     <Canvas
@@ -822,7 +889,12 @@ function Experience({ autoRotate, wireframe, finish, preview }: ExperienceProps)
       {!isAR && <color attach="background" args={["#070707"]} />}
       <Stage environment={null} intensity={1} shadows={false} adjustCamera={false}>
         <group position={[0, -0.6, 0]} scale={2}>
-          <ModelView rawModelUrl={modelUrl} finish={modelFinish} wireframe={wireframe} />
+          <ModelView
+            rawModelUrl={modelUrl}
+            paintedModelUrl={paintedModelUrl}
+            finish={modelFinish}
+            wireframe={wireframe}
+          />
         </group>
       </Stage>
       {isAR ? (

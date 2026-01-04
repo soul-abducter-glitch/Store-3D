@@ -47,6 +47,16 @@ export const Products: CollectionConfig = {
       },
     },
     {
+      name: "sku",
+      type: "text",
+      index: true,
+      unique: true,
+      required: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "price",
       type: "number",
       min: 0,
@@ -81,6 +91,14 @@ export const Products: CollectionConfig = {
       name: "isVerified",
       type: "checkbox",
       defaultValue: false,
+    },
+    {
+      name: "isFeatured",
+      type: "checkbox",
+      defaultValue: false,
+      admin: {
+        position: "sidebar",
+      },
     },
     {
       name: "polyCount",
