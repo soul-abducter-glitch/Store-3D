@@ -5,10 +5,11 @@ import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import { s3Storage } from "@payloadcms/storage-s3";
 import { buildConfig } from "payload";
 
-import { Categories } from "./src/payload/collections/Categories.ts";
-import { Media } from "./src/payload/collections/Media.ts";
-import { Products } from "./src/payload/collections/Products.ts";
-import { Users } from "./src/payload/collections/Users.ts";
+import { Categories } from "./src/payload/collections/Categories";
+import { Media } from "./src/payload/collections/Media";
+import { Orders } from "./src/payload/collections/Orders";
+import { Products } from "./src/payload/collections/Products";
+import { Users } from "./src/payload/collections/Users";
 
 const serverURL = (process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000").trim();
 const payloadSecret = process.env.PAYLOAD_SECRET;
@@ -51,7 +52,7 @@ export default buildConfig({
       fileSize: 100 * 1024 * 1024, // 100MB
     },
   },
-  collections: [Users, Categories, Media, Products],
+  collections: [Users, Categories, Media, Products, Orders],
   db: postgresAdapter({
     pool: {
       connectionString: databaseURL,
