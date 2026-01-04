@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { Component, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
 import { motion } from "framer-motion";
@@ -19,69 +19,78 @@ import {
 } from "lucide-react";
 import ModelView from "@/components/ModelView";
 
-const categories = [
+const CATEGORY_SHELL = [
   {
-    title: "Персонажи и люди",
-    items: ["Мужчины", "Женщины", "Фэнтези-расы"],
+    title: "Персонажи",
+    items: ["Мужчины", "Женщины", "Фэнтези"],
   },
   {
-    title: "Настолки и игры",
-    items: ["Монстры", "Сценки", "Аксессуары"],
+    title: "Настолки",
+    items: ["Миниатюры", "Монстры", "Сцены"],
   },
   {
-    title: "Дом и декор",
-    items: ["Вазы", "Освещение", "Органайзеры"],
+    title: "Дом",
+    items: ["Декор", "Органайзеры", "Освещение"],
   },
   {
-    title: "Хобби и игрушки",
-    items: ["Флекси-игрушки", "Косплей"],
+    title: "Хобби",
+    items: ["Косплей", "Игрушки", "Аксессуары"],
   },
 ];
 
-const productCards = [
-  {
-    name: "Seraph Sentinel",
-    type: "Цифровой STL",
-    tech: "SLA смола",
-    price: "₽2 800",
-    verified: true,
-  },
-  {
-    name: "Nebula Relic Vase",
-    type: "Печатная модель",
-    tech: "FDM пластик",
-    price: "₽6 200",
-    verified: true,
-  },
-  {
-    name: "Warden of the Rift",
-    type: "Цифровой STL",
-    tech: "SLA смола",
-    price: "₽3 200",
-    verified: false,
-  },
-  {
-    name: "Orbit Dock Organizer",
-    type: "Печатная модель",
-    tech: "FDM пластик",
-    price: "₽4 400",
-    verified: true,
-  },
-  {
-    name: "Gilded Wyvern",
-    type: "Цифровой STL",
-    tech: "SLA смола",
-    price: "₽4 000",
-    verified: true,
-  },
-  {
-    name: "Arcforge Diorama",
-    type: "Печатная модель",
-    tech: "FDM пластик",
-    price: "₽7 500",
-    verified: false,
-  },
-];
+type TechMode = "sla" | "fdm";
+
+type SidebarCategory = {
+  title: string;
+  items: string[];
+};
+
+type CategoryDoc = {
+  id?: string;
+  title?: string;
+  parent?: string | { id?: string; title?: string } | null;
+};
+
+type ProductDoc = {
+  id?: string;
+  name?: string;
+  format?: string;
+  technology?: string;
+  price?: number;
+  isVerified?: boolean;
+  category?: CategoryDoc | string | null;
+  categories?: CategoryDoc[] | string[] | null;
+};
+
+const normalizeFormat = (value?: string) => {
+  const normalized = value?.toLowerCase() ?? "";
+  if (normalized.includes("digital")) {
+    return "digital";
+  }
+  if (normalized.includes("physical")) {
+    return "physical";
+  }
+  return null;
+};
+
+const normalizeTechnology = (value?: string) => {
+  const normalized = value?.toLowerCase() ?? "";
+  if (normalized.includes("sla")) {
+    return "sla";
+  }
+  if (normalized.includes("fdm")) {
+    return "fdm";
+  }
+  return null;
+};
+
+const formatPrice = (value?: number) => {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "N/A";
+  }
+
+  return new Intl.NumberFormat("ru-RU").format(value);
+};
 
 const containerVariants = {
   hidden: { opacity: 0 },
@@ -106,6 +115,216 @@ export default function Home() {
   const [finish, setFinish] = useState<FinishMode>("raw");
   const [preview, setPreview] = useState<PreviewMode>("interior");
   const [format, setFormat] = useState<FormatMode>("digital");
+  const [technology, setTechnology] = useState<TechMode>("sla");
+  const [activeCategory, setActiveCategory] = useState("");
+  const [products, setProducts] = useState<ProductDoc[]>([]);
+  const [categoriesData, setCategoriesData] = useState<CategoryDoc[]>([]);
+  const [productsError, setProductsError] = useState(false);
+  const [categoriesError, setCategoriesError] = useState(false);
+  const [dataLoading, setDataLoading] = useState(true);
+  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let isMounted = true;
+    const buildApiUrl = (path: string) => `${apiBase}${path}`;
+
+    const fetchData = async () => {
+      setDataLoading(true);
+      setProductsError(false);
+      setCategoriesError(false);
+
+      const [categoriesResult, productsResult] = await Promise.allSettled([
+        fetch(buildApiUrl("/api/categories?depth=1&limit=200"), {
+          signal: controller.signal,
+        }).then((res) => (res.ok ? res.json() : Promise.reject(res))),
+        fetch(buildApiUrl("/api/products?depth=1&limit=200"), {
+          signal: controller.signal,
+        }).then((res) => (res.ok ? res.json() : Promise.reject(res))),
+      ]);
+
+      if (!isMounted) {
+        return;
+      }
+
+      if (categoriesResult.status === "fulfilled") {
+        setCategoriesData(categoriesResult.value?.docs ?? []);
+      } else {
+        setCategoriesData([]);
+        setCategoriesError(true);
+      }
+
+      if (productsResult.status === "fulfilled") {
+        setProducts(productsResult.value?.docs ?? []);
+      } else {
+        setProducts([]);
+        setProductsError(true);
+      }
+
+      setDataLoading(false);
+    };
+
+    fetchData().catch(() => {
+      if (!isMounted) {
+        return;
+      }
+      setProductsError(true);
+      setCategoriesError(true);
+      setProducts([]);
+      setCategoriesData([]);
+      setDataLoading(false);
+    });
+
+    return () => {
+      isMounted = false;
+      controller.abort();
+    };
+  }, [apiBase]);
+
+  const categoriesById = useMemo(() => {
+    const map = new Map<string, string>();
+    categoriesData?.forEach((category) => {
+      if (category?.id && category?.title) {
+        map.set(String(category.id), category.title);
+      }
+    });
+    return map;
+  }, [categoriesData]);
+
+  const sidebarCategories = useMemo<SidebarCategory[]>(() => {
+    const baseTitles = new Set(CATEGORY_SHELL.map((category) => category.title));
+    const childrenByParent = new Map<string, string[]>();
+
+    categoriesData?.forEach((category) => {
+      if (!category?.title) {
+        return;
+      }
+
+      let parentTitle: string | null = null;
+      const parent = category.parent;
+      if (typeof parent === "string") {
+        parentTitle = categoriesById.get(parent) ?? null;
+      } else if (typeof parent === "object") {
+        parentTitle =
+          parent?.title ??
+          (parent?.id ? categoriesById.get(String(parent.id)) ?? null : null);
+      }
+
+      if (parentTitle && baseTitles.has(parentTitle)) {
+        const items = childrenByParent.get(parentTitle) ?? [];
+        items.push(category.title);
+        childrenByParent.set(parentTitle, items);
+      }
+    });
+
+    const baseCategories = CATEGORY_SHELL.map((category) => {
+      const items = childrenByParent.get(category.title);
+      return {
+        title: category.title,
+        items: items && items.length > 0 ? items : category.items,
+      };
+    });
+
+    const extraCategories =
+      categoriesData
+        ?.filter((category) => {
+          if (!category?.title) {
+            return false;
+          }
+          if (baseTitles.has(category.title)) {
+            return false;
+          }
+          return !category.parent;
+        })
+        .map((category) => ({
+          title: category.title ?? "",
+          items: [],
+        })) ?? [];
+
+    return [...baseCategories, ...extraCategories.filter((category) => category.title)];
+  }, [categoriesData, categoriesById]);
+
+  const normalizedProducts = useMemo(() => {
+    return (products ?? []).map((product) => {
+      const categoryTitles: string[] = [];
+      const addCategoryTitle = (value?: CategoryDoc | string | null) => {
+        if (!value) {
+          return;
+        }
+        if (typeof value === "string") {
+          categoryTitles.push(categoriesById.get(value) ?? value);
+          return;
+        }
+        if (value.title) {
+          categoryTitles.push(value.title);
+          return;
+        }
+        if (value.id) {
+          const title = categoriesById.get(String(value.id));
+          if (title) {
+            categoryTitles.push(title);
+          }
+        }
+      };
+
+      addCategoryTitle(product.category ?? null);
+      if (Array.isArray(product.categories)) {
+        product.categories.forEach((category) => addCategoryTitle(category ?? null));
+      }
+
+      const formatKey = normalizeFormat(product.format);
+      const techKey = normalizeTechnology(product.technology);
+
+      return {
+        id: String(product.id ?? product.name ?? ""),
+        name: product.name ?? "Untitled",
+        type: product.format ?? (formatKey === "digital" ? "Digital STL" : "Physical Print"),
+        tech: product.technology ?? (techKey === "sla" ? "SLA" : "FDM"),
+        price: formatPrice(product.price),
+        verified: Boolean(product.isVerified),
+        formatKey,
+        techKey,
+        categoryTitles,
+      };
+    });
+  }, [products, categoriesById]);
+
+  const filteredProducts = useMemo(() => {
+    const activeGroup = sidebarCategories.find(
+      (category) => category.title === activeCategory
+    );
+    const activeItems = activeGroup?.items ?? [];
+
+    return normalizedProducts.filter((product) => {
+      const matchesFormat = product.formatKey === format;
+      const matchesTech = product.techKey === technology;
+      const hasCategoryInfo = product.categoryTitles.length > 0;
+      const matchesCategory = activeCategory
+        ? !hasCategoryInfo ||
+          product.categoryTitles.includes(activeCategory) ||
+          (activeItems.length > 0 &&
+            product.categoryTitles.some((title) => activeItems.includes(title)))
+        : true;
+      return matchesFormat && matchesTech && matchesCategory;
+    });
+  }, [normalizedProducts, format, technology, activeCategory, sidebarCategories]);
+
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    normalizedProducts.forEach((product) => {
+      product.categoryTitles.forEach((title) => {
+        counts.set(title, (counts.get(title) ?? 0) + 1);
+      });
+    });
+    return counts;
+  }, [normalizedProducts]);
+
+  const showSystemStandby = productsError || dataLoading || filteredProducts.length === 0;
+  const standbyMessage = productsError
+    ? "System Standby: No Data"
+    : dataLoading
+      ? "Loading Data..."
+      : "System Standby: No Data";
 
   return (
     <div className="relative min-h-screen bg-[#050505] text-white font-[var(--font-inter)]">
@@ -118,7 +337,16 @@ export default function Home() {
       <Header onFormatChange={setFormat} />
       <div className="relative z-10 mx-auto max-w-[1400px] px-6 pb-24">
         <div className="grid gap-8 xl:grid-cols-[280px_1fr]">
-          <Sidebar format={format} onFormatChange={setFormat} />
+          <Sidebar
+            format={format}
+            onFormatChange={setFormat}
+            technology={technology}
+            onTechnologyChange={setTechnology}
+            categories={sidebarCategories}
+            categoryCounts={categoryCounts}
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
+          />
           <main className="space-y-10">
             <motion.section
               variants={containerVariants}
@@ -132,12 +360,16 @@ export default function Home() {
               >
                 <HUD />
                 <div className="relative h-[420px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth">
-                  <Experience
-                    autoRotate={autoRotate}
-                    wireframe={wireframe}
-                    finish={finish}
-                    preview={preview}
-                  />
+                  <ErrorBoundary
+                    fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
+                  >
+                    <Experience
+                      autoRotate={autoRotate}
+                      wireframe={wireframe}
+                      finish={finish}
+                      preview={preview}
+                    />
+              </ErrorBoundary>
                 </div>
                 <div className="absolute bottom-8 left-8">
                   <p className="text-sm font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -229,41 +461,48 @@ export default function Home() {
                   </h3>
                 </div>
               </motion.div>
-              <motion.div
-                variants={containerVariants}
-                className="columns-1 gap-6 md:columns-2 xl:columns-3"
-              >
-                {productCards.map((card) => (
-                  <motion.article
-                    key={card.name}
-                    variants={itemVariants}
-                    className="mb-6 break-inside-avoid rounded-3xl bg-white/5 p-6 backdrop-blur-xl light-sweep"
+
+              <ErrorBoundary fallback={<SystemStandbyPanel message="System Standby: No Data" />}>
+                {showSystemStandby ? (
+                  <SystemStandbyPanel message={standbyMessage} className="min-h-[240px]" />
+                ) : (
+                  <motion.div
+                    variants={containerVariants}
+                    className="columns-1 gap-6 md:columns-2 xl:columns-3"
                   >
-                    <div className="flex items-start justify-between">
-                      <div>
-                        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
-                          {card.type}
-                        </p>
-                        <h4 className="mt-3 text-xl font-semibold text-white">
-                          {card.name}
-                        </h4>
-                        <p className="mt-2 text-sm text-white/60">{card.tech}</p>
-                      </div>
-                      {card.verified && (
-                        <CheckCircle2 className="h-5 w-5 text-[#D4AF37]" />
-                      )}
-                    </div>
-                    <div className="mt-6 flex items-center justify-between text-sm">
-                      <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
-                        ПРЕМИУМ
-                      </span>
-                      <span className="text-lg font-semibold text-white">
-                        {card.price}
-                      </span>
-                    </div>
-                  </motion.article>
-                ))}
-              </motion.div>
+                    {filteredProducts?.map((card) => (
+                      <motion.article
+                        key={card.id}
+                        variants={itemVariants}
+                        className="mb-6 break-inside-avoid rounded-3xl bg-white/5 p-6 backdrop-blur-xl light-sweep"
+                      >
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
+                              {card.type}
+                            </p>
+                            <h4 className="mt-3 text-xl font-semibold text-white">
+                              {card.name}
+                            </h4>
+                            <p className="mt-2 text-sm text-white/60">{card.tech}</p>
+                          </div>
+                          {card.verified && (
+                            <CheckCircle2 className="h-5 w-5 text-[#D4AF37]" />
+                          )}
+                        </div>
+                        <div className="mt-6 flex items-center justify-between text-sm">
+                          <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
+                            PRICE
+                          </span>
+                          <span className="text-lg font-semibold text-white">
+                            {card.price}
+                          </span>
+                        </div>
+                      </motion.article>
+                    ))}
+                  </motion.div>
+                )}
+              </ErrorBoundary>
             </motion.section>
           </main>
         </div>
@@ -372,14 +611,39 @@ function Header({ onFormatChange }: HeaderProps) {
 type SidebarProps = {
   format: FormatMode;
   onFormatChange: (value: FormatMode) => void;
+  technology: TechMode;
+  onTechnologyChange: (value: TechMode) => void;
+  categories: SidebarCategory[];
+  categoryCounts: Map<string, number>;
+  activeCategory: string;
+  onCategoryChange: (value: string) => void;
 };
 
-function Sidebar({ format, onFormatChange }: SidebarProps) {
-  const [technology, setTechnology] = useState<"sla" | "fdm">("sla");
+function Sidebar({
+  format,
+  onFormatChange,
+  technology,
+  onTechnologyChange,
+  categories,
+  categoryCounts,
+  activeCategory,
+  onCategoryChange,
+}: SidebarProps) {
   const [verified, setVerified] = useState(true);
-  const [openCategory, setOpenCategory] = useState<string>(
-    categories[0]?.title ?? ""
-  );
+  const [openCategory, setOpenCategory] = useState<string>(categories[0]?.title ?? "");
+
+  useEffect(() => {
+    if (categories.length === 0) {
+      if (openCategory) {
+        setOpenCategory("");
+      }
+      return;
+    }
+
+    if (!openCategory || !categories.some((category) => category.title === openCategory)) {
+      setOpenCategory(categories[0].title);
+    }
+  }, [categories, openCategory]);
 
   return (
     <motion.aside
@@ -399,7 +663,7 @@ function Sidebar({ format, onFormatChange }: SidebarProps) {
                 ? "bg-white/15 text-white"
                 : "text-white/50 hover:text-white"
             }`}
-            onClick={() => setTechnology("sla")}
+            onClick={() => onTechnologyChange("sla")}
           >
             SLA смола
           </button>
@@ -409,7 +673,7 @@ function Sidebar({ format, onFormatChange }: SidebarProps) {
                 ? "bg-white/15 text-white"
                 : "text-white/50 hover:text-white"
             }`}
-            onClick={() => setTechnology("fdm")}
+            onClick={() => onTechnologyChange("fdm")}
           >
             FDM пластик
           </button>
@@ -449,7 +713,7 @@ function Sidebar({ format, onFormatChange }: SidebarProps) {
           Категории
         </p>
         <div className="space-y-2">
-          {categories.map((category) => {
+          {categories?.map((category) => {
             const isOpen = openCategory === category.title;
             return (
               <div
@@ -458,9 +722,11 @@ function Sidebar({ format, onFormatChange }: SidebarProps) {
               >
                 <button
                   className="flex w-full items-center justify-between text-sm font-semibold text-white/80"
-                  onClick={() =>
-                    setOpenCategory(isOpen ? "" : category.title)
-                  }
+                  onClick={() => {
+                    const nextOpen = isOpen ? "" : category.title;
+                    setOpenCategory(nextOpen);
+                    onCategoryChange(nextOpen);
+                  }}
                 >
                   <span>{category.title}</span>
                   <ChevronDown
@@ -471,17 +737,27 @@ function Sidebar({ format, onFormatChange }: SidebarProps) {
                 </button>
                 {isOpen && (
                   <div className="mt-3 space-y-2 text-sm text-white/60">
-                    {category.items.map((item) => (
-                      <div
-                        key={item}
-                        className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2"
-                      >
-                        <span>{item}</span>
-                        <span className="text-xs font-[var(--font-jetbrains-mono)] uppercase text-white/40">
-                          18
-                        </span>
-                      </div>
-                    ))}
+                    {category.items?.map((item) => {
+                      const count = categoryCounts.get(item) ?? 0;
+                      const isActive = activeCategory === item;
+                      return (
+                        <button
+                          key={item}
+                          type="button"
+                          className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                            isActive
+                              ? "bg-white/10 text-white"
+                              : "bg-white/5 text-white/60 hover:text-white"
+                          }`}
+                          onClick={() => onCategoryChange(item)}
+                        >
+                          <span>{item}</span>
+                          <span className="text-xs font-[var(--font-jetbrains-mono)] uppercase text-white/40">
+                            [{count}]
+                          </span>
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -640,5 +916,45 @@ function DockButton({ active, label, icon, onClick }: DockButtonProps) {
       {icon}
       {label}
     </button>
+  );
+}
+
+type ErrorBoundaryProps = {
+  children: ReactNode;
+  fallback: ReactNode;
+};
+
+type ErrorBoundaryState = {
+  hasError: boolean;
+};
+
+class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
+  state: ErrorBoundaryState = { hasError: false };
+
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+
+  render() {
+    if (this.state.hasError) {
+      return this.props.fallback;
+    }
+    return this.props.children;
+  }
+}
+
+type SystemStandbyPanelProps = {
+  message: string;
+  className?: string;
+};
+
+function SystemStandbyPanel({ message, className }: SystemStandbyPanelProps) {
+  return (
+    <div
+      className={`relative flex items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-6 py-10 text-center text-xs uppercase tracking-[0.3em] text-white/60 ${className ?? ""}`}
+    >
+      <div className="pointer-events-none absolute inset-0 cad-grid-pattern opacity-30" />
+      <div className="relative">{message}</div>
+    </div>
   );
 }
