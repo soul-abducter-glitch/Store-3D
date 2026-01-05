@@ -18,6 +18,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Layers,
+  Menu,
   RotateCw,
   Scan,
   Search,
@@ -185,6 +186,7 @@ export default function Home() {
   const [dataLoading, setDataLoading] = useState(true);
   const [isScanning, setIsScanning] = useState(false);
   const [scanPulse, setScanPulse] = useState(0);
+  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
   useEffect(() => {
@@ -535,9 +537,60 @@ export default function Home() {
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
       <GlobalHudMarkers />
-      <Header onFormatChange={setFormat} searchQuery={searchQuery} onSearchChange={setSearchQuery} />
-      <div className="relative z-10 mx-auto max-w-[1400px] px-6 pb-24">
-        <div className="grid gap-8 xl:grid-cols-[280px_1fr]">
+      <Header
+        onFormatChange={setFormat}
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        isSidebarOpen={isSidebarOpen}
+        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+      />
+      <AnimatePresence>
+        {isSidebarOpen && (
+          <motion.div
+            className="fixed inset-0 z-30 md:hidden"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              aria-label="Close sidebar"
+              className="absolute inset-0 bg-black/60"
+              onClick={() => setIsSidebarOpen(false)}
+            />
+            <motion.div
+              className="relative h-full w-[85%] max-w-[320px] bg-[#050505]"
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "tween", duration: 0.25 }}
+            >
+              <Sidebar
+                format={format}
+                onFormatChange={setFormat}
+                technology={technology}
+                onTechnologyChange={setTechnology}
+                categories={sidebarCategories}
+                categoryCounts={categoryCounts}
+                activeCategory={activeCategory}
+                onCategoryChange={setActiveCategory}
+                onRequestClose={() => setIsSidebarOpen(false)}
+                className="h-full w-full overflow-y-auto rounded-none border-r border-white/10 pt-14"
+              />
+              <button
+                type="button"
+                aria-label="Close sidebar"
+                className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+                onClick={() => setIsSidebarOpen(false)}
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 sm:pb-24">
+        <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr]">
           <Sidebar
             format={format}
             onFormatChange={setFormat}
@@ -547,20 +600,21 @@ export default function Home() {
             categoryCounts={categoryCounts}
             activeCategory={activeCategory}
             onCategoryChange={setActiveCategory}
+            className="hidden md:flex"
           />
-          <main className="space-y-10">
+          <main className="space-y-8 lg:space-y-10">
             <motion.section
               variants={containerVariants}
               initial="hidden"
               animate="show"
-              className="space-y-6"
+              className="space-y-4 sm:space-y-6"
             >
               <motion.div
                 variants={itemVariants}
-                className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-6 rim-light"
+                className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-4 sm:p-6 rim-light"
               >
                 <HUD polyCount={heroPolyCount} printTime={heroPrintTime} scale={heroScale} />
-                <div className="relative h-[420px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth">
+                <div className="relative h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
                   {showHeroStandby ? (
                     <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
                   ) : (
@@ -604,43 +658,43 @@ export default function Home() {
                     <button
                       type="button"
                       aria-label="Предыдущая модель"
-                      className="absolute left-8 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-3 text-white/70 transition hover:text-white"
+                      className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:left-8 sm:p-3"
                       onClick={handlePrev}
                     >
-                      <ChevronLeft className="h-5 w-5" />
+                      <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
                     </button>
                     <button
                       type="button"
                       aria-label="Следующая модель"
-                      className="absolute right-8 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-3 text-white/70 transition hover:text-white"
+                      className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:right-8 sm:p-3"
                       onClick={handleNext}
                     >
-                      <ChevronRight className="h-5 w-5" />
+                      <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />
                     </button>
                   </>
                 )}
-                <div className="absolute inset-x-8 bottom-8 flex flex-wrap items-end justify-between gap-4">
-                  <div className="order-1 max-w-[420px]">
-                  <p className="text-sm font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+                <div className="absolute inset-x-4 bottom-4 flex flex-wrap items-end justify-between gap-3 sm:inset-x-8 sm:bottom-8 sm:gap-4">
+                  <div className="order-1 max-w-full sm:max-w-[420px]">
+                  <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60 sm:text-sm">
                     TECH_ID: {heroSku}
                   </p>
-                  <h2 className="text-4xl font-bold italic tracking-wide text-white">
+                  <h2 className="text-2xl font-bold italic tracking-wide text-white sm:text-3xl lg:text-4xl">
                     {heroName}
                   </h2>
-                  <div className="mt-4 flex flex-wrap items-center gap-4">
-                    <span className="text-2xl font-semibold text-white">
+                  <div className="mt-3 flex flex-wrap items-center gap-3 sm:mt-4 sm:gap-4">
+                    <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
                       {heroPriceLabel}
                     </span>
                     <button
                       type="button"
-                      className="flex items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-[11px] uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30"
+                      className="flex min-h-[44px] items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:min-h-0 sm:px-4 sm:text-[11px]"
                     >
                       <ShoppingCart className="h-4 w-4" />
                       В корзину
                     </button>
                   </div>
                   </div>
-                  <div className="order-3 w-full flex items-center justify-center gap-3 rounded-full px-4 py-2 glass-dock">
+                  <div className="order-3 w-full flex items-center justify-start gap-2 overflow-x-auto rounded-full px-3 py-2 glass-dock sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-3 sm:px-4">
                   <DockButton
                     active={autoRotate}
                     label="Авто-поворот"
@@ -666,9 +720,9 @@ export default function Home() {
                     onClick={() => setPreview("ar")}
                   />
                   </div>
-                  <div className="order-2 flex items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-xs uppercase tracking-[0.2em] text-white/70">
+                  <div className="order-2 flex flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:text-xs">
                   <button
-                    className={`rounded-full px-3 py-1 ${
+                    className={`rounded-full min-h-[44px] px-3 py-2 sm:min-h-0 sm:px-3 sm:py-1 ${
                       finish === "raw"
                         ? "bg-white/15 text-white"
                         : "text-white/50 hover:text-white"
@@ -678,7 +732,7 @@ export default function Home() {
                     База (Серый)
                   </button>
                   <button
-                    className={`rounded-full px-3 py-1 ${
+                    className={`rounded-full min-h-[44px] px-3 py-2 sm:min-h-0 sm:px-3 sm:py-1 ${
                       finish === "pro"
                         ? "bg-white/15 text-white"
                         : "text-white/50 hover:text-white"
@@ -696,17 +750,17 @@ export default function Home() {
               variants={containerVariants}
               initial="hidden"
               animate="show"
-              className="space-y-5"
+              className="space-y-4 sm:space-y-5"
             >
-              <motion.div variants={itemVariants} className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-white/5">
-                  <ShieldCheck className="h-5 w-5 text-[#D4AF37]" />
+              <motion.div variants={itemVariants} className="flex items-center gap-2 sm:gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-full bg-white/5 sm:h-10 sm:w-10">
+                  <ShieldCheck className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
                 </div>
                 <div>
-                  <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/40">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/40 sm:text-xs">
                     ПРОВЕРЕННЫЕ КОЛЛЕКЦИИ
                   </p>
-                  <h3 className="text-2xl font-semibold text-white">
+                  <h3 className="text-xl font-semibold text-white sm:text-2xl">
                     Отобранные подборки
                   </h3>
                 </div>
@@ -714,11 +768,11 @@ export default function Home() {
 
               <ErrorBoundary fallback={<SystemStandbyPanel message="System Standby: No Data" />}>
                 {showSystemStandby ? (
-                  <SystemStandbyPanel message={standbyMessage} className="min-h-[240px]" />
+                  <SystemStandbyPanel message={standbyMessage} className="min-h-[200px] sm:min-h-[240px]" />
                 ) : (
                   <motion.div
                     variants={containerVariants}
-                    className="columns-1 gap-6 md:columns-2 xl:columns-3"
+                    className="columns-1 gap-4 md:columns-2 xl:columns-3 sm:gap-6"
                   >
                     {filteredProducts?.map((card) => {
                       const isSelected = card.id === currentModelId;
@@ -729,7 +783,7 @@ export default function Home() {
                           variants={itemVariants}
                           aria-pressed={isSelected}
                           onClick={() => setCurrentModelId(card.id)}
-                          className={`mb-6 w-full break-inside-avoid rounded-3xl bg-white/5 p-6 text-left backdrop-blur-xl light-sweep transition ${
+                          className={`mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
                             isSelected
                               ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
                               : "border border-transparent"
@@ -740,20 +794,20 @@ export default function Home() {
                             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
                               {card.type}
                             </p>
-                            <h4 className="mt-3 text-xl font-semibold text-white">
+                            <h4 className="mt-3 text-lg font-semibold text-white sm:text-xl">
                               {card.name}
                             </h4>
-                            <p className="mt-2 text-sm text-white/60">{card.tech}</p>
+                            <p className="mt-2 text-[13px] text-white/60 sm:text-sm">{card.tech}</p>
                           </div>
                           {card.verified && (
-                            <CheckCircle2 className="h-5 w-5 text-[#D4AF37]" />
+                            <CheckCircle2 className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
                           )}
                         </div>
-                        <div className="mt-6 flex items-center justify-between text-sm">
+                        <div className="mt-4 flex items-center justify-between text-[13px] sm:mt-6 sm:text-sm">
                           <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
                             PRICE
                           </span>
-                          <span className="text-lg font-semibold text-white">
+                          <span className="text-base font-semibold text-white sm:text-lg">
                             {card.price}
                           </span>
                         </div>
@@ -775,9 +829,17 @@ type HeaderProps = {
   onFormatChange: (value: FormatMode) => void;
   searchQuery: string;
   onSearchChange: (value: string) => void;
+  isSidebarOpen: boolean;
+  onToggleSidebar: () => void;
 };
 
-function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
+function Header({
+  onFormatChange,
+  searchQuery,
+  onSearchChange,
+  isSidebarOpen,
+  onToggleSidebar,
+}: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -810,16 +872,16 @@ function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
         variants={containerVariants}
         initial="hidden"
         animate="show"
-        className="mx-auto grid max-w-[1400px] gap-6 px-6 py-5 lg:grid-cols-[1fr_auto_1fr] lg:items-center"
+        className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-6"
       >
-        <motion.div variants={itemVariants} className="flex items-center gap-4">
+        <motion.div variants={itemVariants} className="flex items-center gap-3 sm:gap-4">
           <div>
             <a href="/" className="block transition hover:opacity-80">
-              <h1 className="text-3xl font-bold tracking-[0.2em] text-white">
+              <h1 className="text-2xl font-bold tracking-[0.2em] text-white sm:text-3xl">
                 3D-STORE
               </h1>
             </a>
-            <div className="mt-1 flex items-center gap-2 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+            <div className="mt-1 hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs md:flex">
               <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
               <span>СИСТЕМА: ONLINE</span>
             </div>
@@ -828,23 +890,23 @@ function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
 
         <motion.nav
           variants={itemVariants}
-          className="flex flex-wrap items-center justify-center gap-4 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em]"
+          className="hidden items-center justify-center gap-4 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] md:flex"
         >
           <button
             type="button"
-            className="text-white/60 transition hover:text-white"
+            className="shrink-0 text-white/60 transition hover:text-white"
             onClick={() => onFormatChange("physical")}
           >
             Физический магазин
           </button>
           <button
             type="button"
-            className="text-white/60 transition hover:text-white"
+            className="shrink-0 text-white/60 transition hover:text-white"
             onClick={() => onFormatChange("digital")}
           >
             Цифровая библиотека
           </button>
-          <div className="flex flex-wrap items-center justify-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2">
+          <div className="flex shrink-0 items-center justify-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2">
             <button
               type="button"
               className="text-white/60 transition hover:text-white"
@@ -864,10 +926,18 @@ function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
 
         <motion.div
           variants={itemVariants}
-          className="flex items-center justify-start gap-3 lg:justify-end"
+          className="flex items-center gap-2 md:justify-end md:gap-3"
         >
+          <button
+            type="button"
+            aria-label="Toggle sidebar"
+            className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:hidden"
+            onClick={onToggleSidebar}
+          >
+            {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
           {isSearchOpen && (
-            <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2">
+            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 md:flex">
               <input
                 ref={inputRef}
                 type="search"
@@ -882,7 +952,7 @@ function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
           <button
             type="button"
             aria-label="Поиск"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+            className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
             onClick={toggleSearch}
           >
             {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
@@ -890,7 +960,7 @@ function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
           <button
             type="button"
             aria-label="Корзина"
-            className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+            className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:h-10 md:w-10"
           >
             <ShoppingCart className="h-5 w-5" />
             <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2ED1FF] text-[10px] font-semibold text-[#050505]">
@@ -900,7 +970,7 @@ function Header({ onFormatChange, searchQuery, onSearchChange }: HeaderProps) {
           <a
             href="/profile"
             aria-label="Профиль"
-            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+            className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
           >
             <User className="h-5 w-5" />
           </a>
@@ -919,6 +989,8 @@ type SidebarProps = {
   categoryCounts: Map<string, number>;
   activeCategory: string;
   onCategoryChange: (value: string) => void;
+  onRequestClose?: () => void;
+  className?: string;
 };
 
 function Sidebar({
@@ -930,6 +1002,8 @@ function Sidebar({
   categoryCounts,
   activeCategory,
   onCategoryChange,
+  onRequestClose,
+  className,
 }: SidebarProps) {
   const [verified, setVerified] = useState(true);
   const [openCategory, setOpenCategory] = useState<string>(categories[0]?.title ?? "");
@@ -952,15 +1026,15 @@ function Sidebar({
       variants={containerVariants}
       initial="hidden"
       animate="show"
-      className="flex flex-col space-y-6 rounded-[28px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+      className={`flex flex-col space-y-5 rounded-[28px] border border-white/5 bg-white/[0.03] p-4 backdrop-blur-xl sm:space-y-6 sm:p-6 ${className ?? ""}`}
     >
-      <motion.div variants={itemVariants} className="space-y-3">
-        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+      <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
+        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
           Технология
         </p>
         <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
           <button
-            className={`rounded-full px-3 py-2 text-xs uppercase tracking-[0.2em] ${
+            className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               technology === "sla"
                 ? "bg-white/15 text-white"
                 : "text-white/50 hover:text-white"
@@ -970,7 +1044,7 @@ function Sidebar({
             SLA смола
           </button>
           <button
-            className={`rounded-full px-3 py-2 text-xs uppercase tracking-[0.2em] ${
+            className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               technology === "fdm"
                 ? "bg-white/15 text-white"
                 : "text-white/50 hover:text-white"
@@ -982,13 +1056,13 @@ function Sidebar({
         </div>
       </motion.div>
 
-      <motion.div variants={itemVariants} className="space-y-3">
-        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+      <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
+        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
           Формат
         </p>
         <div className="grid grid-cols-2 gap-2">
           <button
-            className={`rounded-2xl px-3 py-2 text-xs uppercase tracking-[0.2em] ${
+            className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               format === "digital"
                 ? "bg-[#2ED1FF]/20 text-[#2ED1FF]"
                 : "bg-white/5 text-white/60 hover:text-white"
@@ -998,7 +1072,7 @@ function Sidebar({
             Цифровой STL
           </button>
           <button
-            className={`rounded-2xl px-3 py-2 text-xs uppercase tracking-[0.2em] ${
+            className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               format === "physical"
                 ? "bg-[#2ED1FF]/20 text-[#2ED1FF]"
                 : "bg-white/5 text-white/60 hover:text-white"
@@ -1010,8 +1084,8 @@ function Sidebar({
         </div>
       </motion.div>
 
-      <motion.div variants={itemVariants} className="space-y-3">
-        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+      <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
+        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
           Категории
         </p>
         <div className="space-y-2">
@@ -1020,10 +1094,10 @@ function Sidebar({
             return (
               <div
                 key={`${category.title}-${categoryIndex}`}
-                className="rounded-2xl bg-white/5 px-4 py-3"
+                className="rounded-2xl bg-white/5 px-3 py-3 sm:px-4 sm:py-3"
               >
                 <button
-                  className="flex w-full items-center justify-between text-sm font-semibold text-white/80"
+                  className="flex w-full items-center justify-between text-[13px] font-semibold text-white/80 sm:text-sm"
                   onClick={() => {
                     const nextOpen = isOpen ? "" : category.title;
                     setOpenCategory(nextOpen);
@@ -1038,7 +1112,7 @@ function Sidebar({
                   />
                 </button>
                 {isOpen && (
-                  <div className="mt-3 space-y-2 text-sm text-white/60">
+                  <div className="mt-2.5 space-y-2 text-[13px] text-white/60 sm:mt-3 sm:text-sm">
                     {category.items?.map((item, itemIndex) => {
                       const count = categoryCounts.get(item) ?? 0;
                       const isActive = activeCategory === item;
@@ -1046,15 +1120,18 @@ function Sidebar({
                         <button
                           key={`${category.title}-${item}-${itemIndex}`}
                           type="button"
-                          className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left transition ${
+                          className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left transition sm:min-h-0 sm:px-3 ${
                             isActive
                               ? "bg-white/10 text-white"
                               : "bg-white/5 text-white/60 hover:text-white"
                           }`}
-                          onClick={() => onCategoryChange(item)}
+                          onClick={() => {
+                            onCategoryChange(item);
+                            onRequestClose?.();
+                          }}
                         >
                           <span>{item}</span>
-                          <span className="text-xs font-[var(--font-jetbrains-mono)] uppercase text-white/40">
+                          <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
                             [{count}]
                           </span>
                         </button>
@@ -1070,11 +1147,11 @@ function Sidebar({
 
       <motion.div
         variants={itemVariants}
-        className="mt-auto flex items-center justify-between rounded-2xl bg-[#D4AF37]/10 px-4 py-3"
+        className="mt-auto flex items-center justify-between rounded-2xl bg-[#D4AF37]/10 px-3 py-2.5 sm:px-4 sm:py-3"
       >
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#D4AF37]/20">
-            <ShieldCheck className="h-5 w-5 text-[#D4AF37]" />
+          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#D4AF37]/20 sm:h-9 sm:w-9">
+            <ShieldCheck className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
           </div>
           <div>
             <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/80">
@@ -1084,7 +1161,7 @@ function Sidebar({
           </div>
         </div>
         <button
-          className={`h-6 w-12 rounded-full border border-[#D4AF37]/40 p-1 transition ${
+          className={`flex h-11 w-16 items-center rounded-full border border-[#D4AF37]/40 p-1 transition ${
             verified
               ? "bg-[#D4AF37]/40 shadow-[0_0_16px_rgba(212,175,55,0.5)]"
               : "bg-white/5"
@@ -1092,8 +1169,8 @@ function Sidebar({
           onClick={() => setVerified((prev) => !prev)}
         >
           <span
-            className={`block h-4 w-4 rounded-full bg-[#D4AF37] transition ${
-              verified ? "translate-x-6" : "translate-x-0"
+            className={`block h-5 w-5 rounded-full bg-[#D4AF37] transition ${
+              verified ? "translate-x-9" : "translate-x-0"
             }`}
           />
         </button>
@@ -1119,20 +1196,35 @@ function Experience({
   rawModelUrl,
   paintedModelUrl,
 }: ExperienceProps) {
+  const [isMobile, setIsMobile] = useState(false);
   const isAR = preview === "ar";
   const modelFinish = finish === "pro" ? "Painted" : "Raw";
   const modelUrl = rawModelUrl ?? "/models/DamagedHelmet.glb";
+  const modelScale = isMobile ? 1.3 : 2;
+  const modelPosition: [number, number, number] = isMobile ? [0, -0.45, 0] : [0, -0.6, 0];
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    if ("addEventListener" in media) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    media.addListener(update);
+    return () => media.removeListener(update);
+  }, []);
 
   return (
     <Canvas
       camera={{ position: [2.6, 2.1, 3.1], fov: 42 }}
-      dpr={[1, 2]}
+      dpr={isMobile ? [1, 1.5] : [1, 2]}
       className="h-full w-full"
       gl={{ antialias: true, alpha: isAR }}
     >
       {!isAR && <color attach="background" args={["#070707"]} />}
       <Stage environment={null} intensity={1} shadows={false} adjustCamera={false}>
-        <group position={[0, -0.6, 0]} scale={2}>
+        <group position={modelPosition} scale={modelScale}>
           <ModelView
             rawModelUrl={modelUrl}
             paintedModelUrl={paintedModelUrl}
@@ -1162,7 +1254,8 @@ function Experience({
       )}
       <OrbitControls
         autoRotate={autoRotate}
-        autoRotateSpeed={0.6}
+        autoRotateSpeed={isMobile ? 0.35 : 0.6}
+        rotateSpeed={isMobile ? 0.6 : 1}
         enablePan={false}
         minDistance={2.2}
         maxDistance={6}
@@ -1183,16 +1276,16 @@ function HUD({ polyCount, printTime, scale }: HUDProps) {
   const scaleLabel = scale || "1:1 REAL";
 
   return (
-    <div className="absolute left-8 top-8 rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3 font-[var(--font-jetbrains-mono)] text-xs uppercase tracking-[0.2em] text-white/70">
-      <div className="flex items-center gap-2 text-[#2ED1FF]">
+    <div className="absolute left-3 right-3 top-3 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:grid-cols-1 sm:gap-2 sm:px-4 sm:py-3 sm:text-xs">
+      <div className="flex flex-col gap-1 text-center text-[#2ED1FF] sm:flex-row sm:items-center sm:gap-2 sm:text-left">
         <span>ПОЛИГОНЫ:</span>
         <span className="text-white">{polyLabel}</span>
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
         <span>ВРЕМЯ_ПЕЧАТИ:</span>
         <span className="text-white">{printLabel}</span>
       </div>
-      <div className="mt-2 flex items-center gap-2">
+      <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
         <span>МАСШТАБ:</span>
         <span className="text-white">{scaleLabel}</span>
       </div>
@@ -1202,7 +1295,7 @@ function HUD({ polyCount, printTime, scale }: HUDProps) {
 
 function GlobalHudMarkers() {
   return (
-    <div className="pointer-events-none fixed inset-0 z-0 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.3em] text-white/40">
+    <div className="pointer-events-none fixed inset-0 z-0 hidden font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.3em] text-white/40 md:block">
       <div className="absolute left-6 top-6 flex items-center gap-3">
         <span className="text-[#2ED1FF]">X:128.4</span>
         <span>Y:42.9</span>
@@ -1234,7 +1327,7 @@ type DockButtonProps = {
 function DockButton({ active, label, icon, onClick }: DockButtonProps) {
   return (
     <button
-      className={`flex items-center gap-2 rounded-full px-3 py-2 text-xs uppercase tracking-[0.2em] transition ${
+      className={`flex min-h-[44px] items-center gap-2 rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:py-2 sm:text-xs ${
         active ? "bg-white/20 text-white" : "text-white/60 hover:text-white"
       }`}
       onClick={onClick}
@@ -1277,7 +1370,7 @@ type SystemStandbyPanelProps = {
 function SystemStandbyPanel({ message, className }: SystemStandbyPanelProps) {
   return (
     <div
-      className={`relative flex items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-6 py-10 text-center text-xs uppercase tracking-[0.3em] text-white/60 ${className ?? ""}`}
+      className={`relative flex items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-4 py-8 text-center text-[10px] uppercase tracking-[0.3em] text-white/60 sm:px-6 sm:py-10 sm:text-xs ${className ?? ""}`}
     >
       <div className="pointer-events-none absolute inset-0 cad-grid-pattern opacity-30" />
       <div className="relative">{message}</div>

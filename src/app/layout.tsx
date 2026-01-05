@@ -54,8 +54,8 @@ export default async function RootLayout({
   }
 
   return (
-    <html lang="en">
-      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased`}>
+    <html lang="en" className="overflow-x-hidden">
+      <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased overflow-x-hidden`}>
         {children}
       </body>
     </html>
