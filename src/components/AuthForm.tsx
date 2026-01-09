@@ -1,6 +1,7 @@
-"use client";
+ "use client";
 
-import { useState, type FormEvent } from "react";
+ import { useState, type FormEvent } from "react";
+ import { useSearchParams } from "next/navigation";
 
 type AuthMode = "login" | "register";
 
@@ -16,6 +17,17 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+  const searchParams = useSearchParams();
+
+  const resolveRedirect = () => {
+    const next = searchParams.get("next");
+    
+    if (next && next.startsWith("/")) {
+      return next;
+    }
+    
+    return "/profile";
+  };
 
   const getErrorMessage = async (response: Response) => {
     try {
@@ -62,6 +74,12 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           return;
         }
       } else {
+        if (!trimmedName) {
+          setError("Имя обязательно.");
+          setSubmitting(false);
+          return;
+        }
+
         const response = await fetch(`${apiBase}/api/users`, {
           method: "POST",
           credentials: "include",
@@ -69,7 +87,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
           body: JSON.stringify({
             email: trimmedEmail,
             password,
-            ...(trimmedName ? { name: trimmedName } : {}),
+            name: trimmedName,
           }),
         });
 
@@ -94,7 +112,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
       }
 
       onSuccess?.();
-      window.location.reload();
+      window.location.assign(resolveRedirect());
     } catch (err) {
       setError("Network error. Please try again.");
       setSubmitting(false);
@@ -122,6 +140,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
             <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
             <input
               type="text"
+              required
               value={name}
               onChange={(e) => setName(e.target.value)}
               className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"

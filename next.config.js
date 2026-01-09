@@ -9,9 +9,6 @@ const isAdminMode =
 const baseConfig = {
   reactStrictMode: true,
   distDir: isAdminMode ? ".next-admin" : ".next-frontend",
-  serverActions: {
-    bodySizeLimit: "100mb",
-  },
   experimental: {
     serverActions: {
       bodySizeLimit: "100mb",

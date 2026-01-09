@@ -1,4 +1,4 @@
-﻿import path from "path";
+import path from "path";
 
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";

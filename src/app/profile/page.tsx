@@ -1,9 +1,95 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, LogOut, Package, Settings, User } from "lucide-react";
+import { ArrowLeft, Download, LogOut, Package, Settings, ShoppingCart, Trash2, User } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
+
+type CartItem = {
+  id: string;
+  productId: string;
+  name: string;
+  formatKey: "digital" | "physical";
+  formatLabel: string;
+  priceLabel: string;
+  priceValue: number;
+  quantity: number;
+  thumbnailUrl: string;
+};
+
+type PurchasedProduct = {
+  id?: string;
+  name?: string;
+  rawModel?: any;
+  paintedModel?: any;
+  slug?: string;
+};
+
+const formatPrice = (value?: number) => {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "N/A";
+  }
+  return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const buildCartThumbnail = (label: string) => {
+  const shortLabel = label.trim().slice(0, 2).toUpperCase() || "3D";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="160" height="120" rx="24" fill="url(#g)"/><circle cx="120" cy="24" r="28" fill="rgba(46,209,255,0.25)"/><text x="18" y="70" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">${shortLabel}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+const formatLabelForKey = (formatKey: CartItem["formatKey"]) =>
+  formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
+
+const normalizeStoredItem = (item: any): CartItem | null => {
+  if (!item || typeof item !== "object") {
+    return null;
+  }
+
+  const productId =
+    typeof item.productId === "string"
+      ? item.productId
+      : typeof item.id === "string"
+        ? item.id
+        : null;
+
+  if (!productId) {
+    return null;
+  }
+
+  const formatKey: CartItem["formatKey"] = item.formatKey === "physical" ? "physical" : "digital";
+  const name = typeof item.name === "string" ? item.name : "Товар";
+  const priceValue = typeof item.priceValue === "number" ? item.priceValue : 0;
+  const quantity = typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+  const formatLabel =
+    typeof item.formatLabel === "string" ? item.formatLabel : formatLabelForKey(formatKey);
+  const priceLabel =
+    typeof item.priceLabel === "string" ? item.priceLabel : formatPrice(priceValue);
+  const thumbnailUrl =
+    typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : buildCartThumbnail(name);
+  const id =
+    typeof item.id === "string" && item.productId ? item.id : `${productId}:${formatKey}`;
+
+  return {
+    id,
+    productId,
+    name,
+    formatKey,
+    formatLabel,
+    priceLabel,
+    priceValue,
+    quantity,
+    thumbnailUrl,
+  };
+};
+
+const resolveMediaUrl = (value?: any) => {
+  if (!value) return "";
+  if (typeof value === "string") return value;
+  if (typeof value?.url === "string") return value.url;
+  if (typeof value?.filename === "string") return `/media/${value.filename}`;
+  return "";
+};
 
 export default function ProfilePage() {
   const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "settings">("orders");
@@ -12,10 +98,61 @@ export default function ProfilePage() {
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [cartItemCount, setCartItemCount] = useState(0);
+  const [settingsSaving, setSettingsSaving] = useState(false);
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
 
   useEffect(() => {
-    fetch(`${apiBase}/api/users/me`, {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const syncCart = () => {
+      const stored = window.localStorage.getItem("store3d_cart");
+      if (!stored) {
+        setCartItems([]);
+        return;
+      }
+
+      try {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) {
+          const normalized = parsed
+            .map((item) => normalizeStoredItem(item))
+            .filter((item): item is CartItem => Boolean(item));
+          setCartItems(normalized);
+          return;
+        }
+      } catch {
+        setCartItems([]);
+      }
+    };
+
+    syncCart();
+    const handleCartUpdated = () => syncCart();
+    window.addEventListener("cart-updated", handleCartUpdated);
+    return () => window.removeEventListener("cart-updated", handleCartUpdated);
+  }, []);
+
+  const removeFromCart = (id: string) => {
+    setCartItems((prev) => {
+      const next = prev.filter((item) => item.id !== id);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("store3d_cart", JSON.stringify(next));
+        window.dispatchEvent(new CustomEvent("cart-updated"));
+      }
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    const count = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+    setCartItemCount(count);
+  }, [cartItems]);
+
+  useEffect(() => {
+    fetch(`${apiBase}/api/users/me?depth=2`, {
       credentials: "include",
     })
       .then((res) => (res.ok ? res.json() : null))
@@ -30,41 +167,71 @@ export default function ProfilePage() {
   }, [apiBase]);
 
   useEffect(() => {
-    if (!user?.id) {
+    const refetchUser = () => {
+      fetch(`${apiBase}/api/users/me?depth=2`, { credentials: "include" })
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data) => setUser(data?.user || data?.doc || null))
+        .catch(() => null);
+    };
+    window.addEventListener("orders-updated", refetchUser);
+    return () => window.removeEventListener("orders-updated", refetchUser);
+  }, [apiBase]);
+
+  useEffect(() => {
+    if (!user?.email) {
       setOrders([]);
       setOrdersError(null);
       setOrdersLoading(false);
       return;
     }
 
-    const controller = new AbortController();
+    let active = true;
+    let currentController: AbortController | null = null;
     const params = new URLSearchParams();
-    params.set("where[user][equals]", String(user.id));
+    params.set("where[customer.email][equals]", String(user.email).toLowerCase());
     params.set("depth", "2");
     params.set("limit", "20");
 
-    setOrdersLoading(true);
-    setOrdersError(null);
+    const fetchOrders = () => {
+      currentController?.abort();
+      const controller = new AbortController();
+      currentController = controller;
 
-    fetch(`${apiBase}/api/orders?${params.toString()}`, {
-      credentials: "include",
-      signal: controller.signal,
-    })
-      .then((res) => (res.ok ? res.json() : Promise.reject(res)))
-      .then((data) => {
-        setOrders(Array.isArray(data?.docs) ? data.docs : []);
-      })
-      .catch((err) => {
-        if (err?.name === "AbortError") {
-          return;
-        }
-        setOrdersError("Unable to load orders.");
-      })
-      .finally(() => {
-        setOrdersLoading(false);
-      });
+      setOrdersLoading(true);
+      setOrdersError(null);
 
-    return () => controller.abort();
+      fetch(`${apiBase}/api/orders?${params.toString()}`, {
+        credentials: "include",
+        signal: controller.signal,
+      })
+        .then((res) => (res.ok ? res.json() : Promise.reject(res)))
+        .then((data) => {
+          if (!active) return;
+          setOrders(Array.isArray(data?.docs) ? data.docs : []);
+        })
+        .catch((err) => {
+          if (!active || err?.name === "AbortError") {
+            return;
+          }
+          setOrdersError("Не удалось загрузить заказы.");
+        })
+        .finally(() => {
+          if (!active || controller.signal.aborted) {
+            return;
+          }
+          setOrdersLoading(false);
+        });
+    };
+
+    fetchOrders();
+    const handleOrdersUpdated = () => fetchOrders();
+    window.addEventListener("orders-updated", handleOrdersUpdated);
+
+    return () => {
+      active = false;
+      currentController?.abort();
+      window.removeEventListener("orders-updated", handleOrdersUpdated);
+    };
   }, [user, apiBase]);
 
   const handleLogout = async () => {
@@ -79,16 +246,16 @@ export default function ProfilePage() {
     }
   };
 
+  const handleSettingsSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSettingsSaving(true);
+    setTimeout(() => setSettingsSaving(false), 900);
+  };
+
   const formatDate = (value?: string) => {
-    if (!value) {
-      return "";
-    }
-
+    if (!value) return "";
     const date = new Date(value);
-    if (Number.isNaN(date.getTime())) {
-      return "";
-    }
-
+    if (Number.isNaN(date.getTime())) return "";
     const day = String(date.getDate()).padStart(2, "0");
     const month = String(date.getMonth() + 1).padStart(2, "0");
     const year = date.getFullYear();
@@ -96,104 +263,94 @@ export default function ProfilePage() {
   };
 
   const formatFileSize = (bytes?: number) => {
-    if (typeof bytes !== "number" || Number.isNaN(bytes)) {
-      return "N/A";
-    }
-
+    if (typeof bytes !== "number" || Number.isNaN(bytes)) return "N/A";
     const units = ["B", "KB", "MB", "GB"];
     let size = bytes;
     let unitIndex = 0;
-
     while (size >= 1024 && unitIndex < units.length - 1) {
       size /= 1024;
       unitIndex += 1;
     }
-
     const formatted = size < 10 && unitIndex > 0 ? size.toFixed(1) : Math.round(size).toString();
     return `${formatted} ${units[unitIndex]}`;
   };
 
   const getOrderProduct = (order: any) => {
-    if (order?.product && typeof order.product === "object") {
-      return order.product;
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const firstItem = items[0];
+    const product = firstItem?.product ?? order?.product;
+    if (product && typeof product === "object") {
+      return product;
     }
-
+    if (typeof product === "string") {
+      return { name: product };
+    }
     return null;
   };
 
   const getOrderProductName = (order: any) => {
     const product = getOrderProduct(order);
-    return product?.name || "Product";
+    return product?.name || "Товар";
   };
 
   const getOrderFormatLabel = (format?: string) => {
-    if (format === "Digital") {
-      return "Digital STL";
-    }
-    if (format === "Physical") {
-      return "Physical Print";
-    }
+    if (format === "Digital") return "Цифровой STL";
+    if (format === "Physical") return "Печатная модель";
+    return format || "Не указано";
+  };
 
-    return format || "Unknown";
+  const getOrderPrimaryFormat = (order: any) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    return getOrderFormatLabel(items[0]?.format);
   };
 
   const getOrderStatusLabel = (status?: string) => {
-    return status || "Pending";
+    if (status === "Paid") return "Оплачено";
+    if (status === "Printing") return "В печати";
+    if (status === "Shipped") return "Отправлено";
+    return "В обработке";
   };
 
   const getOrderStatusClass = (status?: string) => {
-    if (status === "Shipped") {
-      return "text-emerald-400";
-    }
-    if (status === "Printing") {
-      return "text-[#2ED1FF]";
-    }
-
+    if (status === "Paid") return "text-emerald-400";
+    if (status === "Shipped") return "text-emerald-400";
+    if (status === "Printing") return "text-[#2ED1FF]";
     return "text-white/60";
   };
 
-  const downloads = orders.reduce(
-    (
-      acc: {
-        id: string;
-        product: string;
-        fileSize: string;
-        downloadUrl: string;
-        ready: boolean;
-      }[],
-      order: any
-    ) => {
-      if (order?.format !== "Digital") {
-        return acc;
-      }
+  const purchasedProducts: PurchasedProduct[] = Array.isArray(user?.purchasedProducts)
+    ? user.purchasedProducts
+    : [];
 
-      const product = getOrderProduct(order);
-      const productName = product?.name || "Digital STL";
-      const rawModel = product?.rawModel;
-      const paintedModel = product?.paintedModel;
-      const file =
-        rawModel && typeof rawModel === "object"
-          ? rawModel
-          : paintedModel && typeof paintedModel === "object"
-            ? paintedModel
-            : null;
-      const downloadUrl = typeof file?.url === "string" ? file.url : "";
-      const fileSize =
-        typeof file?.filesize === "number" ? formatFileSize(file.filesize) : formatFileSize();
-      const id = String(order?.id || product?.id || productName);
+  const downloads =
+    purchasedProducts
+      .map((product) => {
+        if (!product) return null;
+        const rawModel = (product as any)?.rawModel;
+        const paintedModel = (product as any)?.paintedModel;
+        const downloadUrl = resolveMediaUrl(rawModel) || resolveMediaUrl(paintedModel);
+        const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
+        const fileSize =
+          typeof rawModel?.filesize === "number"
+            ? formatFileSize(rawModel.filesize)
+            : typeof paintedModel?.filesize === "number"
+              ? formatFileSize(paintedModel.filesize)
+              : "N/A";
 
-      acc.push({
-        id,
-        product: productName,
-        fileSize,
-        downloadUrl,
-        ready: Boolean(downloadUrl),
-      });
+        return {
+          id: String(product.id || product.slug || product.name),
+          product: product.name || "Цифровой STL",
+          fileSize,
+          downloadUrl,
+          previewUrl,
+          ready: Boolean(downloadUrl),
+        };
+      })
+      .filter((item): item is NonNullable<typeof item> => Boolean(item)) ?? [];
 
-      return acc;
-    },
-    []
-  );
+  const cartTotal = cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
+  const cartTotalLabel = formatPrice(cartTotal);
+  const canCheckout = cartItems.length > 0;
 
   if (loading) {
     return (
@@ -236,7 +393,7 @@ export default function ProfilePage() {
     );
   }
 
-    return (
+  return (
     <div className="min-h-screen bg-[#050505] text-white">
       <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
       <div className="pointer-events-none fixed inset-0">
@@ -284,6 +441,91 @@ export default function ProfilePage() {
           </div>
         </div>
 
+        <div className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] px-6 py-5">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
+                <ShoppingCart className="h-6 w-6" />
+              </div>
+              <div>
+                <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                  Корзина
+                </p>
+                <p className="mt-1 text-lg font-semibold text-white">
+                  {cartItemCount > 0 ? `${cartItemCount} позиций` : "Корзина пуста"}
+                </p>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Link
+                href={canCheckout ? "/checkout" : "#"}
+                aria-disabled={!canCheckout}
+                onClick={(event) => {
+                  if (!canCheckout) {
+                    event.preventDefault();
+                  }
+                }}
+                className={`rounded-full px-4 py-2 text-xs uppercase tracking-[0.3em] transition ${
+                  canCheckout
+                    ? "border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 text-[#2ED1FF] hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20"
+                    : "cursor-not-allowed border border-white/10 bg-white/5 text-white/40"
+                }`}
+              >
+                Оформить заказ
+              </Link>
+              <Link
+                href="/"
+                className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/20 hover:text-white"
+              >
+                К каталогу
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {cartItems.length === 0 ? (
+              <p className="text-sm text-white/60">Добавьте товары, чтобы оформить заказ.</p>
+            ) : (
+              cartItems.map((item) => {
+                const lineTotal = formatPrice(item.priceValue * item.quantity);
+                return (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3"
+                  >
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-white">{item.name}</p>
+                      <p className="text-xs text-white/60">
+                        {item.formatLabel} · x{item.quantity}
+                      </p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-semibold text-white">{lineTotal} ₽</p>
+                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
+                        {item.priceLabel} ₽
+                      </p>
+                    </div>
+                    <button
+                      type="button"
+                      aria-label="Remove item"
+                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+                      onClick={() => removeFromCart(item.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
+          {cartItems.length > 0 && (
+            <div className="mt-3 flex items-center justify-between text-sm text-white/70">
+              <span className="uppercase tracking-[0.2em] text-white/50">Итого</span>
+              <span className="text-base font-semibold text-white">{cartTotalLabel} ₽</span>
+            </div>
+          )}
+        </div>
+
         <div className="mt-8 flex gap-3 border-b border-white/10">
           <button
             onClick={() => setActiveTab("orders")}
@@ -325,7 +567,7 @@ export default function ProfilePage() {
             <div className="space-y-4">
               {ordersLoading && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
-                  Loading orders...
+                  Загружаем заказы...
                 </div>
               )}
               {!ordersLoading && ordersError && (
@@ -335,44 +577,52 @@ export default function ProfilePage() {
               )}
               {!ordersLoading && !ordersError && orders.length === 0 && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
-                  No orders yet.
+                  Заказы не найдены.
                 </div>
               )}
               {!ordersLoading &&
                 !ordersError &&
-                orders.map((order) => (
-                  <div
-                    key={order.id}
-                    className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
-                  >
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                          {order.id}
-                        </p>
-                        <h3 className="mt-2 text-xl font-semibold text-white">
-                          {getOrderProductName(order)}
-                        </h3>
-                        <p className="mt-1 text-sm text-white/60">{getOrderFormatLabel(order.format)}</p>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                          {formatDate(order.createdAt || order.updatedAt)}
-                        </p>
-                        <p className={`mt-2 text-sm font-semibold ${getOrderStatusClass(order.status)}`}>
-                          {getOrderStatusLabel(order.status)}
-                        </p>
+                orders.map((order) => {
+                  const totalLabel = typeof order.total === "number" ? formatPrice(order.total) : null;
+                  return (
+                    <div
+                      key={order.id}
+                      className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-4">
+                        <div>
+                          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                            {order.id}
+                          </p>
+                          <h3 className="mt-2 text-xl font-semibold text-white">
+                            {getOrderProductName(order)}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            {getOrderPrimaryFormat(order)}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                            {formatDate(order.createdAt || order.updatedAt)}
+                          </p>
+                          <p className={`mt-2 text-sm font-semibold ${getOrderStatusClass(order.status)}`}>
+                            {getOrderStatusLabel(order.status)}
+                          </p>
+                          {totalLabel && (
+                            <p className="mt-1 text-sm text-white/70">Итого: {totalLabel} ₽</p>
+                          )}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
             </div>
           )}
           {activeTab === "downloads" && (
             <div className="space-y-4">
               {ordersLoading && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
-                  Loading library...
+                  Загружаем библиотеку...
                 </div>
               )}
               {!ordersLoading && ordersError && (
@@ -382,7 +632,7 @@ export default function ProfilePage() {
               )}
               {!ordersLoading && !ordersError && downloads.length === 0 && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
-                  No downloads yet.
+                  Цифровая библиотека пуста.
                 </div>
               )}
               {!ordersLoading &&
@@ -393,24 +643,38 @@ export default function ProfilePage() {
                     className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                   >
                     <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-xl font-semibold text-white">{download.product}</h3>
-                        <p className="mt-1 text-sm text-white/60">File size: {download.fileSize}</p>
+                      <div className="flex items-center gap-3">
+                        {download.previewUrl ? (
+                          <img
+                            src={download.previewUrl}
+                            alt={download.product}
+                            className="h-12 w-12 rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-white/50">
+                            <Download className="h-5 w-5" />
+                          </div>
+                        )}
+                        <div>
+                          <h3 className="text-xl font-semibold text-white">{download.product}</h3>
+                          <p className="mt-1 text-sm text-white/60">Размер файла: {download.fileSize}</p>
+                        </div>
                       </div>
                       {download.ready ? (
                         <a
                           href={download.downloadUrl}
                           target="_blank"
                           rel="noreferrer"
+                          download
                           className="flex items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30"
                         >
                           <Download className="h-4 w-4" />
-                          Download STL
+                          Скачать .STL
                         </a>
                       ) : (
                         <span className="flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40">
                           <Download className="h-4 w-4" />
-                          Not ready
+                          Готовится
                         </span>
                       )}
                     </div>
@@ -418,14 +682,14 @@ export default function ProfilePage() {
                 ))}
             </div>
           )}
-{activeTab === "settings" && (
+          {activeTab === "settings" && (
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
-              <form className="space-y-6">
+              <form className="space-y-6" onSubmit={handleSettingsSubmit}>
                 <div className="space-y-2">
                   <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
                   <input
                     type="text"
-                    defaultValue="Демо пользователь"
+                    defaultValue={user.name || "Демо пользователь"}
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
@@ -434,7 +698,7 @@ export default function ProfilePage() {
                   <label className="text-xs uppercase tracking-[0.3em] text-white/50">Email</label>
                   <input
                     type="email"
-                    defaultValue="demo@example.com"
+                    defaultValue={user.email || "demo@example.com"}
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
@@ -444,8 +708,8 @@ export default function ProfilePage() {
                     Адрес доставки
                   </label>
                   <textarea
-                    defaultValue="Город, улица, дом, квартира"
-                    className="min-h-[90px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                    defaultValue={user.shippingAddress || "Город, улица, дом, квартира"}
+                    className="min-h[90px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
 
@@ -462,9 +726,14 @@ export default function ProfilePage() {
 
                 <button
                   type="submit"
-                  className="rounded-full bg-[#2ED1FF] px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-[#050505] transition hover:bg-[#8fe6ff]"
+                  disabled={settingsSaving}
+                  className={`rounded-full px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] transition ${
+                    settingsSaving
+                      ? "bg-white/10 text-white/60"
+                      : "bg-[#2ED1FF] text-[#050505] hover:bg-[#8fe6ff]"
+                  }`}
                 >
-                  Сохранить изменения
+                  {settingsSaving ? "Сохраняем..." : "Сохранить изменения"}
                 </button>
               </form>
             </div>

@@ -9,6 +9,7 @@ import {
   type KeyboardEvent,
   type ReactNode,
 } from "react";
+import { useRouter } from "next/navigation";
 import { Canvas } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
@@ -25,11 +26,14 @@ import {
   ShieldCheck,
   ShoppingCart,
   Sparkles,
+  Trash2,
   Upload,
   User,
   X,
 } from "lucide-react";
 import ModelView from "@/components/ModelView";
+import { ToastContainer, useToast } from "@/components/Toast";
+import AuthForm from "@/components/AuthForm";
 
 const CATEGORY_SHELL = [
   {
@@ -88,6 +92,28 @@ type ProductDoc = {
   paintedModel?: MediaDoc | string | null;
 };
 
+type CatalogProduct = {
+  id: string;
+  name: string;
+  price: string;
+  priceValue: number | null;
+  formatKey: FormatMode | null;
+  rawModelUrl: string | null;
+  paintedModelUrl: string | null;
+};
+
+type CartItem = {
+  id: string;
+  productId: string;
+  name: string;
+  formatKey: FormatMode;
+  formatLabel: string;
+  priceLabel: string;
+  priceValue: number;
+  quantity: number;
+  thumbnailUrl: string;
+};
+
 const normalizeFormat = (value?: string) => {
   const normalized = value?.toLowerCase() ?? "";
   if (normalized.includes("digital")) {
@@ -123,6 +149,19 @@ const formatCount = (value?: number | null) => {
     return null;
   }
   return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const buildCartThumbnail = (label: string) => {
+  const shortLabel = label.trim().slice(0, 2).toUpperCase() || "3D";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="160" height="120" rx="24" fill="url(#g)"/><circle cx="120" cy="24" r="28" fill="rgba(46,209,255,0.25)"/><text x="18" y="70" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">${shortLabel}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+const resolveCartThumbnail = (url: string | null, label: string) => {
+  if (url && /\.(png|jpe?g|webp|gif|avif)$/i.test(url)) {
+    return url;
+  }
+  return buildCartThumbnail(label);
 };
 
 const splitTokens = (value: string) =>
@@ -170,6 +209,8 @@ type PreviewMode = "interior" | "ar";
 type FormatMode = "digital" | "physical";
 
 export default function Home() {
+  const router = useRouter();
+  const { toasts, showSuccess, removeToast } = useToast();
   const [autoRotate, setAutoRotate] = useState(true);
   const [wireframe, setWireframe] = useState(false);
   const [finish, setFinish] = useState<FinishMode>("raw");
@@ -179,6 +220,8 @@ export default function Home() {
   const [activeCategory, setActiveCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
+  const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [products, setProducts] = useState<ProductDoc[]>([]);
   const [categoriesData, setCategoriesData] = useState<CategoryDoc[]>([]);
   const [productsError, setProductsError] = useState(false);
@@ -187,7 +230,95 @@ export default function Home() {
   const [isScanning, setIsScanning] = useState(false);
   const [scanPulse, setScanPulse] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+  const [isCartOpen, setIsCartOpen] = useState(false);
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+
+  const formatLabelForKey = (formatKey: FormatMode) =>
+    formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
+
+  const normalizeStoredItem = (item: any): CartItem | null => {
+    if (!item || typeof item !== "object") {
+      return null;
+    }
+
+    const productId =
+      typeof item.productId === "string"
+        ? item.productId
+        : typeof item.id === "string"
+          ? item.id
+          : null;
+
+    if (!productId) {
+      return null;
+    }
+
+    const formatKey = item.formatKey === "physical" ? "physical" : "digital";
+    const name = typeof item.name === "string" ? item.name : "Item";
+    const priceValue = typeof item.priceValue === "number" ? item.priceValue : 0;
+    const quantity =
+      typeof item.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+    const formatLabel =
+      typeof item.formatLabel === "string" ? item.formatLabel : formatLabelForKey(formatKey);
+    const priceLabel =
+      typeof item.priceLabel === "string" ? item.priceLabel : formatPrice(priceValue);
+    const thumbnailUrl =
+      typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : buildCartThumbnail(name);
+    const id =
+      typeof item.id === "string" && item.productId
+        ? item.id
+        : `${productId}:${formatKey}`;
+
+    return {
+      id,
+      productId,
+      name,
+      formatKey,
+      formatLabel,
+      priceLabel,
+      priceValue,
+      quantity,
+      thumbnailUrl,
+    };
+  };
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const stored = window.localStorage.getItem("store3d_cart");
+    if (!stored) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        const normalized = parsed
+          .map((item) => normalizeStoredItem(item))
+          .filter((item): item is CartItem => Boolean(item));
+        setCartItems(normalized);
+      }
+    } catch {
+      setCartItems([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem("store3d_cart", JSON.stringify(cartItems));
+  }, [cartItems]);
+
+  useEffect(() => {
+    fetch(`${apiBase}/api/users/me`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const user = data?.user ?? data?.doc ?? null;
+        setIsLoggedIn(Boolean(user?.id));
+      })
+      .catch(() => setIsLoggedIn(false));
+  }, [apiBase]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -523,6 +654,65 @@ export default function Home() {
   };
 
   const showSystemStandby = productsError || dataLoading || filteredProducts.length === 0;
+  const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const cartTotal = cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
+  const cartTotalLabel = formatPrice(cartTotal);
+
+  const addToCart = (product: CatalogProduct) => {
+    const priceValue = typeof product.priceValue === "number" ? product.priceValue : 0;
+    const resolvedFormatKey = product.formatKey ?? format;
+    const formatLabel = formatLabelForKey(resolvedFormatKey);
+    const thumbnailUrl = resolveCartThumbnail(
+      product.paintedModelUrl ?? product.rawModelUrl ?? null,
+      product.name
+    );
+    const cartId = `${product.id}:${resolvedFormatKey}`;
+
+    setCartItems((prev) => {
+      const existingIndex = prev.findIndex((item) => item.id === cartId);
+      if (existingIndex === -1) {
+        return [
+          ...prev,
+          {
+            id: cartId,
+            productId: product.id,
+            name: product.name,
+            formatKey: resolvedFormatKey,
+            formatLabel,
+            priceLabel: product.price || "N/A",
+            priceValue,
+            quantity: 1,
+            thumbnailUrl,
+          },
+        ];
+      }
+      return prev.map((item, index) =>
+        index === existingIndex
+          ? { ...item, quantity: item.quantity + 1 }
+          : item
+      );
+    });
+    showSuccess("Товар добавлен");
+  };
+
+  const removeFromCart = (id: string) => {
+    setCartItems((prev) => prev.filter((item) => item.id !== id));
+  };
+
+  const handleToggleSidebar = () => {
+    setIsCartOpen(false);
+    setIsSidebarOpen((prev) => !prev);
+  };
+
+  const handleToggleCart = () => {
+    setIsSidebarOpen(false);
+    router.push("/profile");
+  };
+
+  const handleCheckout = () => {
+    setIsCartOpen(false);
+    router.push("/checkout");
+  };
   const standbyMessage = productsError
     ? "System Standby: No Data"
     : dataLoading
@@ -531,6 +721,28 @@ export default function Home() {
 
   return (
     <div className="relative min-h-screen bg-[#050505] text-white font-[var(--font-inter)]">
+      <ToastContainer toasts={toasts} onRemove={removeToast} position="top-right" />
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
+          <div className="relative w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b0b0b] p-6 shadow-2xl">
+            <button
+              type="button"
+              aria-label="Close auth modal"
+              className="absolute right-4 top-4 text-white/60 transition hover:text-white"
+              onClick={() => setAuthModalOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <AuthForm
+              onSuccess={() => {
+                setIsLoggedIn(true);
+                setAuthModalOpen(false);
+                router.push("/profile");
+              }}
+            />
+          </div>
+        </div>
+      )}
       <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute -left-40 top-[-20%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(46,209,255,0.2),transparent_70%)] blur-2xl" />
@@ -542,7 +754,9 @@ export default function Home() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         isSidebarOpen={isSidebarOpen}
-        onToggleSidebar={() => setIsSidebarOpen((prev) => !prev)}
+        onToggleSidebar={handleToggleSidebar}
+        cartCount={cartCount}
+        onCartToggle={handleToggleCart}
       />
       <AnimatePresence>
         {isSidebarOpen && (
@@ -585,6 +799,97 @@ export default function Home() {
               >
                 <X className="h-5 w-5" />
               </button>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {isCartOpen && (
+          <motion.div
+            className="fixed inset-0 z-40"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+          >
+            <button
+              type="button"
+              aria-label="Close cart"
+              className="absolute inset-0 bg-black/60"
+              onClick={() => setIsCartOpen(false)}
+            />
+            <motion.div
+              className="absolute right-0 top-0 flex h-full w-full max-w-[360px] flex-col bg-black/60 p-5 backdrop-blur-xl md:max-w-[420px]"
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "tween", duration: 0.25 }}
+            >
+              <div className="flex items-center justify-between">
+                <h3 className="text-lg font-semibold text-white">Ваша корзина</h3>
+                <button
+                  type="button"
+                  aria-label="Close cart"
+                  className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+                  onClick={() => setIsCartOpen(false)}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              {cartItems.length === 0 ? (
+                <div className="flex flex-1 flex-col items-center justify-center text-center text-white/70">
+                  <p className="text-sm uppercase tracking-[0.3em]">Ваша корзина пуста</p>
+                  <button
+                    type="button"
+                    className="mt-4 text-sm text-white underline underline-offset-4"
+                    onClick={() => setIsCartOpen(false)}
+                  >
+                    Вернуться к покупкам
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="mt-5 flex-1 space-y-3 overflow-y-auto pr-1">
+                    {cartItems.map((item) => (
+                      <div
+                        key={item.id}
+                        className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3"
+                      >
+                        <img
+                          src={item.thumbnailUrl}
+                          alt={item.name}
+                          className="h-14 w-14 rounded-xl object-cover"
+                        />
+                        <div className="flex-1">
+                          <p className="text-sm font-semibold text-white">{item.name}</p>
+                          <p className="text-xs text-white/60">{item.formatLabel}</p>
+                          <p className="text-xs text-white/50">{item.priceLabel}</p>
+                        </div>
+                        <button
+                          type="button"
+                          aria-label="Remove"
+                          className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+                          onClick={() => removeFromCart(item.id)}
+                        >
+                          <Trash2 className="h-4 w-4" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-4 border-t border-white/10 pt-4">
+                    <div className="flex items-center justify-between text-sm text-white/80">
+                      <span>Итого</span>
+                      <span className="text-base font-semibold text-white">{cartTotalLabel}</span>
+                    </div>
+                    <button
+                      type="button"
+                      className="mt-4 w-full rounded-full bg-white px-4 py-3 text-sm font-semibold text-black transition hover:bg-white/90"
+                      onClick={handleCheckout}
+                    >
+                      Оформить заказ
+                    </button>
+                  </div>
+                </>
+              )}
             </motion.div>
           </motion.div>
         )}
@@ -688,6 +993,7 @@ export default function Home() {
                     <button
                       type="button"
                       className="flex min-h-[44px] items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:min-h-0 sm:px-4 sm:text-[11px]"
+                      onClick={() => currentProduct && addToCart(currentProduct)}
                     >
                       <ShoppingCart className="h-4 w-4" />
                       В корзину
@@ -831,6 +1137,8 @@ type HeaderProps = {
   onSearchChange: (value: string) => void;
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
+  cartCount: number;
+  onCartToggle: () => void;
 };
 
 function Header({
@@ -839,6 +1147,8 @@ function Header({
   onSearchChange,
   isSidebarOpen,
   onToggleSidebar,
+  cartCount,
+  onCartToggle,
 }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -961,11 +1271,14 @@ function Header({
             type="button"
             aria-label="Корзина"
             className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:h-10 md:w-10"
+            onClick={onCartToggle}
           >
             <ShoppingCart className="h-5 w-5" />
-            <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2ED1FF] text-[10px] font-semibold text-[#050505]">
-              3
-            </span>
+            {cartCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2ED1FF] text-[10px] font-semibold text-[#050505]">
+                {cartCount}
+              </span>
+            )}
           </button>
           <a
             href="/profile"

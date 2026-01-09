@@ -35,5 +35,15 @@ export const Users: CollectionConfig = {
       type: "textarea",
       label: "Адрес доставки",
     },
+    {
+      name: "purchasedProducts",
+      label: "Купленные модели",
+      type: "relationship",
+      relationTo: "products",
+      hasMany: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
   ],
 };
