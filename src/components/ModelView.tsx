@@ -48,12 +48,30 @@ export default function ModelView({
       {
         color?: Color;
         map?: any;
+        normalMap?: any;
+        roughnessMap?: any;
+        metalnessMap?: any;
+        emissiveMap?: any;
+        aoMap?: any;
+        alphaMap?: any;
+        bumpMap?: any;
+        displacementMap?: any;
+        lightMap?: any;
+        envMap?: any;
+        emissive?: Color;
+        emissiveIntensity?: number;
         toneMapped?: boolean;
+        roughness?: number;
+        metalness?: number;
+        opacity?: number;
+        transparent?: boolean;
       }
     >
   >(new Map());
   const normalizedScenes = useRef<WeakSet<object>>(new WeakSet());
   const baseModeColor = useMemo(() => new Color("#4a4a4a"), []);
+  const baseRoughness = 0.85;
+  const baseMetalness = 0.05;
   const [isReady, setIsReady] = useState(false);
 
   const computeMeshBounds = (root: Object3D) => {
@@ -162,15 +180,65 @@ export default function ModelView({
       const state: {
         color?: Color;
         map?: any;
+        normalMap?: any;
+        roughnessMap?: any;
+        metalnessMap?: any;
+        emissiveMap?: any;
+        aoMap?: any;
+        alphaMap?: any;
+        bumpMap?: any;
+        displacementMap?: any;
+        lightMap?: any;
+        envMap?: any;
+        emissive?: Color;
+        emissiveIntensity?: number;
         toneMapped?: boolean;
         roughness?: number;
         metalness?: number;
+        opacity?: number;
+        transparent?: boolean;
       } = {};
       if ("color" in material && material.color) {
         state.color = material.color.clone();
       }
       if ("map" in material) {
         state.map = (material as any).map ?? null;
+      }
+      if ("normalMap" in material) {
+        state.normalMap = (material as any).normalMap ?? null;
+      }
+      if ("roughnessMap" in material) {
+        state.roughnessMap = (material as any).roughnessMap ?? null;
+      }
+      if ("metalnessMap" in material) {
+        state.metalnessMap = (material as any).metalnessMap ?? null;
+      }
+      if ("emissiveMap" in material) {
+        state.emissiveMap = (material as any).emissiveMap ?? null;
+      }
+      if ("aoMap" in material) {
+        state.aoMap = (material as any).aoMap ?? null;
+      }
+      if ("alphaMap" in material) {
+        state.alphaMap = (material as any).alphaMap ?? null;
+      }
+      if ("bumpMap" in material) {
+        state.bumpMap = (material as any).bumpMap ?? null;
+      }
+      if ("displacementMap" in material) {
+        state.displacementMap = (material as any).displacementMap ?? null;
+      }
+      if ("lightMap" in material) {
+        state.lightMap = (material as any).lightMap ?? null;
+      }
+      if ("envMap" in material) {
+        state.envMap = (material as any).envMap ?? null;
+      }
+      if ("emissive" in material && (material as any).emissive) {
+        state.emissive = (material as any).emissive.clone();
+      }
+      if ("emissiveIntensity" in material) {
+        state.emissiveIntensity = (material as any).emissiveIntensity ?? 0;
       }
       if ("toneMapped" in material) {
         state.toneMapped = (material as any).toneMapped ?? true;
@@ -180,6 +248,12 @@ export default function ModelView({
       }
       if ("metalness" in material) {
         state.metalness = (material as any).metalness ?? 0;
+      }
+      if ("opacity" in material) {
+        state.opacity = (material as any).opacity ?? 1;
+      }
+      if ("transparent" in material) {
+        state.transparent = (material as any).transparent ?? false;
       }
       materialStates.current.set(material.uuid, state);
     };
@@ -230,11 +304,56 @@ export default function ModelView({
           if ("map" in material) {
             (material as any).map = null;
           }
+          if ("normalMap" in material) {
+            (material as any).normalMap = null;
+          }
+          if ("roughnessMap" in material) {
+            (material as any).roughnessMap = null;
+          }
+          if ("metalnessMap" in material) {
+            (material as any).metalnessMap = null;
+          }
+          if ("emissiveMap" in material) {
+            (material as any).emissiveMap = null;
+          }
+          if ("aoMap" in material) {
+            (material as any).aoMap = null;
+          }
+          if ("alphaMap" in material) {
+            (material as any).alphaMap = null;
+          }
+          if ("bumpMap" in material) {
+            (material as any).bumpMap = null;
+          }
+          if ("displacementMap" in material) {
+            (material as any).displacementMap = null;
+          }
+          if ("lightMap" in material) {
+            (material as any).lightMap = null;
+          }
+          if ("envMap" in material) {
+            (material as any).envMap = null;
+          }
+          if ("emissive" in material && (material as any).emissive) {
+            (material as any).emissive.set("#000000");
+          }
+          if ("emissiveIntensity" in material) {
+            (material as any).emissiveIntensity = 0;
+          }
           if ("toneMapped" in material) {
             (material as any).toneMapped = false;
           }
           if ("roughness" in material) {
-            (material as any).roughness = 0.5;
+            (material as any).roughness = baseRoughness;
+          }
+          if ("metalness" in material) {
+            (material as any).metalness = baseMetalness;
+          }
+          if ("opacity" in material) {
+            (material as any).opacity = 1;
+          }
+          if ("transparent" in material) {
+            (material as any).transparent = false;
           }
           material.needsUpdate = true;
         } else if (savedState) {
@@ -244,6 +363,42 @@ export default function ModelView({
           if ("map" in material) {
             (material as any).map = savedState.map ?? null;
           }
+          if ("normalMap" in material) {
+            (material as any).normalMap = savedState.normalMap ?? null;
+          }
+          if ("roughnessMap" in material) {
+            (material as any).roughnessMap = savedState.roughnessMap ?? null;
+          }
+          if ("metalnessMap" in material) {
+            (material as any).metalnessMap = savedState.metalnessMap ?? null;
+          }
+          if ("emissiveMap" in material) {
+            (material as any).emissiveMap = savedState.emissiveMap ?? null;
+          }
+          if ("aoMap" in material) {
+            (material as any).aoMap = savedState.aoMap ?? null;
+          }
+          if ("alphaMap" in material) {
+            (material as any).alphaMap = savedState.alphaMap ?? null;
+          }
+          if ("bumpMap" in material) {
+            (material as any).bumpMap = savedState.bumpMap ?? null;
+          }
+          if ("displacementMap" in material) {
+            (material as any).displacementMap = savedState.displacementMap ?? null;
+          }
+          if ("lightMap" in material) {
+            (material as any).lightMap = savedState.lightMap ?? null;
+          }
+          if ("envMap" in material) {
+            (material as any).envMap = savedState.envMap ?? null;
+          }
+          if (savedState.emissive && "emissive" in material && (material as any).emissive) {
+            (material as any).emissive.copy(savedState.emissive);
+          }
+          if ("emissiveIntensity" in material && typeof savedState.emissiveIntensity === "number") {
+            (material as any).emissiveIntensity = savedState.emissiveIntensity;
+          }
           if ("toneMapped" in material && typeof savedState.toneMapped === "boolean") {
             (material as any).toneMapped = savedState.toneMapped;
           }
@@ -252,6 +407,12 @@ export default function ModelView({
           }
           if ("metalness" in material && typeof savedState.metalness === "number") {
             (material as any).metalness = savedState.metalness;
+          }
+          if ("opacity" in material && typeof savedState.opacity === "number") {
+            (material as any).opacity = savedState.opacity;
+          }
+          if ("transparent" in material && typeof savedState.transparent === "boolean") {
+            (material as any).transparent = savedState.transparent;
           }
           material.needsUpdate = true;
         }

@@ -2,6 +2,7 @@
 
 import {
   Component,
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -60,6 +61,11 @@ const CATEGORY_SHELL = [
 ];
 
 type TechMode = "sla" | "fdm";
+type ModelBounds = {
+  size: number;
+  boxSize: [number, number, number];
+  radius: number;
+};
 
 type SidebarCategory = {
   title: string;
@@ -262,9 +268,83 @@ const itemVariants = {
   show: { opacity: 1, y: 0, transition: { duration: 0.6 } },
 };
 
+const interiorBackgrounds = {
+  lab: "/backgrounds/bg_lab.png",
+  home: "/backgrounds/bg_home.png",
+  work: "/backgrounds/bg_work.png",
+} as const;
+
+const pickInteriorBackground = (categories?: string[] | null) => {
+  const normalized = (categories ?? []).map((title) => title.toLowerCase());
+  const matches = (targets: string[]) =>
+    normalized.some((title) => targets.some((target) => title.includes(target)));
+
+  if (matches(["персонажи", "сай-фай"])) {
+    return interiorBackgrounds.lab;
+  }
+  if (matches(["дом и декор", "архитектура"])) {
+    return interiorBackgrounds.home;
+  }
+  if (matches(["хобби и игрушки", "террейн"])) {
+    return interiorBackgrounds.work;
+  }
+  return interiorBackgrounds.lab;
+};
+
+const parseScaleMm = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+  if (!/mm|мм/i.test(value)) {
+    return null;
+  }
+  const match = value.replace(",", ".").match(/(\d+(?:\.\d+)?)/);
+  if (!match) {
+    return null;
+  }
+  const numeric = Number.parseFloat(match[1]);
+  if (!Number.isFinite(numeric)) {
+    return null;
+  }
+  return numeric;
+};
+
+const formatDimensions = (
+  bounds: ModelBounds | null,
+  scaleLabel?: string | null,
+  modelScale?: number | null
+) => {
+  if (!bounds) {
+    return null;
+  }
+  const [width, height, depth] = bounds.boxSize;
+  const maxSide = Math.max(width, height, depth);
+  if (!Number.isFinite(maxSide) || maxSide <= 0) {
+    return null;
+  }
+
+  const fromScale = parseScaleMm(scaleLabel ?? null);
+  const mmPerUnit =
+    fromScale && maxSide > 0
+      ? fromScale / maxSide
+      : typeof modelScale === "number" && modelScale > 0
+        ? 100 * modelScale
+        : 100;
+
+  const toMm = (value: number) => Math.max(1, Math.round(value * mmPerUnit));
+  return `${toMm(width)} x ${toMm(height)} x ${toMm(depth)} мм`;
+};
+
 type FinishMode = "raw" | "pro";
-type PreviewMode = "interior" | "ar";
+type PreviewMode = "default" | "interior" | "ar";
 type FormatMode = "digital" | "physical";
+type LightingMode = "lab" | "warm" | "cyber";
+
+const lightingPresets: Array<{ value: LightingMode; label: string }> = [
+  { value: "lab", label: "ЛАБОРАТОРИЯ" },
+  { value: "warm", label: "ТЕПЛЫЙ" },
+  { value: "cyber", label: "КИБЕРПАНК" },
+];
 
 export default function Home() {
   const router = useRouter();
@@ -272,7 +352,8 @@ export default function Home() {
   const [autoRotate, setAutoRotate] = useState(true);
   const [renderMode, setRenderMode] = useState<RenderMode>("final");
   const [finish, setFinish] = useState<FinishMode>("raw");
-  const [preview, setPreview] = useState<PreviewMode>("interior");
+  const [preview, setPreview] = useState<PreviewMode>("default");
+  const [lightingMode, setLightingMode] = useState<LightingMode>("lab");
   const [activeColor, setActiveColor] = useState("#f3f4f6");
   const [format, setFormat] = useState<FormatMode>("digital");
   const [technology, setTechnology] = useState<TechMode>("sla");
@@ -291,8 +372,12 @@ export default function Home() {
   const [scanPulse, setScanPulse] = useState(0);
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [isWorkshopOpen, setWorkshopOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const controlsRef = useRef<any | null>(null);
+  const previousRenderModeRef = useRef<RenderMode>("final");
+  const zoomAnimationRef = useRef<number | null>(null);
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
   const formatLabelForKey = (formatKey: FormatMode) =>
@@ -668,6 +753,11 @@ export default function Home() {
     return filteredProducts.find((product) => product.id === currentModelId) ?? null;
   }, [filteredProducts, currentModelId]);
 
+  const interiorBackgroundUrl = useMemo(
+    () => pickInteriorBackground(currentProduct?.categoryTitles),
+    [currentProduct?.categoryTitles]
+  );
+
   const activeModelUrl = useMemo(() => {
     if (!currentProduct) {
       return null;
@@ -688,12 +778,49 @@ export default function Home() {
     return () => clearTimeout(timeout);
   }, [activeModelUrl, currentProduct]);
 
+  useEffect(() => {
+    setHeroBounds(null);
+  }, [currentModelId]);
+
   const heroName = currentProduct?.name ?? "Нет модели";
-  const heroSku = currentProduct?.sku || currentProduct?.slug || "—";
+  const heroSku = currentProduct?.sku || currentProduct?.slug || "-";
   const heroPriceLabel = formatCurrency(currentProduct?.priceValue ?? null);
   const heroPolyCount = currentProduct?.polyCount ?? null;
   const heroPrintTime = currentProduct?.printTime ?? null;
   const heroScale = currentProduct?.scale ?? null;
+  const isInterior = preview === "interior";
+  const heroDimensions =
+    formatDimensions(heroBounds, currentProduct?.scale ?? null, currentProduct?.modelScale ?? null) ??
+    "-";
+  const isSlaProduct = currentProduct?.techKey === "sla";
+  const hasPaintedModel = Boolean(currentProduct?.paintedModelUrl);
+  const isBaseActive = renderMode === "base";
+  const isWireframeActive = renderMode === "wireframe";
+
+  useEffect(() => {
+    if (!currentProduct || isSlaProduct) {
+      return;
+    }
+    if (renderMode === "base") {
+      setRenderMode("final");
+    }
+    if (finish !== "raw") {
+      setFinish("raw");
+    }
+  }, [currentProduct, finish, isSlaProduct, renderMode]);
+
+  const handleWorkshopPaint = () => {
+    setRenderMode("final");
+    if (hasPaintedModel) {
+      setFinish("pro");
+      return;
+    }
+    setFinish("raw");
+  };
+
+  const handleWorkshopBase = () => {
+    setRenderMode("base");
+  };
   const emptyCategoryMessage = "В этой категории пока нет моделей. Ожидайте пополнения";
   const showHeroStandby = productsError || dataLoading || !currentProduct;
   const heroStandbyMessage = productsError
@@ -788,7 +915,13 @@ export default function Home() {
   };
 
   const toggleRenderMode = (mode: RenderMode) => {
-    setRenderMode((prev) => (prev === mode ? "final" : mode));
+    setRenderMode((prev) => {
+      if (prev === mode) {
+        return previousRenderModeRef.current ?? "final";
+      }
+      previousRenderModeRef.current = prev;
+      return mode;
+    });
   };
 
   const handleZoom = (direction: "in" | "out") => {
@@ -812,9 +945,25 @@ export default function Home() {
       direction === "in"
         ? Math.max(distance - step, minDistance)
         : Math.min(distance + step, maxDistance);
-    offset.normalize().multiplyScalar(nextDistance);
-    camera.position.copy(target).add(offset);
-    controls.update?.();
+    const endPosition = target.clone().add(offset.normalize().multiplyScalar(nextDistance));
+    const startPosition = camera.position.clone();
+    const duration = 260;
+    const startTime = performance.now();
+    if (zoomAnimationRef.current) {
+      cancelAnimationFrame(zoomAnimationRef.current);
+    }
+
+    const animate = (time: number) => {
+      const progress = Math.min((time - startTime) / duration, 1);
+      const eased =
+        progress < 0.5 ? 2 * progress * progress : -1 + (4 - 2 * progress) * progress;
+      camera.position.lerpVectors(startPosition, endPosition, eased);
+      controls.update?.();
+      if (progress < 1) {
+        zoomAnimationRef.current = requestAnimationFrame(animate);
+      }
+    };
+    zoomAnimationRef.current = requestAnimationFrame(animate);
   };
   const standbyMessage = productsError
     ? "System Standby: No Data"
@@ -1025,48 +1174,85 @@ export default function Home() {
                 variants={itemVariants}
                 className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-4 sm:p-6 rim-light"
               >
-                <HUD polyCount={heroPolyCount} printTime={heroPrintTime} scale={heroScale} />
-                  <div className="relative z-10 h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
-                  {showHeroStandby ? (
-                    <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
-                  ) : (
-                    <ErrorBoundary
-                      fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
-                    >
-                      <Experience
-                        autoRotate={autoRotate}
-                        renderMode={renderMode}
-                        finish={finish}
-                        preview={preview}
-                        accentColor={activeColor}
-                        rawModelUrl={currentProduct?.rawModelUrl ?? null}
-                        paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
-                        modelScale={currentProduct?.modelScale ?? null}
-                        controlsRef={controlsRef}
-                      />
-                    </ErrorBoundary>
-                  )}
-                  <AnimatePresence>
-                    {isScanning && !showHeroStandby && (
+                <HUD
+                  polyCount={heroPolyCount}
+                  printTime={heroPrintTime}
+                  scale={heroScale}
+                  dimensions={heroDimensions}
+                />
+                <div className="relative z-10 h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
+                  <AnimatePresence initial={false}>
+                    {isInterior && interiorBackgroundUrl ? (
                       <motion.div
-                        key={scanPulse}
-                        className="pointer-events-none absolute inset-0 z-10"
+                        key={interiorBackgroundUrl}
+                        className="absolute inset-0 z-0 bg-cover bg-center"
+                        style={{
+                          backgroundImage: `url(${interiorBackgroundUrl})`,
+                          filter: "blur(6px) brightness(0.5)",
+                        }}
                         initial={{ opacity: 0 }}
                         animate={{ opacity: 1 }}
                         exit={{ opacity: 0 }}
-                        transition={{ duration: 0.15 }}
+                        transition={{ duration: 0.5 }}
+                      />
+                    ) : (
+                      <motion.div
+                        key="obsidian-grid"
+                        className="absolute inset-0 z-0 bg-[#070707]"
+                        initial={{ opacity: 0 }}
+                        animate={{ opacity: 1 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ duration: 0.5 }}
                       >
-                        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(46,209,255,0.18),transparent_45%,rgba(46,209,255,0.12))]" />
-                        <motion.div
-                          className="absolute left-0 right-0 h-16 bg-[#2ED1FF]/25 blur-sm"
-                          initial={{ y: "-20%" }}
-                          animate={{ y: "120%" }}
-                          transition={{ duration: 0.5, ease: "easeInOut" }}
-                        />
-                        <div className="absolute inset-0 border border-[#2ED1FF]/15" />
+                        <div className="absolute inset-0 cad-grid-pattern opacity-40" />
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.08),transparent_60%)]" />
                       </motion.div>
                     )}
                   </AnimatePresence>
+                  <div className="relative z-10 h-full w-full">
+                    {showHeroStandby ? (
+                      <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
+                    ) : (
+                      <ErrorBoundary
+                        fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
+                      >
+                        <Experience
+                          autoRotate={autoRotate}
+                          renderMode={renderMode}
+                          finish={finish}
+                          preview={preview}
+                          lightingMode={lightingMode}
+                          accentColor={activeColor}
+                          rawModelUrl={currentProduct?.rawModelUrl ?? null}
+                          paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
+                          modelScale={currentProduct?.modelScale ?? null}
+                          controlsRef={controlsRef}
+                          onBounds={setHeroBounds}
+                        />
+                      </ErrorBoundary>
+                    )}
+                    <AnimatePresence>
+                      {isScanning && !showHeroStandby && (
+                        <motion.div
+                          key={scanPulse}
+                          className="pointer-events-none absolute inset-0 z-10"
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          exit={{ opacity: 0 }}
+                          transition={{ duration: 0.15 }}
+                        >
+                          <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(46,209,255,0.18),transparent_45%,rgba(46,209,255,0.12))]" />
+                          <motion.div
+                            className="absolute left-0 right-0 h-16 bg-[#2ED1FF]/25 blur-sm"
+                            initial={{ y: "-20%" }}
+                            animate={{ y: "120%" }}
+                            transition={{ duration: 0.5, ease: "easeInOut" }}
+                          />
+                          <div className="absolute inset-0 border border-[#2ED1FF]/15" />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
                 </div>
                 {canQuickSwitch && (
                   <>
@@ -1130,51 +1316,135 @@ export default function Home() {
                     onClick={() => handleZoom("out")}
                   />
                   <DockButton
-                    active={renderMode === "wireframe"}
-                    label="Сетка"
-                    icon={<Layers className="h-4 w-4" />}
-                    onClick={() => toggleRenderMode("wireframe")}
-                  />
-                  <DockButton
-                    active={renderMode === "base"}
-                    label="Чистый цвет"
-                    icon={<Palette className="h-4 w-4" />}
-                    onClick={() => toggleRenderMode("base")}
-                  />
-                  <DockButton
                     active={preview === "interior"}
                     label="В интерьере"
                     icon={<Scan className="h-4 w-4" />}
-                    onClick={() => setPreview("interior")}
+                    onClick={() =>
+                      setPreview((prev) => (prev === "interior" ? "default" : "interior"))
+                    }
                   />
                   <DockButton
                     active={preview === "ar"}
                     label="AR-просмотр"
                     icon={<Sparkles className="h-4 w-4" />}
-                    onClick={() => setPreview("ar")}
+                    onClick={() =>
+                      setPreview((prev) => (prev === "ar" ? "default" : "ar"))
+                    }
                   />
                   </div>
-                  <div className="order-2 flex flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:text-xs">
-                  <button
-                    className={`rounded-full min-h-[44px] px-3 py-2 sm:min-h-0 sm:px-3 sm:py-1 ${
-                      finish === "raw"
-                        ? "bg-white/15 text-white"
-                        : "text-white/50 hover:text-white"
-                    }`}
-                    onClick={() => setFinish("raw")}
-                  >
-                    База (Серый)
-                  </button>
-                  <button
-                    className={`rounded-full min-h-[44px] px-3 py-2 sm:min-h-0 sm:px-3 sm:py-1 ${
-                      finish === "pro"
-                        ? "bg-white/15 text-white"
-                        : "text-white/50 hover:text-white"
-                    }`}
-                    onClick={() => setFinish("pro")}
-                  >
-                    Мастерская покраска
-                  </button>
+                  <div className="order-2 relative flex flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:text-xs">
+                    <button
+                      type="button"
+                      aria-expanded={isWorkshopOpen}
+                      className={`rounded-full min-h-[44px] px-3 py-2 transition sm:min-h-0 sm:px-3 sm:py-1 ${
+                        isWorkshopOpen
+                          ? "bg-white/15 text-white"
+                          : "text-white/50 hover:text-white"
+                      }`}
+                      onClick={() => setWorkshopOpen((prev) => !prev)}
+                    >
+                      Мастерская
+                    </button>
+                    <AnimatePresence>
+                      {isWorkshopOpen && (
+                        <motion.div
+                          className="absolute bottom-full right-0 z-20 mb-3 w-[320px] min-w-[280px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#0b0b0b]/80 p-6 text-[10px] text-white/70 shadow-2xl backdrop-blur-xl"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 6 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ОСВЕЩЕНИЕ
+                              </p>
+                              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
+                                {lightingPresets.map((option) => {
+                                  const isActive = lightingMode === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                        isActive
+                                          ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                          : "text-white/50 hover:text-white"
+                                      } ${option.value === "lab" ? "col-span-2" : ""}`}
+                                      onClick={() => setLightingMode(option.value)}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ВИД
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                    isWireframeActive
+                                      ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                      : "text-white/50 hover:text-white"
+                                  }`}
+                                  onClick={() => toggleRenderMode("wireframe")}
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                  Сетка
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                    isBaseActive
+                                      ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                      : "text-white/50 hover:text-white"
+                                  }`}
+                                  onClick={() => toggleRenderMode("base")}
+                                >
+                                  <Palette className="h-3.5 w-3.5" />
+                                  Чистый цвет
+                                </button>
+                              </div>
+                            </div>
+                            {isSlaProduct && (
+                              <div className="space-y-2">
+                                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                  МАТЕРИАЛ
+                                </p>
+                                <div className="flex rounded-full bg-white/5 p-1">
+                                  <button
+                                    type="button"
+                                    className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                      isBaseActive
+                                        ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                        : "text-white/50 hover:text-white"
+                                    }`}
+                                    onClick={handleWorkshopBase}
+                                  >
+                                    База (серый)
+                                  </button>
+                                  <button
+                                    type="button"
+                                    className={`flex-1 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                      !isBaseActive
+                                        ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                        : "text-white/50 hover:text-white"
+                                    }`}
+                                    onClick={handleWorkshopPaint}
+                                  >
+                                    Покраска
+                                  </button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </div>
               </motion.div>
@@ -1648,19 +1918,17 @@ type ExperienceProps = {
   renderMode: RenderMode;
   finish: FinishMode;
   preview: PreviewMode;
+  lightingMode: LightingMode;
   accentColor: string;
   rawModelUrl?: string | null;
   paintedModelUrl?: string | null;
   modelScale?: number | null;
   controlsRef: MutableRefObject<any | null>;
+  onBounds?: (bounds: ModelBounds) => void;
 };
 
 type CameraFitterProps = {
-  bounds: {
-    size: number;
-    boxSize: [number, number, number];
-    radius: number;
-  } | null;
+  bounds: ModelBounds | null;
   url: string;
   scale: number;
   controlsRef: MutableRefObject<any | null>;
@@ -1701,18 +1969,16 @@ function Experience({
   renderMode,
   finish,
   preview,
+  lightingMode,
   accentColor,
   rawModelUrl,
   paintedModelUrl,
   modelScale: _modelScale,
   controlsRef,
+  onBounds,
 }: ExperienceProps) {
   const [isMobile, setIsMobile] = useState(false);
-  const [modelBounds, setModelBounds] = useState<{
-    size: number;
-    boxSize: [number, number, number];
-    radius: number;
-  } | null>(null);
+  const [modelBounds, setModelBounds] = useState<ModelBounds | null>(null);
   const [lockedScale, setLockedScale] = useState<number | null>(null);
   const lastModelUrlRef = useRef<string | null>(null);
   const cameraFitRef = useRef<string | null>(null);
@@ -1728,6 +1994,16 @@ function Experience({
   const boxSize = modelBounds?.boxSize ?? [1, 1, 1];
   const shadowScale = Math.max(boxSize[0], boxSize[2]) * finalScale * 1.2;
   const shadowY = 0;
+  const lightingConfig = useMemo(() => {
+    switch (lightingMode) {
+      case "warm":
+        return { preset: "sunset" as const, intensity: 1.6 };
+      case "cyber":
+        return { preset: "night" as const, intensity: 2.2 };
+      default:
+        return { preset: "city" as const, intensity: 2 };
+    }
+  }, [lightingMode]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -1741,35 +2017,43 @@ function Experience({
     return () => media.removeListener(update);
   }, []);
 
-    useEffect(() => {
-      if (modelUrl !== lastModelUrlRef.current) {
-        lastModelUrlRef.current = modelUrl;
-        setLockedScale(null);
-        cameraFitRef.current = null;
-        return;
+  const handleBounds = useCallback(
+    (bounds: ModelBounds) => {
+      setModelBounds(bounds);
+      onBounds?.(bounds);
+    },
+    [onBounds]
+  );
+
+  useEffect(() => {
+    if (modelUrl !== lastModelUrlRef.current) {
+      lastModelUrlRef.current = modelUrl;
+      setLockedScale(null);
+      cameraFitRef.current = null;
+      return;
     }
     if (!modelBounds || lockedScale !== null) {
       return;
-      }
-      setLockedScale(clampedAutoScale);
-    }, [modelUrl, modelBounds, lockedScale, clampedAutoScale]);
+    }
+    setLockedScale(clampedAutoScale);
+  }, [modelUrl, modelBounds, lockedScale, clampedAutoScale]);
 
-    const stopPropagation = (event: { stopPropagation: () => void }) => {
-      event.stopPropagation();
-    };
+  const stopPropagation = (event: { stopPropagation: () => void }) => {
+    event.stopPropagation();
+  };
 
-    return (
-      <Canvas
-        camera={{ position: [5, 5, 5], fov: 42, near: 0.1, far: 1000 }}
-        dpr={isMobile ? [1, 1.5] : [1, 2]}
-        className="h-full w-full"
-        gl={{ antialias: true, alpha: isAR }}
-        style={{ touchAction: "none" }}
-        onPointerDown={stopPropagation}
-        onPointerMove={stopPropagation}
-        onPointerUp={stopPropagation}
-        onWheel={stopPropagation}
-      >
+  return (
+    <Canvas
+      camera={{ position: [5, 5, 5], fov: 42, near: 0.1, far: 1000 }}
+      dpr={isMobile ? [1, 1.5] : [1, 2]}
+      className="h-full w-full"
+      gl={{ antialias: true, alpha: true }}
+      style={{ touchAction: "none" }}
+      onPointerDown={stopPropagation}
+      onPointerMove={stopPropagation}
+      onPointerUp={stopPropagation}
+      onWheel={stopPropagation}
+    >
       <CameraFitter
         bounds={modelBounds}
         url={modelUrl}
@@ -1777,14 +2061,13 @@ function Experience({
         controlsRef={controlsRef}
         cameraFitRef={cameraFitRef}
       />
-      {!isAR && <color attach="background" args={["#070707"]} />}
-        <Stage
-          environment={null}
-          intensity={1}
-          shadows={false}
-          adjustCamera={false}
-          center={{ disable: true }}
-        >
+      <Stage
+        environment={null}
+        intensity={1}
+        shadows={false}
+        adjustCamera={false}
+        center={{ disable: true }}
+      >
         <group scale={finalScale}>
           <ModelView
             rawModelUrl={modelUrl}
@@ -1792,7 +2075,7 @@ function Experience({
             finish={modelFinish}
             renderMode={renderMode}
             accentColor={accentColor}
-            onBounds={setModelBounds}
+            onBounds={handleBounds}
           />
         </group>
       </Stage>
@@ -1804,36 +2087,35 @@ function Experience({
         blur={1.6}
         far={shadowScale * 0.8}
       />
-      {isAR ? (
-        <>
-            <Grid
-              position={[0, 0, 0]}
-              cellSize={0.3}
-            cellThickness={0.6}
-            cellColor="#2ED1FF"
-            sectionSize={Math.max(1.5, shadowScale * 0.6)}
-            sectionThickness={1}
-            sectionColor="#2ED1FF"
-            fadeDistance={Math.max(12, shadowScale * 4)}
-            fadeStrength={1}
-            infiniteGrid
-          />
-          <Environment preset="studio" environmentIntensity={2} />
-        </>
-      ) : (
-        <Environment preset="city" environmentIntensity={2} />
+      {isAR && (
+        <Grid
+          position={[0, 0, 0]}
+          cellSize={0.3}
+          cellThickness={0.6}
+          cellColor="#2ED1FF"
+          sectionSize={Math.max(1.5, shadowScale * 0.6)}
+          sectionThickness={1}
+          sectionColor="#2ED1FF"
+          fadeDistance={Math.max(12, shadowScale * 4)}
+          fadeStrength={1}
+          infiniteGrid
+        />
       )}
+      <Environment
+        preset={lightingConfig.preset}
+        environmentIntensity={lightingConfig.intensity}
+      />
       <OrbitControls
         makeDefault
         autoRotate={autoRotate}
         autoRotateSpeed={isMobile ? 0.35 : isWireframe ? 0.5 : 0.6}
-          rotateSpeed={isMobile ? 0.6 : isWireframe ? 0.8 : 1}
-          enablePan={false}
-          enableDamping
-          dampingFactor={0.05}
-          enableZoom={false}
-          minDistance={2}
-          maxDistance={10}
+        rotateSpeed={isMobile ? 0.6 : isWireframe ? 0.8 : 1}
+        enablePan={false}
+        enableDamping
+        dampingFactor={0.05}
+        enableZoom={false}
+        minDistance={2}
+        maxDistance={10}
         ref={controlsRef}
       />
     </Canvas>
@@ -1844,15 +2126,20 @@ type HUDProps = {
   polyCount?: number | null;
   printTime?: string | null;
   scale?: string | null;
+  dimensions?: string | null;
 };
 
-function HUD({ polyCount, printTime, scale }: HUDProps) {
+function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
   const polyLabel = formatCount(polyCount) ?? "2,452,900";
   const printLabel = printTime || "14h 22m";
   const scaleLabel = scale || "1:1 REAL";
+  const dimensionsLabel = dimensions || "-";
 
   return (
     <div className="absolute left-3 right-3 top-3 z-50 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:grid-cols-1 sm:gap-2 sm:px-4 sm:py-3 sm:text-xs">
+      <div className="col-span-3 text-[9px] tracking-[0.35em] text-white/40">
+        ИНЖЕНЕРНЫЙ ВИД
+      </div>
       <div className="flex flex-col gap-1 text-center text-[#2ED1FF] sm:flex-row sm:items-center sm:gap-2 sm:text-left">
         <span>ПОЛИГОНЫ:</span>
         <span className="text-white">{polyLabel}</span>
@@ -1864,6 +2151,10 @@ function HUD({ polyCount, printTime, scale }: HUDProps) {
       <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
         <span>МАСШТАБ:</span>
         <span className="text-white">{scaleLabel}</span>
+      </div>
+      <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
+        <span>ГАБАРИТЫ:</span>
+        <span className="text-white">{dimensionsLabel}</span>
       </div>
     </div>
   );
