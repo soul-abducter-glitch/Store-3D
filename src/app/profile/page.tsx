@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
@@ -500,9 +500,9 @@ export default function ProfilePage() {
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-white">{lineTotal} ₽</p>
+                      <p className="text-sm font-semibold text-white">{lineTotal} в‚Ѕ</p>
                       <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                        {item.priceLabel} ₽
+                        {item.priceLabel} в‚Ѕ
                       </p>
                     </div>
                     <button
@@ -520,8 +520,8 @@ export default function ProfilePage() {
           </div>
           {cartItems.length > 0 && (
             <div className="mt-3 flex items-center justify-between text-sm text-white/70">
-              <span className="uppercase tracking-[0.2em] text-white/50">Итого</span>
-              <span className="text-base font-semibold text-white">{cartTotalLabel} ₽</span>
+              <span className="uppercase tracking-[0.2em] text-white/50">РС‚РѕРіРѕ</span>
+              <span className="text-base font-semibold text-white">{cartTotalLabel} в‚Ѕ</span>
             </div>
           )}
         </div>
@@ -609,7 +609,7 @@ export default function ProfilePage() {
                             {getOrderStatusLabel(order.status)}
                           </p>
                           {totalLabel && (
-                            <p className="mt-1 text-sm text-white/70">Итого: {totalLabel} ₽</p>
+                            <p className="mt-1 text-sm text-white/70">РС‚РѕРіРѕ: {totalLabel} в‚Ѕ</p>
                           )}
                         </div>
                       </div>
@@ -686,7 +686,7 @@ export default function ProfilePage() {
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
               <form className="space-y-6" onSubmit={handleSettingsSubmit}>
                 <div className="space-y-2">
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
+                  <label className="text-xs uppercase tracking-[0.3em] text-white/50">РРјСЏ</label>
                   <input
                     type="text"
                     defaultValue={user.name || "Демо пользователь"}
@@ -719,7 +719,7 @@ export default function ProfilePage() {
                   </label>
                   <input
                     type="password"
-                    placeholder="••••••••"
+                    placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў"
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>

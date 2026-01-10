@@ -106,6 +106,17 @@ export const Products: CollectionConfig = {
       min: 0,
     },
     {
+      name: "modelScale",
+      type: "number",
+      min: 0.1,
+      max: 10,
+      defaultValue: 1,
+      admin: {
+        position: "sidebar",
+        step: 0.1,
+      },
+    },
+    {
       name: "printTime",
       type: "text",
     },

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
 import Link from "next/link";
@@ -122,7 +122,7 @@ const resolveDeliveryCost = (method?: string) => {
 };
 const paymentOptions = [
   { value: "card", label: "Оплата картой" },
-  { value: "sbp", label: "СБП" },
+  { value: "sbp", label: "РЎР‘Рџ" },
   { value: "cash", label: "Наличными при получении" },
 ];
 
@@ -544,7 +544,7 @@ const CheckoutPage = () => {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2 sm:col-span-2">
-                    <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
+                    <label className="text-xs uppercase tracking-[0.3em] text-white/50">РРјСЏ</label>
                     <input
                       type="text"
                       value={form.name}

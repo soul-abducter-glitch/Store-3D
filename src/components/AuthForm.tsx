@@ -1,4 +1,4 @@
- "use client";
+﻿ "use client";
 
  import { useState, type FormEvent } from "react";
  import { useSearchParams } from "next/navigation";
@@ -137,7 +137,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
       <form onSubmit={handleSubmit} className="space-y-4">
         {mode === "register" && (
           <div className="space-y-2">
-            <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
+            <label className="text-xs uppercase tracking-[0.3em] text-white/50">РРјСЏ</label>
             <input
               type="text"
               required
@@ -169,7 +169,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
-            placeholder="••••••••"
+            placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў"
           />
         </div>
 

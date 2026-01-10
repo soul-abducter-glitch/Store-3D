@@ -1,4 +1,4 @@
-import type { Access, CollectionConfig } from "payload";
+﻿import type { Access, CollectionConfig } from "payload";
 
 const isSelf: Access = ({ req: { user } }) => {
   if (!user) {

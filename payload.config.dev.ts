@@ -2,8 +2,8 @@ import path from "path";
 
 import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
-import { s3Storage } from "@payloadcms/storage-s3";
 import { buildConfig } from "payload";
+import { s3Storage } from "@payloadcms/storage-s3";
 
 import { Categories } from "./src/payload/collections/Categories";
 import { Media } from "./src/payload/collections/Media";
@@ -18,7 +18,6 @@ const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID;
 const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
 const s3Bucket = process.env.S3_BUCKET;
 const s3Endpoint = process.env.S3_ENDPOINT;
-
 const baseCategories = [
   {
     title: "Персонажи",
@@ -219,7 +218,7 @@ export default buildConfig({
   ],
   upload: {
     limits: {
-      fileSize: 100 * 1024 * 1024, // 100MB
+      fileSize: 200 * 1024 * 1024, // 200MB
     },
   },
   collections: [Users, Categories, Media, Products, Orders],

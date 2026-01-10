@@ -1,6 +1,6 @@
-import type { CollectionConfig } from "payload";
+﻿import type { CollectionConfig } from "payload";
 
-import { isAuthenticated } from "../access";
+import { isAuthenticated } from "../access.ts";
 
 const normalizeEmail = (value?: string) => {
   if (!value) return "";

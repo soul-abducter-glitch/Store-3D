@@ -11,7 +11,13 @@ const baseConfig = {
   distDir: isAdminMode ? ".next-admin" : ".next-frontend",
   experimental: {
     serverActions: {
-      bodySizeLimit: "100mb",
+      bodySizeLimit: "200mb",
+    },
+    middlewareClientMaxBodySize: "200mb",
+  },
+  api: {
+    bodyParser: {
+      sizeLimit: "200mb",
     },
   },
 };

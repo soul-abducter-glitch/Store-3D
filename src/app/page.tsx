@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import {
   Component,
@@ -7,12 +7,14 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type MutableRefObject,
   type ReactNode,
 } from "react";
 import { useRouter } from "next/navigation";
-import { Canvas } from "@react-three/fiber";
-import { Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
+import { Canvas, useThree } from "@react-three/fiber";
+import { ContactShadows, Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
 import { AnimatePresence, motion } from "framer-motion";
+import { Vector3 } from "three";
 import {
   CheckCircle2,
   ChevronDown,
@@ -20,6 +22,7 @@ import {
   ChevronRight,
   Layers,
   Menu,
+  Palette,
   RotateCw,
   Scan,
   Search,
@@ -30,8 +33,10 @@ import {
   Upload,
   User,
   X,
+  ZoomIn,
+  ZoomOut,
 } from "lucide-react";
-import ModelView from "@/components/ModelView";
+import ModelView, { RenderMode } from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
 
@@ -82,6 +87,7 @@ type ProductDoc = {
   technology?: string;
   price?: number;
   polyCount?: number;
+  modelScale?: number;
   printTime?: string;
   scale?: string;
   isVerified?: boolean;
@@ -100,6 +106,7 @@ type CatalogProduct = {
   formatKey: FormatMode | null;
   rawModelUrl: string | null;
   paintedModelUrl: string | null;
+  modelScale: number | null;
 };
 
 type CartItem = {
@@ -125,12 +132,31 @@ const normalizeFormat = (value?: string) => {
   return null;
 };
 
-const normalizeTechnology = (value?: string) => {
-  const normalized = value?.toLowerCase() ?? "";
-  if (normalized.includes("sla")) {
+const normalizeTechnology = (value?: unknown) => {
+  if (!value) {
+    return null;
+  }
+  const raw =
+    typeof value === "string"
+      ? value
+      : typeof value === "object" && value !== null
+        ? ((value as { value?: string; label?: string }).value ??
+            (value as { value?: string; label?: string }).label ??
+            "")
+        : "";
+  const normalized = raw.toLowerCase();
+  if (
+    normalized.includes("sla") ||
+    normalized.includes("resin") ||
+    normalized.includes("смол")
+  ) {
     return "sla";
   }
-  if (normalized.includes("fdm")) {
+  if (
+    normalized.includes("fdm") ||
+    normalized.includes("plastic") ||
+    normalized.includes("пласт")
+  ) {
     return "fdm";
   }
   return null;
@@ -142,6 +168,13 @@ const formatPrice = (value?: number) => {
   }
 
   return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const formatCurrency = (value?: number | null) => {
+  if (typeof value !== "number" || Number.isNaN(value)) {
+    return "N/A";
+  }
+  return `₽${formatPrice(value)}`;
 };
 
 const formatCount = (value?: number | null) => {
@@ -175,18 +208,43 @@ const matchesQuery = (value: string, query: string) => {
   return splitTokens(normalized).some((token) => token.startsWith(query));
 };
 
+const MODEL_EXTENSIONS = [".glb", ".gltf", ".stl"];
+
+const isModelAsset = (value: string) =>
+  MODEL_EXTENSIONS.some((ext) => value.toLowerCase().endsWith(ext));
+
+const extractFilename = (value: string) => {
+  const normalized = value.split("?")[0] ?? value;
+  const parts = normalized.replace(/\\/g, "/").split("/");
+  return parts[parts.length - 1] || null;
+};
+
+const buildProxyUrl = (filename: string) =>
+  `/api/media-file/${encodeURIComponent(filename)}`;
+
 const resolveMediaUrl = (value?: MediaDoc | string | null) => {
   if (!value) {
     return null;
   }
+
   if (typeof value === "string") {
+    if (isModelAsset(value)) {
+      const filename = extractFilename(value);
+      return filename ? buildProxyUrl(filename) : value;
+    }
     return value;
   }
+
+  const filename = value.filename ?? null;
+  if (filename && isModelAsset(filename)) {
+    return buildProxyUrl(filename);
+  }
+
   if (value.url) {
     return value.url;
   }
-  if (value.filename) {
-    return `/media/${value.filename}`;
+  if (filename) {
+    return `/media/${filename}`;
   }
   return null;
 };
@@ -212,11 +270,13 @@ export default function Home() {
   const router = useRouter();
   const { toasts, showSuccess, removeToast } = useToast();
   const [autoRotate, setAutoRotate] = useState(true);
-  const [wireframe, setWireframe] = useState(false);
+  const [renderMode, setRenderMode] = useState<RenderMode>("final");
   const [finish, setFinish] = useState<FinishMode>("raw");
   const [preview, setPreview] = useState<PreviewMode>("interior");
+  const [activeColor, setActiveColor] = useState("#f3f4f6");
   const [format, setFormat] = useState<FormatMode>("digital");
   const [technology, setTechnology] = useState<TechMode>("sla");
+  const [verified, setVerified] = useState(true);
   const [activeCategory, setActiveCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
@@ -232,6 +292,7 @@ export default function Home() {
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const controlsRef = useRef<any | null>(null);
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
 
   const formatLabelForKey = (formatKey: FormatMode) =>
@@ -261,7 +322,7 @@ export default function Home() {
     const formatLabel =
       typeof item.formatLabel === "string" ? item.formatLabel : formatLabelForKey(formatKey);
     const priceLabel =
-      typeof item.priceLabel === "string" ? item.priceLabel : formatPrice(priceValue);
+      typeof item.priceLabel === "string" ? item.priceLabel : formatCurrency(priceValue);
     const thumbnailUrl =
       typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : buildCartThumbnail(name);
     const id =
@@ -483,8 +544,10 @@ export default function Home() {
       const rawModelUrl = resolveMediaUrl(product.rawModel ?? null);
       const paintedModelUrl = resolveMediaUrl(product.paintedModel ?? null);
       const priceValue = typeof product.price === "number" ? product.price : null;
-      const priceLabel = formatPrice(product.price);
+      const priceLabel = formatCurrency(product.price);
       const polyCount = typeof product.polyCount === "number" ? product.polyCount : null;
+      const modelScale =
+        typeof product.modelScale === "number" ? product.modelScale : null;
       const printTime = product.printTime ?? null;
       const scale = product.scale ?? null;
 
@@ -498,6 +561,7 @@ export default function Home() {
         price: priceLabel,
         priceValue,
         polyCount,
+        modelScale,
         printTime,
         scale,
         verified: Boolean(product.isVerified),
@@ -519,14 +583,15 @@ export default function Home() {
     );
     const activeItems = activeGroup?.items ?? [];
 
-    return normalizedProducts.filter((product) => {
-      const matchesFormat = product.formatKey === format;
-      const matchesTech = product.techKey === technology;
-      const matchesCategory = activeCategory
-        ? product.categoryTitles.includes(activeCategory) ||
-          (activeItems.length > 0 &&
-            product.categoryTitles.some((title) => activeItems.includes(title)))
-        : true;
+      return normalizedProducts.filter((product) => {
+        const matchesFormat = product.formatKey === format;
+        const matchesTech = product.techKey === technology;
+        const matchesVerified = !verified || product.verified;
+        const matchesCategory = activeCategory
+          ? product.categoryTitles.includes(activeCategory) ||
+            (activeItems.length > 0 &&
+              product.categoryTitles.some((title) => activeItems.includes(title)))
+          : true;
       const matchesSearch =
         !normalizedQuery ||
         [
@@ -535,24 +600,33 @@ export default function Home() {
           product.slug,
           ...product.categoryTitles,
         ].some((value) => value && matchesQuery(String(value), normalizedQuery));
-      return matchesFormat && matchesTech && matchesCategory && matchesSearch;
-    });
-  }, [normalizedProducts, format, technology, activeCategory, sidebarCategories, normalizedQuery]);
+        return matchesFormat && matchesTech && matchesVerified && matchesCategory && matchesSearch;
+      });
+    }, [
+      normalizedProducts,
+      format,
+      technology,
+      verified,
+      activeCategory,
+      sidebarCategories,
+      normalizedQuery,
+    ]);
 
-  const countBasisProducts = useMemo(() => {
-    return normalizedProducts.filter(
-      (product) =>
-        product.formatKey === format &&
-        product.techKey === technology &&
-        (!normalizedQuery ||
-          [
-            product.name,
-            product.sku,
-            product.slug,
-            ...product.categoryTitles,
-          ].some((value) => value && matchesQuery(String(value), normalizedQuery)))
-    );
-  }, [normalizedProducts, format, technology, normalizedQuery]);
+    const countBasisProducts = useMemo(() => {
+      return normalizedProducts.filter(
+        (product) =>
+          product.formatKey === format &&
+          product.techKey === technology &&
+          (!verified || product.verified) &&
+          (!normalizedQuery ||
+            [
+              product.name,
+              product.sku,
+              product.slug,
+              ...product.categoryTitles,
+            ].some((value) => value && matchesQuery(String(value), normalizedQuery)))
+      );
+    }, [normalizedProducts, format, technology, verified, normalizedQuery]);
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -616,8 +690,7 @@ export default function Home() {
 
   const heroName = currentProduct?.name ?? "Нет модели";
   const heroSku = currentProduct?.sku || currentProduct?.slug || "—";
-  const heroPriceLabel =
-    currentProduct?.priceValue != null ? `₽${currentProduct.price}` : "N/A";
+  const heroPriceLabel = formatCurrency(currentProduct?.priceValue ?? null);
   const heroPolyCount = currentProduct?.polyCount ?? null;
   const heroPrintTime = currentProduct?.printTime ?? null;
   const heroScale = currentProduct?.scale ?? null;
@@ -656,7 +729,7 @@ export default function Home() {
   const showSystemStandby = productsError || dataLoading || filteredProducts.length === 0;
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const cartTotal = cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
-  const cartTotalLabel = formatPrice(cartTotal);
+  const cartTotalLabel = formatCurrency(cartTotal);
 
   const addToCart = (product: CatalogProduct) => {
     const priceValue = typeof product.priceValue === "number" ? product.priceValue : 0;
@@ -679,7 +752,7 @@ export default function Home() {
             name: product.name,
             formatKey: resolvedFormatKey,
             formatLabel,
-            priceLabel: product.price || "N/A",
+            priceLabel: formatCurrency(priceValue),
             priceValue,
             quantity: 1,
             thumbnailUrl,
@@ -712,6 +785,36 @@ export default function Home() {
   const handleCheckout = () => {
     setIsCartOpen(false);
     router.push("/checkout");
+  };
+
+  const toggleRenderMode = (mode: RenderMode) => {
+    setRenderMode((prev) => (prev === mode ? "final" : mode));
+  };
+
+  const handleZoom = (direction: "in" | "out") => {
+    const controls = controlsRef.current;
+    const camera = controls?.object;
+    if (!controls || !camera) {
+      return;
+    }
+    const target = controls.target ? controls.target.clone() : new Vector3();
+    const offset = camera.position.clone().sub(target);
+    const distance = offset.length();
+    if (distance === 0) {
+      return;
+    }
+    const minDistance =
+      typeof controls.minDistance === "number" ? controls.minDistance : 2;
+    const maxDistance =
+      typeof controls.maxDistance === "number" ? controls.maxDistance : 10;
+    const step = Math.max(distance * 0.1, 0.25);
+    const nextDistance =
+      direction === "in"
+        ? Math.max(distance - step, minDistance)
+        : Math.min(distance + step, maxDistance);
+    offset.normalize().multiplyScalar(nextDistance);
+    camera.position.copy(target).add(offset);
+    controls.update?.();
   };
   const standbyMessage = productsError
     ? "System Standby: No Data"
@@ -779,16 +882,18 @@ export default function Home() {
               exit={{ x: "-100%" }}
               transition={{ type: "tween", duration: 0.25 }}
             >
-              <Sidebar
-                format={format}
-                onFormatChange={setFormat}
-                technology={technology}
-                onTechnologyChange={setTechnology}
-                categories={sidebarCategories}
-                categoryCounts={categoryCounts}
-                activeCategory={activeCategory}
-                onCategoryChange={setActiveCategory}
-                onRequestClose={() => setIsSidebarOpen(false)}
+                <Sidebar
+                  format={format}
+                  onFormatChange={setFormat}
+                  technology={technology}
+                  onTechnologyChange={setTechnology}
+                  verified={verified}
+                  onVerifiedChange={setVerified}
+                  categories={sidebarCategories}
+                  categoryCounts={categoryCounts}
+                  activeCategory={activeCategory}
+                  onCategoryChange={setActiveCategory}
+                  onRequestClose={() => setIsSidebarOpen(false)}
                 className="h-full w-full overflow-y-auto rounded-none border-r border-white/10 pt-14"
               />
               <button
@@ -896,16 +1001,18 @@ export default function Home() {
       </AnimatePresence>
       <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 sm:pb-24">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr]">
-          <Sidebar
-            format={format}
-            onFormatChange={setFormat}
-            technology={technology}
-            onTechnologyChange={setTechnology}
-            categories={sidebarCategories}
-            categoryCounts={categoryCounts}
-            activeCategory={activeCategory}
-            onCategoryChange={setActiveCategory}
-            className="hidden md:flex"
+            <Sidebar
+              format={format}
+              onFormatChange={setFormat}
+              technology={technology}
+              onTechnologyChange={setTechnology}
+              verified={verified}
+              onVerifiedChange={setVerified}
+              categories={sidebarCategories}
+              categoryCounts={categoryCounts}
+              activeCategory={activeCategory}
+              onCategoryChange={setActiveCategory}
+              className="hidden md:flex"
           />
           <main className="space-y-8 lg:space-y-10">
             <motion.section
@@ -919,7 +1026,7 @@ export default function Home() {
                 className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-4 sm:p-6 rim-light"
               >
                 <HUD polyCount={heroPolyCount} printTime={heroPrintTime} scale={heroScale} />
-                <div className="relative h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
+                  <div className="relative z-10 h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
                   {showHeroStandby ? (
                     <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
                   ) : (
@@ -928,11 +1035,14 @@ export default function Home() {
                     >
                       <Experience
                         autoRotate={autoRotate}
-                        wireframe={wireframe}
+                        renderMode={renderMode}
                         finish={finish}
                         preview={preview}
+                        accentColor={activeColor}
                         rawModelUrl={currentProduct?.rawModelUrl ?? null}
                         paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
+                        modelScale={currentProduct?.modelScale ?? null}
+                        controlsRef={controlsRef}
                       />
                     </ErrorBoundary>
                   )}
@@ -978,14 +1088,14 @@ export default function Home() {
                     </button>
                   </>
                 )}
-                <div className="absolute inset-x-4 bottom-4 flex flex-wrap items-end justify-between gap-3 sm:inset-x-8 sm:bottom-8 sm:gap-4">
+                  <div className="absolute inset-x-4 bottom-4 z-50 flex flex-wrap items-end justify-between gap-3 sm:inset-x-8 sm:bottom-8 sm:gap-4">
                   <div className="order-1 max-w-full sm:max-w-[420px]">
                   <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60 sm:text-sm">
                     TECH_ID: {heroSku}
                   </p>
-                  <h2 className="text-2xl font-bold italic tracking-wide text-white sm:text-3xl lg:text-4xl">
-                    {heroName}
-                  </h2>
+                    <h2 className="text-2xl font-bold italic tracking-wide text-white sm:text-3xl lg:text-4xl">
+                      {heroName}
+                    </h2>
                   <div className="mt-3 flex flex-wrap items-center gap-3 sm:mt-4 sm:gap-4">
                     <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
                       {heroPriceLabel}
@@ -1008,10 +1118,28 @@ export default function Home() {
                     onClick={() => setAutoRotate((prev) => !prev)}
                   />
                   <DockButton
-                    active={wireframe}
+                    active={false}
+                    label="Zoom +"
+                    icon={<ZoomIn className="h-4 w-4" />}
+                    onClick={() => handleZoom("in")}
+                  />
+                  <DockButton
+                    active={false}
+                    label="Zoom -"
+                    icon={<ZoomOut className="h-4 w-4" />}
+                    onClick={() => handleZoom("out")}
+                  />
+                  <DockButton
+                    active={renderMode === "wireframe"}
                     label="Сетка"
                     icon={<Layers className="h-4 w-4" />}
-                    onClick={() => setWireframe((prev) => !prev)}
+                    onClick={() => toggleRenderMode("wireframe")}
+                  />
+                  <DockButton
+                    active={renderMode === "base"}
+                    label="Чистый цвет"
+                    icon={<Palette className="h-4 w-4" />}
+                    onClick={() => toggleRenderMode("base")}
                   />
                   <DockButton
                     active={preview === "interior"}
@@ -1293,14 +1421,16 @@ function Header({
   );
 }
 
-type SidebarProps = {
-  format: FormatMode;
-  onFormatChange: (value: FormatMode) => void;
-  technology: TechMode;
-  onTechnologyChange: (value: TechMode) => void;
-  categories: SidebarCategory[];
-  categoryCounts: Map<string, number>;
-  activeCategory: string;
+  type SidebarProps = {
+    format: FormatMode;
+    onFormatChange: (value: FormatMode) => void;
+    technology: TechMode;
+    onTechnologyChange: (value: TechMode) => void;
+    verified: boolean;
+    onVerifiedChange: (value: boolean) => void;
+    categories: SidebarCategory[];
+    categoryCounts: Map<string, number>;
+    activeCategory: string;
   onCategoryChange: (value: string) => void;
   onRequestClose?: () => void;
   className?: string;
@@ -1311,6 +1441,8 @@ function Sidebar({
   onFormatChange,
   technology,
   onTechnologyChange,
+  verified,
+  onVerifiedChange,
   categories,
   categoryCounts,
   activeCategory,
@@ -1318,7 +1450,6 @@ function Sidebar({
   onRequestClose,
   className,
 }: SidebarProps) {
-  const [verified, setVerified] = useState(true);
   const [openCategory, setOpenCategory] = useState<string>(categories[0]?.title ?? "");
 
   useEffect(() => {
@@ -1347,6 +1478,7 @@ function Sidebar({
         </p>
         <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
           <button
+            type="button"
             className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               technology === "sla"
                 ? "bg-white/15 text-white"
@@ -1357,6 +1489,7 @@ function Sidebar({
             SLA смола
           </button>
           <button
+            type="button"
             className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               technology === "fdm"
                 ? "bg-white/15 text-white"
@@ -1375,6 +1508,7 @@ function Sidebar({
         </p>
         <div className="grid grid-cols-2 gap-2">
           <button
+            type="button"
             className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               format === "digital"
                 ? "bg-[#2ED1FF]/20 text-[#2ED1FF]"
@@ -1385,6 +1519,7 @@ function Sidebar({
             Цифровой STL
           </button>
           <button
+            type="button"
             className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
               format === "physical"
                 ? "bg-[#2ED1FF]/20 text-[#2ED1FF]"
@@ -1397,14 +1532,28 @@ function Sidebar({
         </div>
       </motion.div>
 
-      <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
-        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
-          Категории
-        </p>
-        <div className="space-y-2">
-          {categories?.map((category, categoryIndex) => {
-            const isOpen = openCategory === category.title;
-            return (
+        <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
+          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
+            Категории
+          </p>
+          <div className="space-y-2">
+            <button
+              type="button"
+              className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
+                activeCategory
+                  ? "bg-white/5 text-white/60 hover:text-white"
+                  : "bg-white/10 text-white"
+              }`}
+              onClick={() => {
+                onCategoryChange("");
+                onRequestClose?.();
+              }}
+            >
+              <span>Все категории</span>
+            </button>
+            {categories?.map((category, categoryIndex) => {
+              const isOpen = openCategory === category.title;
+              return (
               <div
                 key={`${category.title}-${categoryIndex}`}
                 className="rounded-2xl bg-white/5 px-3 py-3 sm:px-4 sm:py-3"
@@ -1458,29 +1607,31 @@ function Sidebar({
         </div>
       </motion.div>
 
-      <motion.div
-        variants={itemVariants}
-        className="mt-auto flex items-center justify-between rounded-2xl bg-[#D4AF37]/10 px-3 py-2.5 sm:px-4 sm:py-3"
-      >
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#D4AF37]/20 sm:h-9 sm:w-9">
-            <ShieldCheck className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
-          </div>
-          <div>
-            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/80">
-              ПРОВЕРЕНО_ГОТОВО
-            </p>
-            <p className="text-sm text-white/70">Только проверенные продавцы</p>
-          </div>
-        </div>
-        <button
-          className={`flex h-11 w-16 items-center rounded-full border border-[#D4AF37]/40 p-1 transition ${
-            verified
-              ? "bg-[#D4AF37]/40 shadow-[0_0_16px_rgba(212,175,55,0.5)]"
-              : "bg-white/5"
-          }`}
-          onClick={() => setVerified((prev) => !prev)}
+        <motion.div
+          variants={itemVariants}
+          className="mt-auto flex items-center justify-between gap-3 rounded-2xl bg-[#D4AF37]/10 px-3 py-2.5 sm:px-4 sm:py-3"
         >
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#D4AF37]/20 sm:h-9 sm:w-9">
+              <ShieldCheck className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/80">
+                ПРОВЕРЕНО_ТОВАР
+              </p>
+              <p className="text-sm leading-snug text-white/70">
+                Показывать только проверенные товары
+              </p>
+            </div>
+          </div>
+          <button
+            className={`flex h-11 w-16 shrink-0 items-center rounded-full border border-[#D4AF37]/40 p-1 transition ${
+              verified
+                ? "bg-[#D4AF37]/40 shadow-[0_0_16px_rgba(212,175,55,0.5)]"
+                : "bg-white/5"
+            }`}
+            onClick={() => onVerifiedChange(!verified)}
+          >
           <span
             className={`block h-5 w-5 rounded-full bg-[#D4AF37] transition ${
               verified ? "translate-x-9" : "translate-x-0"
@@ -1494,27 +1645,89 @@ function Sidebar({
 
 type ExperienceProps = {
   autoRotate: boolean;
-  wireframe: boolean;
+  renderMode: RenderMode;
   finish: FinishMode;
   preview: PreviewMode;
+  accentColor: string;
   rawModelUrl?: string | null;
   paintedModelUrl?: string | null;
+  modelScale?: number | null;
+  controlsRef: MutableRefObject<any | null>;
 };
+
+type CameraFitterProps = {
+  bounds: {
+    size: number;
+    boxSize: [number, number, number];
+    radius: number;
+  } | null;
+  url: string;
+  scale: number;
+  controlsRef: MutableRefObject<any | null>;
+  cameraFitRef: MutableRefObject<string | null>;
+};
+
+function CameraFitter({
+  bounds,
+  url,
+  scale,
+  controlsRef,
+  cameraFitRef,
+}: CameraFitterProps) {
+  const { camera } = useThree();
+
+  useEffect(() => {
+    if (!bounds) {
+      return;
+    }
+    const fitKey = `${url}:${scale.toFixed(4)}`;
+    if (cameraFitRef.current === fitKey) {
+      return;
+    }
+    camera.position.set(5, 5, 5);
+    camera.updateProjectionMatrix();
+    if (controlsRef.current?.target) {
+      controlsRef.current.target.set(0, 1.2, 0);
+      controlsRef.current.update?.();
+    }
+    cameraFitRef.current = fitKey;
+  }, [bounds, camera, cameraFitRef, controlsRef, scale, url]);
+
+  return null;
+}
 
 function Experience({
   autoRotate,
-  wireframe,
+  renderMode,
   finish,
   preview,
+  accentColor,
   rawModelUrl,
   paintedModelUrl,
+  modelScale: _modelScale,
+  controlsRef,
 }: ExperienceProps) {
   const [isMobile, setIsMobile] = useState(false);
+  const [modelBounds, setModelBounds] = useState<{
+    size: number;
+    boxSize: [number, number, number];
+    radius: number;
+  } | null>(null);
+  const [lockedScale, setLockedScale] = useState<number | null>(null);
+  const lastModelUrlRef = useRef<string | null>(null);
+  const cameraFitRef = useRef<string | null>(null);
   const isAR = preview === "ar";
   const modelFinish = finish === "pro" ? "Painted" : "Raw";
   const modelUrl = rawModelUrl ?? "/models/DamagedHelmet.glb";
-  const modelScale = isMobile ? 1.3 : 2;
-  const modelPosition: [number, number, number] = isMobile ? [0, -0.45, 0] : [0, -0.6, 0];
+  const isWireframe = renderMode === "wireframe";
+  const targetSize = 3.5;
+  const baseSize = modelBounds?.size ?? targetSize;
+  const autoScale = baseSize > 0 ? targetSize / baseSize : 1;
+  const clampedAutoScale = Math.min(Math.max(autoScale, 0.2), 8);
+  const finalScale = lockedScale ?? clampedAutoScale;
+  const boxSize = modelBounds?.boxSize ?? [1, 1, 1];
+  const shadowScale = Math.max(boxSize[0], boxSize[2]) * finalScale * 1.2;
+  const shadowY = 0;
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -1528,50 +1741,100 @@ function Experience({
     return () => media.removeListener(update);
   }, []);
 
-  return (
-    <Canvas
-      camera={{ position: [2.6, 2.1, 3.1], fov: 42 }}
-      dpr={isMobile ? [1, 1.5] : [1, 2]}
-      className="h-full w-full"
-      gl={{ antialias: true, alpha: isAR }}
-    >
+    useEffect(() => {
+      if (modelUrl !== lastModelUrlRef.current) {
+        lastModelUrlRef.current = modelUrl;
+        setLockedScale(null);
+        cameraFitRef.current = null;
+        return;
+    }
+    if (!modelBounds || lockedScale !== null) {
+      return;
+      }
+      setLockedScale(clampedAutoScale);
+    }, [modelUrl, modelBounds, lockedScale, clampedAutoScale]);
+
+    const stopPropagation = (event: { stopPropagation: () => void }) => {
+      event.stopPropagation();
+    };
+
+    return (
+      <Canvas
+        camera={{ position: [5, 5, 5], fov: 42, near: 0.1, far: 1000 }}
+        dpr={isMobile ? [1, 1.5] : [1, 2]}
+        className="h-full w-full"
+        gl={{ antialias: true, alpha: isAR }}
+        style={{ touchAction: "none" }}
+        onPointerDown={stopPropagation}
+        onPointerMove={stopPropagation}
+        onPointerUp={stopPropagation}
+        onWheel={stopPropagation}
+      >
+      <CameraFitter
+        bounds={modelBounds}
+        url={modelUrl}
+        scale={finalScale}
+        controlsRef={controlsRef}
+        cameraFitRef={cameraFitRef}
+      />
       {!isAR && <color attach="background" args={["#070707"]} />}
-      <Stage environment={null} intensity={1} shadows={false} adjustCamera={false}>
-        <group position={modelPosition} scale={modelScale}>
+        <Stage
+          environment={null}
+          intensity={1}
+          shadows={false}
+          adjustCamera={false}
+          center={{ disable: true }}
+        >
+        <group scale={finalScale}>
           <ModelView
             rawModelUrl={modelUrl}
             paintedModelUrl={paintedModelUrl}
             finish={modelFinish}
-            wireframe={wireframe}
+            renderMode={renderMode}
+            accentColor={accentColor}
+            onBounds={setModelBounds}
           />
         </group>
       </Stage>
+      <ContactShadows
+        key={`shadow-${shadowScale}`}
+        position={[0, shadowY, 0]}
+        scale={shadowScale}
+        opacity={0.6}
+        blur={1.6}
+        far={shadowScale * 0.8}
+      />
       {isAR ? (
         <>
-          <Grid
-            position={[0, -1.4, 0]}
-            cellSize={0.3}
+            <Grid
+              position={[0, 0, 0]}
+              cellSize={0.3}
             cellThickness={0.6}
             cellColor="#2ED1FF"
-            sectionSize={1.5}
+            sectionSize={Math.max(1.5, shadowScale * 0.6)}
             sectionThickness={1}
             sectionColor="#2ED1FF"
-            fadeDistance={12}
+            fadeDistance={Math.max(12, shadowScale * 4)}
             fadeStrength={1}
             infiniteGrid
           />
-          <Environment preset="studio" />
+          <Environment preset="studio" environmentIntensity={2} />
         </>
       ) : (
-        <Environment preset="city" />
+        <Environment preset="city" environmentIntensity={2} />
       )}
       <OrbitControls
+        makeDefault
         autoRotate={autoRotate}
-        autoRotateSpeed={isMobile ? 0.35 : 0.6}
-        rotateSpeed={isMobile ? 0.6 : 1}
-        enablePan={false}
-        minDistance={2.2}
-        maxDistance={6}
+        autoRotateSpeed={isMobile ? 0.35 : isWireframe ? 0.5 : 0.6}
+          rotateSpeed={isMobile ? 0.6 : isWireframe ? 0.8 : 1}
+          enablePan={false}
+          enableDamping
+          dampingFactor={0.05}
+          enableZoom={false}
+          minDistance={2}
+          maxDistance={10}
+        ref={controlsRef}
       />
     </Canvas>
   );
@@ -1589,7 +1852,7 @@ function HUD({ polyCount, printTime, scale }: HUDProps) {
   const scaleLabel = scale || "1:1 REAL";
 
   return (
-    <div className="absolute left-3 right-3 top-3 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:grid-cols-1 sm:gap-2 sm:px-4 sm:py-3 sm:text-xs">
+    <div className="absolute left-3 right-3 top-3 z-50 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:grid-cols-1 sm:gap-2 sm:px-4 sm:py-3 sm:text-xs">
       <div className="flex flex-col gap-1 text-center text-[#2ED1FF] sm:flex-row sm:items-center sm:gap-2 sm:text-left">
         <span>ПОЛИГОНЫ:</span>
         <span className="text-white">{polyLabel}</span>
