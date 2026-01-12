@@ -30,6 +30,30 @@ const normalizeRelationshipId = (value: unknown) => {
   return base;
 };
 
+const normalizePrintSpecs = (value: any) => {
+  if (!value || typeof value !== "object") {
+    return undefined;
+  }
+
+  const dimensionsRaw = value.dimensions;
+  const dimensions =
+    dimensionsRaw && typeof dimensionsRaw === "object"
+      ? {
+          x: Number(dimensionsRaw.x) || 0,
+          y: Number(dimensionsRaw.y) || 0,
+          z: Number(dimensionsRaw.z) || 0,
+        }
+      : undefined;
+
+  return {
+    technology: typeof value.technology === "string" ? value.technology : undefined,
+    material: typeof value.material === "string" ? value.material : undefined,
+    quality: typeof value.quality === "string" ? value.quality : undefined,
+    dimensions,
+    volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
+  };
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayload();
@@ -46,8 +70,19 @@ export async function POST(request: NextRequest) {
           const unitPrice =
             typeof item?.unitPrice === "number" && item.unitPrice >= 0 ? item.unitPrice : 0;
           const format = item?.format === "Physical" ? "Physical" : "Digital";
+          const customerUpload = normalizeRelationshipId(
+            item?.customerUpload ?? item?.customerUploadId ?? item?.customPrint?.uploadId
+          );
+          const printSpecs = normalizePrintSpecs(item?.printSpecs ?? item?.customPrint);
 
-          return { product: productId, quantity, unitPrice, format };
+          return {
+            product: productId,
+            quantity,
+            unitPrice,
+            format,
+            customerUpload: customerUpload ?? undefined,
+            printSpecs,
+          };
         })
         .filter(Boolean) ?? [];
 
@@ -84,6 +119,28 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             error: `Product ${String(item.product)} not found.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    for (const item of items) {
+      if (!item.customerUpload) {
+        continue;
+      }
+      try {
+        await payload.findByID({
+          collection: "media",
+          id: item.customerUpload as any,
+          depth: 0,
+          overrideAccess: true,
+        });
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Customer upload ${String(item.customerUpload)} not found.`,
           },
           { status: 400 }
         );

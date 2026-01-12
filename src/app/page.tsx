@@ -31,7 +31,6 @@ import {
   ShoppingCart,
   Sparkles,
   Trash2,
-  Upload,
   User,
   X,
   ZoomIn,
@@ -115,6 +114,17 @@ type CatalogProduct = {
   modelScale: number | null;
 };
 
+type CustomPrintMeta = {
+  uploadId: string;
+  uploadUrl?: string;
+  uploadName?: string;
+  technology?: string;
+  material?: string;
+  quality?: string;
+  dimensions?: { x: number; y: number; z: number };
+  volumeCm3?: number;
+};
+
 type CartItem = {
   id: string;
   productId: string;
@@ -125,6 +135,7 @@ type CartItem = {
   priceValue: number;
   quantity: number;
   thumbnailUrl: string;
+  customPrint?: CustomPrintMeta | null;
 };
 
 const normalizeFormat = (value?: string) => {
@@ -383,6 +394,44 @@ export default function Home() {
   const formatLabelForKey = (formatKey: FormatMode) =>
     formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
 
+  const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
+    if (!source || typeof source !== "object") {
+      return null;
+    }
+
+    const raw = source.customPrint && typeof source.customPrint === "object" ? source.customPrint : source;
+    const uploadId =
+      typeof raw.uploadId === "string"
+        ? raw.uploadId
+        : typeof raw.customerUploadId === "string"
+          ? raw.customerUploadId
+          : null;
+
+    if (!uploadId) {
+      return null;
+    }
+
+    const dimensions =
+      raw.dimensions && typeof raw.dimensions === "object"
+        ? {
+            x: Number(raw.dimensions.x) || 0,
+            y: Number(raw.dimensions.y) || 0,
+            z: Number(raw.dimensions.z) || 0,
+          }
+        : undefined;
+
+    return {
+      uploadId,
+      uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
+      uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+      technology: typeof raw.technology === "string" ? raw.technology : undefined,
+      material: typeof raw.material === "string" ? raw.material : undefined,
+      quality: typeof raw.quality === "string" ? raw.quality : undefined,
+      dimensions,
+      volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
+    };
+  };
+
   const normalizeStoredItem = (item: any): CartItem | null => {
     if (!item || typeof item !== "object") {
       return null;
@@ -414,6 +463,7 @@ export default function Home() {
       typeof item.id === "string" && item.productId
         ? item.id
         : `${productId}:${formatKey}`;
+    const customPrint = normalizeCustomPrint(item);
 
     return {
       id,
@@ -425,6 +475,7 @@ export default function Home() {
       priceValue,
       quantity,
       thumbnailUrl,
+      customPrint,
     };
   };
 
@@ -1002,7 +1053,6 @@ export default function Home() {
       </div>
       <GlobalHudMarkers />
       <Header
-        onFormatChange={setFormat}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         isSidebarOpen={isSidebarOpen}
@@ -1530,7 +1580,6 @@ export default function Home() {
 }
 
 type HeaderProps = {
-  onFormatChange: (value: FormatMode) => void;
   searchQuery: string;
   onSearchChange: (value: string) => void;
   isSidebarOpen: boolean;
@@ -1540,7 +1589,6 @@ type HeaderProps = {
 };
 
 function Header({
-  onFormatChange,
   searchQuery,
   onSearchChange,
   isSidebarOpen,
@@ -1600,42 +1648,24 @@ function Header({
           variants={itemVariants}
           className="hidden items-center justify-center gap-4 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] md:flex"
         >
-          <button
-            type="button"
-            className="shrink-0 text-white/60 transition hover:text-white"
-            onClick={() => onFormatChange("physical")}
+          <a
+            href="/services/print"
+            className="rounded-full border border-[#2ED1FF] bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.45)] transition hover:border-[#7FE7FF] hover:text-white"
           >
-            Физический магазин
-          </button>
-          <button
-            type="button"
-            className="shrink-0 text-white/60 transition hover:text-white"
-            onClick={() => onFormatChange("digital")}
-          >
-            Цифровая библиотека
-          </button>
-          <div className="flex shrink-0 items-center justify-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2">
-            <button
-              type="button"
-              className="text-white/60 transition hover:text-white"
-              onClick={() => onFormatChange("physical")}
-            >
-              Услуги печати
-            </button>
-            <button
-              type="button"
-              className="flex items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30"
-            >
-              <Upload className="h-3 w-3" />
-              Загрузить файл
-            </button>
-          </div>
+            ПЕЧАТЬ НА ЗАКАЗ
+          </a>
         </motion.nav>
 
         <motion.div
           variants={itemVariants}
           className="flex items-center gap-2 md:justify-end md:gap-3"
         >
+          <a
+            href="/services/print"
+            className="hidden rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-2 text-[8px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] sm:inline-flex md:hidden"
+          >
+            ПЕЧАТЬ НА ЗАКАЗ
+          </a>
           <button
             type="button"
             aria-label="Toggle sidebar"

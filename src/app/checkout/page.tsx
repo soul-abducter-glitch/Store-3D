@@ -19,9 +19,21 @@ type CartItem = {
   priceValue: number;
   quantity: number;
   thumbnailUrl: string;
+  customPrint?: CustomPrintMeta | null;
 };
 
 type CheckoutStep = "form" | "processing";
+
+type CustomPrintMeta = {
+  uploadId: string;
+  uploadUrl?: string;
+  uploadName?: string;
+  technology?: string;
+  material?: string;
+  quality?: string;
+  dimensions?: { x: number; y: number; z: number };
+  volumeCm3?: number;
+};
 
 const formatPrice = (value?: number) => {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -38,6 +50,44 @@ const buildCartThumbnail = (label: string) => {
 
 const formatLabelForKey = (formatKey: "digital" | "physical") =>
   formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
+
+const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+
+  const raw = source.customPrint && typeof source.customPrint === "object" ? source.customPrint : source;
+  const uploadId =
+    typeof raw.uploadId === "string"
+      ? raw.uploadId
+      : typeof raw.customerUploadId === "string"
+        ? raw.customerUploadId
+        : null;
+
+  if (!uploadId) {
+    return null;
+  }
+
+  const dimensions =
+    raw.dimensions && typeof raw.dimensions === "object"
+      ? {
+          x: Number(raw.dimensions.x) || 0,
+          y: Number(raw.dimensions.y) || 0,
+          z: Number(raw.dimensions.z) || 0,
+        }
+      : undefined;
+
+  return {
+    uploadId,
+    uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
+    uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+    technology: typeof raw.technology === "string" ? raw.technology : undefined,
+    material: typeof raw.material === "string" ? raw.material : undefined,
+    quality: typeof raw.quality === "string" ? raw.quality : undefined,
+    dimensions,
+    volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
+  };
+};
 
 const normalizeStoredItem = (item: any): CartItem | null => {
   if (!item || typeof item !== "object") {
@@ -78,6 +128,7 @@ const normalizeStoredItem = (item: any): CartItem | null => {
     typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : buildCartThumbnail(name);
   const id =
     typeof item.id === "string" && item.productId ? item.id : `${productId}:${formatKey}`;
+  const customPrint = normalizeCustomPrint(item);
 
   return {
     id,
@@ -89,6 +140,7 @@ const normalizeStoredItem = (item: any): CartItem | null => {
     priceValue,
     quantity,
     thumbnailUrl,
+    customPrint,
   };
 };
 
@@ -364,6 +416,14 @@ const CheckoutPage = () => {
         format: "Physical" | "Digital";
         quantity: number;
         unitPrice: number;
+        customerUpload?: string;
+        printSpecs?: {
+          technology?: string;
+          material?: string;
+          quality?: string;
+          dimensions?: { x: number; y: number; z: number };
+          volumeCm3?: number;
+        };
       }> = [];
 
       for (const item of cartItems) {
@@ -377,11 +437,24 @@ const CheckoutPage = () => {
           return;
         }
 
+        const customerUpload = item.customPrint?.uploadId;
+        const printSpecs = item.customPrint
+          ? {
+              technology: item.customPrint.technology,
+              material: item.customPrint.material,
+              quality: item.customPrint.quality,
+              dimensions: item.customPrint.dimensions,
+              volumeCm3: item.customPrint.volumeCm3,
+            }
+          : undefined;
+
         items.push({
           product: productIdStr,
           format: item.formatKey === "physical" ? "Physical" : "Digital",
           quantity: item.quantity,
           unitPrice: item.priceValue,
+          customerUpload,
+          printSpecs,
         });
       }
       

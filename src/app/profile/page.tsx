@@ -15,6 +15,18 @@ type CartItem = {
   priceValue: number;
   quantity: number;
   thumbnailUrl: string;
+  customPrint?: CustomPrintMeta | null;
+};
+
+type CustomPrintMeta = {
+  uploadId: string;
+  uploadUrl?: string;
+  uploadName?: string;
+  technology?: string;
+  material?: string;
+  quality?: string;
+  dimensions?: { x: number; y: number; z: number };
+  volumeCm3?: number;
 };
 
 type PurchasedProduct = {
@@ -40,6 +52,44 @@ const buildCartThumbnail = (label: string) => {
 
 const formatLabelForKey = (formatKey: CartItem["formatKey"]) =>
   formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
+
+const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
+  if (!source || typeof source !== "object") {
+    return null;
+  }
+
+  const raw = source.customPrint && typeof source.customPrint === "object" ? source.customPrint : source;
+  const uploadId =
+    typeof raw.uploadId === "string"
+      ? raw.uploadId
+      : typeof raw.customerUploadId === "string"
+        ? raw.customerUploadId
+        : null;
+
+  if (!uploadId) {
+    return null;
+  }
+
+  const dimensions =
+    raw.dimensions && typeof raw.dimensions === "object"
+      ? {
+          x: Number(raw.dimensions.x) || 0,
+          y: Number(raw.dimensions.y) || 0,
+          z: Number(raw.dimensions.z) || 0,
+        }
+      : undefined;
+
+  return {
+    uploadId,
+    uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
+    uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+    technology: typeof raw.technology === "string" ? raw.technology : undefined,
+    material: typeof raw.material === "string" ? raw.material : undefined,
+    quality: typeof raw.quality === "string" ? raw.quality : undefined,
+    dimensions,
+    volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
+  };
+};
 
 const normalizeStoredItem = (item: any): CartItem | null => {
   if (!item || typeof item !== "object") {
@@ -69,6 +119,7 @@ const normalizeStoredItem = (item: any): CartItem | null => {
     typeof item.thumbnailUrl === "string" ? item.thumbnailUrl : buildCartThumbnail(name);
   const id =
     typeof item.id === "string" && item.productId ? item.id : `${productId}:${formatKey}`;
+  const customPrint = normalizeCustomPrint(item);
 
   return {
     id,
@@ -80,6 +131,7 @@ const normalizeStoredItem = (item: any): CartItem | null => {
     priceValue,
     quantity,
     thumbnailUrl,
+    customPrint,
   };
 };
 

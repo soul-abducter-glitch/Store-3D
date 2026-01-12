@@ -1,5 +1,7 @@
 ﻿import type { CollectionConfig } from "payload";
 
+import { isAuthenticated } from "../access";
+
 export const Media: CollectionConfig = {
   slug: "media",
   admin: {
@@ -7,6 +9,9 @@ export const Media: CollectionConfig = {
   },
   access: {
     read: () => true,
+    create: () => true,
+    update: isAuthenticated,
+    delete: isAuthenticated,
   },
   upload: {
     staticDir: "media",
@@ -21,7 +26,10 @@ export const Media: CollectionConfig = {
       "application/gltf+json",
       ".glb",
       ".gltf",
+      ".obj",
       "model/stl",
+      "model/obj",
+      "text/plain",
       "application/octet-stream",
       "application/sla",
       "application/vnd.ms-pki.stl",
@@ -52,5 +60,15 @@ export const Media: CollectionConfig = {
         { label: "Other", value: "other" },
       ],
     },
+    {
+      name: "isCustomerUpload",
+      type: "checkbox",
+      label: "Customer Upload",
+      defaultValue: false,
+      admin: {
+        position: "sidebar",
+      },
+    },
   ],
 };
+

@@ -290,6 +290,43 @@ export const Orders: CollectionConfig = {
           required: true,
           min: 0,
         },
+        {
+          name: "customerUpload",
+          type: "upload",
+          relationTo: "media",
+        },
+        {
+          name: "printSpecs",
+          type: "group",
+          fields: [
+            {
+              name: "technology",
+              type: "text",
+            },
+            {
+              name: "material",
+              type: "text",
+            },
+            {
+              name: "quality",
+              type: "text",
+            },
+            {
+              name: "dimensions",
+              type: "group",
+              fields: [
+                { name: "x", type: "number" },
+                { name: "y", type: "number" },
+                { name: "z", type: "number" },
+              ],
+            },
+            {
+              name: "volumeCm3",
+              type: "number",
+              min: 0,
+            },
+          ],
+        },
       ],
     },
     {

@@ -181,6 +181,55 @@ const ensureBaseCategories = async (payload: any) => {
   }
 };
 
+const ensurePrintServiceProduct = async (payload: any) => {
+  try {
+    const slug = "custom-print-service";
+    const sku = "CUSTOM-PRINT";
+
+    const existing = await payload.find({
+      collection: "products",
+      depth: 0,
+      limit: 1,
+      overrideAccess: true,
+      where: {
+        or: [
+          {
+            slug: {
+              equals: slug,
+            },
+          },
+          {
+            sku: {
+              equals: sku,
+            },
+          },
+        ],
+      },
+    });
+
+    if (existing?.docs?.length) {
+      return;
+    }
+
+    await payload.create({
+      collection: "products",
+      overrideAccess: true,
+      data: {
+        name: "Печать на заказ",
+        slug,
+        sku,
+        price: 0,
+        technology: "SLA Resin",
+        format: "Physical Print",
+        isVerified: true,
+        isFeatured: true,
+      },
+    });
+  } catch (error) {
+    payload.logger?.error({ err: error, msg: "Failed to seed print service product" });
+  }
+};
+
 if (!payloadSecret) {
   throw new Error("PAYLOAD_SECRET is missing");
 }
@@ -220,6 +269,7 @@ export default buildConfig({
   collections: [Users, Categories, Media, Products, Orders],
   onInit: async (payload) => {
     await ensureBaseCategories(payload);
+    await ensurePrintServiceProduct(payload);
   },
   db: postgresAdapter({
     pool: {
