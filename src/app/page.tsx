@@ -18,7 +18,6 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Vector3 } from "three";
 import {
   CheckCircle2,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Layers,
@@ -41,26 +40,7 @@ import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
 import { ORDER_STATUS_UNREAD_KEY } from "@/lib/orderStatus";
 
-const CATEGORY_SHELL = [
-  {
-    title: "Персонажи",
-    items: ["Мужчины", "Женщины", "Фэнтези"],
-  },
-  {
-    title: "Настолки",
-    items: ["Миниатюры", "Монстры", "Сцены"],
-  },
-  {
-    title: "Дом",
-    items: ["Декор", "Органайзеры", "Освещение"],
-  },
-  {
-    title: "Хобби",
-    items: ["Косплей", "Игрушки", "Аксессуары"],
-  },
-];
-
-type TechMode = "sla" | "fdm";
+type TechMode = "SLA Resin" | "FDM Plastic";
 type ModelBounds = {
   size: number;
   boxSize: [number, number, number];
@@ -68,20 +48,22 @@ type ModelBounds = {
 };
 
 type SidebarCategory = {
+  id: string;
   title: string;
-  items: string[];
+  count: number;
 };
 
 type CategoryDoc = {
-  id?: string;
+  id?: string | number;
   title?: string;
-  parent?: string | { id?: string; title?: string } | null;
+  parent?: string | number | { id?: string | number; title?: string } | null;
 };
 
 type MediaDoc = {
   id?: string;
   url?: string;
   filename?: string;
+  thumbnail?: string | null;
 };
 
 type ProductDoc = {
@@ -98,8 +80,11 @@ type ProductDoc = {
   scale?: string;
   isVerified?: boolean;
   isFeatured?: boolean;
-  category?: CategoryDoc | string | null;
-  categories?: CategoryDoc[] | string[] | null;
+  category?: CategoryDoc | string | number | null;
+  categories?:
+    | Array<CategoryDoc | string | number>
+    | { docs?: Array<CategoryDoc | string | number>; data?: Array<CategoryDoc | string | number> }
+    | null;
   rawModel?: MediaDoc | string | null;
   paintedModel?: MediaDoc | string | null;
 };
@@ -113,6 +98,20 @@ type CatalogProduct = {
   rawModelUrl: string | null;
   paintedModelUrl: string | null;
   modelScale: number | null;
+  thumbnailUrl: string;
+  techKey: TechMode | null;
+  tech: string;
+  slug: string;
+  sku: string;
+  type: string;
+  polyCount: number | null;
+  printTime: string | null;
+  scale: string | null;
+  verified: boolean;
+  isFeatured: boolean;
+  categoryTitles: string[];
+  categoryIds: string[];
+  categoryKeys: string[];
 };
 
 type CustomPrintMeta = {
@@ -150,7 +149,7 @@ const normalizeFormat = (value?: string) => {
   return null;
 };
 
-const normalizeTechnology = (value?: unknown) => {
+const normalizeTechnology = (value?: unknown): TechMode | null => {
   if (!value) {
     return null;
   }
@@ -168,14 +167,14 @@ const normalizeTechnology = (value?: unknown) => {
     normalized.includes("resin") ||
     normalized.includes("смол")
   ) {
-    return "sla";
+    return "SLA Resin";
   }
   if (
     normalized.includes("fdm") ||
     normalized.includes("plastic") ||
     normalized.includes("пласт")
   ) {
-    return "fdm";
+    return "FDM Plastic";
   }
   return null;
 };
@@ -205,6 +204,11 @@ const formatCount = (value?: number | null) => {
 const buildCartThumbnail = (label: string) => {
   const shortLabel = label.trim().slice(0, 2).toUpperCase() || "3D";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="160" height="120" rx="24" fill="url(#g)"/><circle cx="120" cy="24" r="28" fill="rgba(46,209,255,0.25)"/><text x="18" y="70" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">${shortLabel}</text></svg>`;
+  return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+const buildProductPlaceholder = () => {
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="280" viewBox="0 0 420 280"><defs><linearGradient id="bg" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#0f172a"/><stop offset="100%" stop-color="#020617"/></linearGradient><linearGradient id="line" x1="0" x2="1" y1="0" y2="0"><stop offset="0%" stop-color="rgba(46,209,255,0)"/><stop offset="50%" stop-color="rgba(46,209,255,0.6)"/><stop offset="100%" stop-color="rgba(46,209,255,0)"/></linearGradient><filter id="blur" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="4" /></filter></defs><rect width="420" height="280" rx="32" fill="url(#bg)"/><g opacity="0.25"><path d="M0 70h420M0 140h420M0 210h420" stroke="rgba(148,163,184,0.35)" stroke-width="1"/><path d="M105 0v280M210 0v280M315 0v280" stroke="rgba(148,163,184,0.35)" stroke-width="1"/></g><g filter="url(#blur)" opacity="0.4"><rect x="80" y="70" width="260" height="140" rx="20" fill="rgba(46,209,255,0.08)"/></g><g fill="none" stroke="url(#line)" stroke-width="2"><path d="M140 90l120 -30 120 60 -120 30 -120 -60z"/><path d="M140 90v90l120 60v-90"/><path d="M260 60v90l120 60v-90"/></g><text x="28" y="36" font-family="JetBrains Mono, Consolas, monospace" font-size="12" fill="rgba(226,232,240,0.55)" letter-spacing="3">WIREFRAME</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
 
@@ -265,6 +269,154 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
     return `/media/${filename}`;
   }
   return null;
+};
+
+const resolveProductThumbnail = (value: MediaDoc | string | null | undefined) => {
+  if (value && typeof value === "object") {
+    const thumbnail = typeof value.thumbnail === "string" ? value.thumbnail : null;
+    if (thumbnail) {
+      return thumbnail;
+    }
+    const url = typeof value.url === "string" ? value.url : null;
+    if (url && /\.(png|jpe?g|webp|gif|avif)$/i.test(url)) {
+      return url;
+    }
+  }
+  if (typeof value === "string" && /\.(png|jpe?g|webp|gif|avif)$/i.test(value)) {
+    return value;
+  }
+  return buildProductPlaceholder();
+};
+
+const resolveCategoryTitle = (
+  value: CategoryDoc | string | number | null | undefined,
+  categoriesById: Map<string, string>
+) => {
+  if (!value) {
+    return null;
+  }
+  const normalizeLabel = (label?: string | null) => label?.trim() ?? null;
+  const resolveById = (rawId?: string | number | null) => {
+    if (rawId === null || rawId === undefined) {
+      return null;
+    }
+    const resolved = categoriesById.get(String(rawId));
+    return resolved ? resolved.trim() : null;
+  };
+
+  if (typeof value === "number") {
+    return resolveById(value);
+  }
+  if (typeof value === "string") {
+    return normalizeLabel(categoriesById.get(value) ?? value);
+  }
+  if (value.title) {
+    return normalizeLabel(value.title);
+  }
+  if (value.id) {
+    return resolveById(value.id);
+  }
+  const fallbackLabel =
+    normalizeLabel(
+      (value as { label?: string; name?: string }).label ??
+        (value as { label?: string; name?: string }).name ??
+        null
+    ) ?? null;
+  if (fallbackLabel) {
+    return fallbackLabel;
+  }
+  if ((value as { _id?: string | number })._id) {
+    return resolveById((value as { _id?: string | number })._id ?? null);
+  }
+  return null;
+};
+
+const normalizeCategoryKey = (value?: string | null) =>
+  value?.trim().toLowerCase() ?? "";
+
+const unwrapCategoryValue = (value?: unknown) => {
+  if (!value || typeof value !== "object") {
+    return value ?? null;
+  }
+  const candidate = (value as { value?: unknown; data?: unknown; doc?: unknown }).value ??
+    (value as { value?: unknown; data?: unknown; doc?: unknown }).data ??
+    (value as { value?: unknown; data?: unknown; doc?: unknown }).doc;
+  return candidate ?? value;
+};
+
+const extractCategoryArray = (
+  value?: unknown
+): Array<CategoryDoc | string | number> => {
+  if (Array.isArray(value)) {
+    return value as Array<CategoryDoc | string | number>;
+  }
+  if (value && typeof value === "object") {
+    const candidate =
+      (value as { docs?: unknown; data?: unknown }).docs ??
+      (value as { docs?: unknown; data?: unknown }).data;
+    if (Array.isArray(candidate)) {
+      return candidate as Array<CategoryDoc | string | number>;
+    }
+  }
+  return [];
+};
+
+const getProductCategoryValues = (product: ProductDoc) => {
+  const values = extractCategoryArray(product.categories);
+  if (product.category) {
+    values.push(product.category);
+  }
+  return values;
+};
+
+const collectCategoryTitles = (product: ProductDoc, categoriesById: Map<string, string>) => {
+  const titles: string[] = [];
+  const addTitle = (value?: CategoryDoc | string | number | null) => {
+    const normalizedValue = unwrapCategoryValue(value) as CategoryDoc | string | number | null;
+    const title = resolveCategoryTitle(normalizedValue ?? null, categoriesById);
+    if (title) {
+      titles.push(title);
+    }
+  };
+
+  getProductCategoryValues(product).forEach((category) => addTitle(category ?? null));
+
+  return Array.from(new Set(titles));
+};
+
+const collectCategoryIds = (product: ProductDoc) => {
+  const ids: string[] = [];
+  const addId = (value?: CategoryDoc | string | number | null) => {
+    const normalizedValue = unwrapCategoryValue(value);
+    if (!normalizedValue) {
+      return;
+    }
+    if (typeof normalizedValue === "number") {
+      ids.push(String(normalizedValue));
+      return;
+    }
+    if (typeof normalizedValue === "string") {
+      ids.push(normalizedValue);
+      return;
+    }
+    if (
+      typeof normalizedValue === "object" &&
+      (normalizedValue as { id?: string | number }).id !== undefined
+    ) {
+      ids.push(String((normalizedValue as { id?: string | number }).id));
+      return;
+    }
+    if (
+      typeof normalizedValue === "object" &&
+      (normalizedValue as { _id?: string | number })._id !== undefined
+    ) {
+      ids.push(String((normalizedValue as { _id?: string | number })._id));
+    }
+  };
+
+  getProductCategoryValues(product).forEach((category) => addId(category ?? null));
+
+  return Array.from(new Set(ids));
 };
 
 const containerVariants = {
@@ -368,8 +520,9 @@ export default function Home() {
   const [lightingMode, setLightingMode] = useState<LightingMode>("lab");
   const [activeColor, setActiveColor] = useState("#f3f4f6");
   const [format, setFormat] = useState<FormatMode>("digital");
-  const [technology, setTechnology] = useState<TechMode>("sla");
-  const [verified, setVerified] = useState(true);
+  const [technology, setTechnology] = useState<TechMode>("SLA Resin");
+  const [verified, setVerified] = useState(false);
+  const [useGlobalCatalog, setUseGlobalCatalog] = useState(false);
   const [activeCategory, setActiveCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
@@ -537,6 +690,20 @@ export default function Home() {
     const controller = new AbortController();
     let isMounted = true;
     const buildApiUrl = (path: string) => `${apiBase}${path}`;
+    const fetchCollection = async (path: string, logRaw = false) => {
+      const response = await fetch(buildApiUrl(path), {
+        signal: controller.signal,
+        cache: "no-store",
+      });
+      if (!response.ok) {
+        throw response;
+      }
+      const data = await response.json();
+      if (logRaw) {
+        console.log("RAW_API_DATA:", (data as { docs?: unknown })?.docs);
+      }
+      return Array.isArray(data) ? data : data?.docs ?? [];
+    };
 
     const fetchData = async () => {
       setDataLoading(true);
@@ -544,12 +711,8 @@ export default function Home() {
       setCategoriesError(false);
 
       const [categoriesResult, productsResult] = await Promise.allSettled([
-        fetch(buildApiUrl("/api/categories?depth=1&limit=200"), {
-          signal: controller.signal,
-        }).then((res) => (res.ok ? res.json() : Promise.reject(res))),
-        fetch(buildApiUrl("/api/products?depth=1&limit=200"), {
-          signal: controller.signal,
-        }).then((res) => (res.ok ? res.json() : Promise.reject(res))),
+        fetchCollection("/api/categories?depth=1&limit=200"),
+        fetchCollection("/api/products?depth=2&limit=200", true),
       ]);
 
       if (!isMounted) {
@@ -557,14 +720,14 @@ export default function Home() {
       }
 
       if (categoriesResult.status === "fulfilled") {
-        setCategoriesData(categoriesResult.value?.docs ?? []);
+        setCategoriesData(categoriesResult.value ?? []);
       } else {
         setCategoriesData([]);
         setCategoriesError(true);
       }
 
       if (productsResult.status === "fulfilled") {
-        setProducts(productsResult.value?.docs ?? []);
+        setProducts(productsResult.value ?? []);
       } else {
         setProducts([]);
         setProductsError(true);
@@ -593,106 +756,44 @@ export default function Home() {
   const categoriesById = useMemo(() => {
     const map = new Map<string, string>();
     categoriesData?.forEach((category) => {
-      if (category?.id && category?.title) {
-        map.set(String(category.id), category.title);
+      const title = category?.title?.trim();
+      if (category?.id && title) {
+        map.set(String(category.id), title);
       }
     });
     return map;
   }, [categoriesData]);
 
-  const sidebarCategories = useMemo<SidebarCategory[]>(() => {
-    const baseTitles = new Set(CATEGORY_SHELL.map((category) => category.title));
-    const childrenByParent = new Map<string, { items: string[]; seen: Set<string> }>();
-
+  const categoryKeyById = useMemo(() => {
+    const map = new Map<string, string>();
     categoriesData?.forEach((category) => {
-      if (!category?.title) {
-        return;
-      }
-
-      let parentTitle: string | null = null;
-      const parent = category.parent;
-      if (typeof parent === "string") {
-        parentTitle = categoriesById.get(parent) ?? null;
-      } else if (typeof parent === "object") {
-        parentTitle =
-          parent?.title ??
-          (parent?.id ? categoriesById.get(String(parent.id)) ?? null : null);
-      }
-
-      if (parentTitle && baseTitles.has(parentTitle)) {
-        const entry =
-          childrenByParent.get(parentTitle) ?? { items: [], seen: new Set<string>() };
-        if (!entry.seen.has(category.title)) {
-          entry.items.push(category.title);
-          entry.seen.add(category.title);
-        }
-        childrenByParent.set(parentTitle, entry);
+      const title = category?.title?.trim();
+      if (category?.id && title) {
+        map.set(String(category.id), normalizeCategoryKey(title));
       }
     });
-
-    const baseCategories = CATEGORY_SHELL.map((category) => {
-      const items = childrenByParent.get(category.title)?.items;
-      return {
-        title: category.title,
-        items: items && items.length > 0 ? items : Array.from(new Set(category.items)),
-      };
-    });
-
-    const extraTitles = new Set<string>();
-    const extraCategories =
-      categoriesData
-        ?.filter((category) => {
-          if (!category?.title) {
-            return false;
-          }
-          if (baseTitles.has(category.title)) {
-            return false;
-          }
-          return !category.parent;
-        })
-        .reduce((acc, category) => {
-          const title = category.title ?? "";
-          if (!title || extraTitles.has(title)) {
-            return acc;
-          }
-          extraTitles.add(title);
-          acc.push({ title, items: [] });
-          return acc;
-        }, [] as SidebarCategory[]) ?? [];
-
-    return [...baseCategories, ...extraCategories.filter((category) => category.title)];
-  }, [categoriesData, categoriesById]);
+    return map;
+  }, [categoriesData]);
 
   const normalizedProducts = useMemo(() => {
     return (products ?? []).map((product) => {
-      const categoryTitles: string[] = [];
-      const addCategoryTitle = (value?: CategoryDoc | string | null) => {
-        if (!value) {
-          return;
-        }
-        if (typeof value === "string") {
-          categoryTitles.push(categoriesById.get(value) ?? value);
-          return;
-        }
-        if (value.title) {
-          categoryTitles.push(value.title);
-          return;
-        }
-        if (value.id) {
-          const title = categoriesById.get(String(value.id));
-          if (title) {
-            categoryTitles.push(title);
-          }
-        }
-      };
-
-      addCategoryTitle(product.category ?? null);
-      if (Array.isArray(product.categories)) {
-        product.categories.forEach((category) => addCategoryTitle(category ?? null));
-      }
-
+      const categoryTitles = collectCategoryTitles(product, categoriesById);
+      const categoryIds = collectCategoryIds(product);
+      const categoryKeys = Array.from(
+        new Set(
+          [
+            ...categoryIds
+              .map((id) => categoryKeyById.get(String(id)) ?? "")
+              .filter(Boolean),
+            ...categoryTitles.map((title) => normalizeCategoryKey(title)).filter(Boolean),
+          ].filter(Boolean)
+        )
+      );
       const formatKey = normalizeFormat(product.format);
       const techKey = normalizeTechnology(product.technology);
+      const techLabel =
+        techKey ??
+        (typeof product.technology === "string" ? product.technology : "Unknown");
       const rawModelUrl = resolveMediaUrl(product.rawModel ?? null);
       const paintedModelUrl = resolveMediaUrl(product.paintedModel ?? null);
       const priceValue = typeof product.price === "number" ? product.price : null;
@@ -702,6 +803,7 @@ export default function Home() {
         typeof product.modelScale === "number" ? product.modelScale : null;
       const printTime = product.printTime ?? null;
       const scale = product.scale ?? null;
+      const thumbnailUrl = resolveProductThumbnail(product.rawModel ?? null);
 
       return {
         id: String(product.id ?? product.name ?? ""),
@@ -709,7 +811,7 @@ export default function Home() {
         slug: product.slug ?? "",
         sku: product.sku ?? "",
         type: product.format ?? (formatKey === "digital" ? "Digital STL" : "Physical Print"),
-        tech: product.technology ?? (techKey === "sla" ? "SLA" : "FDM"),
+        tech: techLabel,
         price: priceLabel,
         priceValue,
         polyCount,
@@ -721,29 +823,25 @@ export default function Home() {
         formatKey,
         techKey,
         categoryTitles,
+        categoryIds,
+        categoryKeys,
         rawModelUrl,
         paintedModelUrl,
+        thumbnailUrl,
       };
     });
-  }, [products, categoriesById]);
+  }, [products, categoriesById, categoryKeyById]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
 
   const filteredProducts = useMemo(() => {
-    const activeGroup = sidebarCategories.find(
-      (category) => category.title === activeCategory
-    );
-    const activeItems = activeGroup?.items ?? [];
-
-      return normalizedProducts.filter((product) => {
-        const matchesFormat = product.formatKey === format;
-        const matchesTech = product.techKey === technology;
-        const matchesVerified = !verified || product.verified;
-        const matchesCategory = activeCategory
-          ? product.categoryTitles.includes(activeCategory) ||
-            (activeItems.length > 0 &&
-              product.categoryTitles.some((title) => activeItems.includes(title)))
-          : true;
+    return normalizedProducts.filter((product) => {
+      const matchesFormat = useGlobalCatalog ? true : product.formatKey === format;
+      const matchesTech = useGlobalCatalog ? true : product.techKey === technology;
+      const matchesVerified = useGlobalCatalog ? true : !verified || product.verified;
+      const matchesCategory = activeCategory
+        ? product.categoryKeys.includes(activeCategory)
+        : true;
       const matchesSearch =
         !normalizedQuery ||
         [
@@ -752,43 +850,70 @@ export default function Home() {
           product.slug,
           ...product.categoryTitles,
         ].some((value) => value && matchesQuery(String(value), normalizedQuery));
-        return matchesFormat && matchesTech && matchesVerified && matchesCategory && matchesSearch;
-      });
-    }, [
-      normalizedProducts,
-      format,
-      technology,
-      verified,
-      activeCategory,
-      sidebarCategories,
-      normalizedQuery,
-    ]);
+      return matchesFormat && matchesTech && matchesVerified && matchesCategory && matchesSearch;
+    });
+  }, [
+    normalizedProducts,
+    format,
+    technology,
+    verified,
+    activeCategory,
+    normalizedQuery,
+    useGlobalCatalog,
+  ]);
 
-    const countBasisProducts = useMemo(() => {
-      return normalizedProducts.filter(
-        (product) =>
-          product.formatKey === format &&
-          product.techKey === technology &&
-          (!verified || product.verified) &&
-          (!normalizedQuery ||
-            [
-              product.name,
-              product.sku,
-              product.slug,
-              ...product.categoryTitles,
-            ].some((value) => value && matchesQuery(String(value), normalizedQuery)))
-      );
-    }, [normalizedProducts, format, technology, verified, normalizedQuery]);
+  const countBasisProducts = useMemo(() => {
+    return normalizedProducts.filter((product) => {
+      const matchesFormat = useGlobalCatalog ? true : product.formatKey === format;
+      const matchesTech = useGlobalCatalog ? true : product.techKey === technology;
+      const matchesVerified = useGlobalCatalog ? true : !verified || product.verified;
+      const matchesSearch =
+        !normalizedQuery ||
+        [
+          product.name,
+          product.sku,
+          product.slug,
+          ...product.categoryTitles,
+        ].some((value) => value && matchesQuery(String(value), normalizedQuery));
+      return matchesFormat && matchesTech && matchesVerified && matchesSearch;
+    });
+  }, [normalizedProducts, format, technology, verified, normalizedQuery, useGlobalCatalog]);
 
-  const categoryCounts = useMemo(() => {
+  const categoryCountsByKey = useMemo(() => {
     const counts = new Map<string, number>();
     countBasisProducts.forEach((product) => {
-      product.categoryTitles.forEach((title) => {
-        counts.set(title, (counts.get(title) ?? 0) + 1);
+      product.categoryKeys.forEach((key) => {
+        counts.set(key, (counts.get(key) ?? 0) + 1);
       });
     });
     return counts;
   }, [countBasisProducts]);
+
+  const sidebarCategories = useMemo<SidebarCategory[]>(() => {
+    const seen = new Set<string>();
+    const items =
+      categoriesData
+        ?.filter((category) => category?.id && category?.title)
+        .map((category) => {
+          const title = category.title?.trim() ?? "";
+          if (!title) {
+            return null;
+          }
+          const dedupeKey = normalizeCategoryKey(title);
+          if (!dedupeKey || seen.has(dedupeKey)) {
+            return null;
+          }
+          seen.add(dedupeKey);
+          return {
+            id: dedupeKey,
+            title,
+            count: categoryCountsByKey.get(dedupeKey) ?? 0,
+          };
+        })
+        .filter((item): item is SidebarCategory => Boolean(item)) ?? [];
+
+    return items.sort((a, b) => a.title.localeCompare(b.title, "ru"));
+  }, [categoriesData, categoryCountsByKey]);
 
   const defaultModelId = useMemo(() => {
     const featured = normalizedProducts.find((product) => product.isFeatured);
@@ -859,7 +984,7 @@ export default function Home() {
   const heroDimensions =
     formatDimensions(heroBounds, currentProduct?.scale ?? null, currentProduct?.modelScale ?? null) ??
     "-";
-  const isSlaProduct = currentProduct?.techKey === "sla";
+  const isSlaProduct = currentProduct?.techKey === "SLA Resin";
   const hasPaintedModel = Boolean(currentProduct?.paintedModelUrl);
   const isBaseActive = renderMode === "base";
   const isWireframeActive = renderMode === "wireframe";
@@ -1099,15 +1224,16 @@ export default function Home() {
               exit={{ x: "-100%" }}
               transition={{ type: "tween", duration: 0.25 }}
             >
-                <Sidebar
-                  format={format}
-                  onFormatChange={setFormat}
-                  technology={technology}
-                  onTechnologyChange={setTechnology}
+              <Sidebar
+                format={format}
+                onFormatChange={setFormat}
+                technology={technology}
+                onTechnologyChange={setTechnology}
                   verified={verified}
                   onVerifiedChange={setVerified}
+                  useGlobalCatalog={useGlobalCatalog}
+                  onGlobalCatalogChange={setUseGlobalCatalog}
                   categories={sidebarCategories}
-                  categoryCounts={categoryCounts}
                   activeCategory={activeCategory}
                   onCategoryChange={setActiveCategory}
                   onRequestClose={() => setIsSidebarOpen(false)}
@@ -1218,18 +1344,19 @@ export default function Home() {
       </AnimatePresence>
       <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 sm:pb-24">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr]">
-            <Sidebar
-              format={format}
-              onFormatChange={setFormat}
-              technology={technology}
-              onTechnologyChange={setTechnology}
+          <Sidebar
+            format={format}
+            onFormatChange={setFormat}
+            technology={technology}
+            onTechnologyChange={setTechnology}
               verified={verified}
               onVerifiedChange={setVerified}
+              useGlobalCatalog={useGlobalCatalog}
+              onGlobalCatalogChange={setUseGlobalCatalog}
               categories={sidebarCategories}
-              categoryCounts={categoryCounts}
               activeCategory={activeCategory}
               onCategoryChange={setActiveCategory}
-              className="hidden md:flex"
+            className="hidden md:flex"
           />
           <main className="space-y-8 lg:space-y-10">
             <motion.section
@@ -1546,46 +1673,14 @@ export default function Home() {
                     variants={containerVariants}
                     className="columns-1 gap-4 md:columns-2 xl:columns-3 sm:gap-6"
                   >
-                    {filteredProducts?.map((card) => {
-                      const isSelected = card.id === currentModelId;
-                      return (
-                        <motion.button
-                          key={card.id}
-                          type="button"
-                          variants={itemVariants}
-                          aria-pressed={isSelected}
-                          onClick={() => setCurrentModelId(card.id)}
-                          className={`mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
-                            isSelected
-                              ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
-                              : "border border-transparent"
-                          }`}
-                        >
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
-                              {card.type}
-                            </p>
-                            <h4 className="mt-3 text-lg font-semibold text-white sm:text-xl">
-                              {card.name}
-                            </h4>
-                            <p className="mt-2 text-[13px] text-white/60 sm:text-sm">{card.tech}</p>
-                          </div>
-                          {card.verified && (
-                            <CheckCircle2 className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
-                          )}
-                        </div>
-                        <div className="mt-4 flex items-center justify-between text-[13px] sm:mt-6 sm:text-sm">
-                          <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
-                            PRICE
-                          </span>
-                          <span className="text-base font-semibold text-white sm:text-lg">
-                            {card.price}
-                          </span>
-                        </div>
-                        </motion.button>
-                      );
-                    })}
+                    {filteredProducts?.map((product) => (
+                      <ProductCard
+                        key={product.id}
+                        product={product}
+                        isSelected={product.id === currentModelId}
+                        onClick={() => setCurrentModelId(product.id)}
+                      />
+                    ))}
                   </motion.div>
                 )}
               </ErrorBoundary>
@@ -1744,16 +1839,17 @@ function Header({
   );
 }
 
-  type SidebarProps = {
-    format: FormatMode;
-    onFormatChange: (value: FormatMode) => void;
-    technology: TechMode;
-    onTechnologyChange: (value: TechMode) => void;
-    verified: boolean;
-    onVerifiedChange: (value: boolean) => void;
-    categories: SidebarCategory[];
-    categoryCounts: Map<string, number>;
-    activeCategory: string;
+type SidebarProps = {
+  format: FormatMode;
+  onFormatChange: (value: FormatMode) => void;
+  technology: TechMode;
+  onTechnologyChange: (value: TechMode) => void;
+  verified: boolean;
+  onVerifiedChange: (value: boolean) => void;
+  useGlobalCatalog: boolean;
+  onGlobalCatalogChange: (value: boolean) => void;
+  categories: SidebarCategory[];
+  activeCategory: string;
   onCategoryChange: (value: string) => void;
   onRequestClose?: () => void;
   className?: string;
@@ -1766,28 +1862,14 @@ function Sidebar({
   onTechnologyChange,
   verified,
   onVerifiedChange,
+  useGlobalCatalog,
+  onGlobalCatalogChange,
   categories,
-  categoryCounts,
   activeCategory,
   onCategoryChange,
   onRequestClose,
   className,
 }: SidebarProps) {
-  const [openCategory, setOpenCategory] = useState<string>(categories[0]?.title ?? "");
-
-  useEffect(() => {
-    if (categories.length === 0) {
-      if (openCategory) {
-        setOpenCategory("");
-      }
-      return;
-    }
-
-    if (!openCategory || !categories.some((category) => category.title === openCategory)) {
-      setOpenCategory(categories[0].title);
-    }
-  }, [categories, openCategory]);
-
   return (
     <motion.aside
       variants={containerVariants}
@@ -1803,24 +1885,24 @@ function Sidebar({
           <button
             type="button"
             className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
-              technology === "sla"
+              technology === "SLA Resin"
                 ? "bg-white/15 text-white"
                 : "text-white/50 hover:text-white"
             }`}
-            onClick={() => onTechnologyChange("sla")}
+            onClick={() => onTechnologyChange("SLA Resin")}
           >
-            SLA смола
+            SLA Resin
           </button>
           <button
             type="button"
             className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
-              technology === "fdm"
+              technology === "FDM Plastic"
                 ? "bg-white/15 text-white"
                 : "text-white/50 hover:text-white"
             }`}
-            onClick={() => onTechnologyChange("fdm")}
+            onClick={() => onTechnologyChange("FDM Plastic")}
           >
-            FDM пластик
+            FDM Plastic
           </button>
         </div>
       </motion.div>
@@ -1855,10 +1937,45 @@ function Sidebar({
         </div>
       </motion.div>
 
-        <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
-          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
-            Категории
-          </p>
+      <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
+              Каталог
+            </p>
+            {useGlobalCatalog && (
+              <span className="rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] text-[#9BE7FF]">
+                GLOBAL
+              </span>
+            )}
+          </div>
+          <span
+            className="flex h-5 w-5 items-center justify-center rounded-full border border-white/10 text-[10px] text-white/40"
+            title="В глобальном режиме игнорируются фильтры технологии, формата и проверки."
+          >
+            ?
+          </span>
+        </div>
+        <button
+          type="button"
+          className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
+            useGlobalCatalog
+              ? "bg-white/10 text-white"
+              : "bg-white/5 text-white/60 hover:text-white"
+          }`}
+          onClick={() => onGlobalCatalogChange(!useGlobalCatalog)}
+        >
+          <span>Показать все модели</span>
+          <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
+            {useGlobalCatalog ? "ON" : "OFF"}
+          </span>
+        </button>
+      </motion.div>
+
+      <motion.div variants={itemVariants} className="space-y-2 sm:space-y-3">
+        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
+          Категории
+        </p>
           <div className="space-y-2">
             <button
               type="button"
@@ -1874,61 +1991,31 @@ function Sidebar({
             >
               <span>Все категории</span>
             </button>
-            {categories?.map((category, categoryIndex) => {
-              const isOpen = openCategory === category.title;
+            {categories?.map((category) => {
+              const isActive = activeCategory === category.id;
               return (
-              <div
-                key={`${category.title}-${categoryIndex}`}
-                className="rounded-2xl bg-white/5 px-3 py-3 sm:px-4 sm:py-3"
-              >
                 <button
-                  className="flex w-full items-center justify-between text-[13px] font-semibold text-white/80 sm:text-sm"
+                  key={category.id}
+                  type="button"
+                  className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
+                    isActive
+                      ? "bg-white/10 text-white"
+                      : "bg-white/5 text-white/60 hover:text-white"
+                  }`}
                   onClick={() => {
-                    const nextOpen = isOpen ? "" : category.title;
-                    setOpenCategory(nextOpen);
-                    onCategoryChange(nextOpen);
+                    onCategoryChange(category.id);
+                    onRequestClose?.();
                   }}
                 >
                   <span>{category.title}</span>
-                  <ChevronDown
-                    className={`h-4 w-4 transition ${
-                      isOpen ? "rotate-180 text-white" : "text-white/50"
-                    }`}
-                  />
+                  <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
+                    [{category.count}]
+                  </span>
                 </button>
-                {isOpen && (
-                  <div className="mt-2.5 space-y-2 text-[13px] text-white/60 sm:mt-3 sm:text-sm">
-                    {category.items?.map((item, itemIndex) => {
-                      const count = categoryCounts.get(item) ?? 0;
-                      const isActive = activeCategory === item;
-                      return (
-                        <button
-                          key={`${category.title}-${item}-${itemIndex}`}
-                          type="button"
-                          className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left transition sm:min-h-0 sm:px-3 ${
-                            isActive
-                              ? "bg-white/10 text-white"
-                              : "bg-white/5 text-white/60 hover:text-white"
-                          }`}
-                          onClick={() => {
-                            onCategoryChange(item);
-                            onRequestClose?.();
-                          }}
-                        >
-                          <span>{item}</span>
-                          <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
-                            [{count}]
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </motion.div>
+              );
+            })}
+          </div>
+        </motion.div>
 
         <motion.div
           variants={itemVariants}
@@ -2295,5 +2382,66 @@ function SystemStandbyPanel({ message, className }: SystemStandbyPanelProps) {
       <div className="pointer-events-none absolute inset-0 cad-grid-pattern opacity-30" />
       <div className="relative">{message}</div>
     </div>
+  );
+}
+
+type ProductCardProps = {
+  product: CatalogProduct;
+  isSelected: boolean;
+  onClick: () => void;
+};
+
+function ProductCard({ product, isSelected, onClick }: ProductCardProps) {
+  const formatLabel =
+    product.formatKey === "digital"
+      ? "DIGITAL STL"
+      : product.formatKey === "physical"
+        ? "PHYSICAL"
+        : product.type.toUpperCase();
+
+  return (
+    <motion.button
+      type="button"
+      variants={itemVariants}
+      aria-pressed={isSelected}
+      onClick={onClick}
+      className={`mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
+        isSelected
+          ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
+          : "border border-transparent"
+      }`}
+    >
+      <div className="relative mb-4 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+        <img
+          src={product.thumbnailUrl}
+          alt={product.name}
+          loading="lazy"
+          className="h-36 w-full object-cover sm:h-40"
+        />
+        <span className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)]">
+          {formatLabel}
+        </span>
+      </div>
+      <div className="flex items-start justify-between">
+        <div>
+          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
+            {formatLabel}
+          </p>
+          <h4 className="mt-3 text-lg font-semibold text-white sm:text-xl">
+            {product.name}
+          </h4>
+          <p className="mt-2 text-[13px] text-white/60 sm:text-sm">{product.tech}</p>
+        </div>
+        {product.verified && (
+          <CheckCircle2 className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
+        )}
+      </div>
+      <div className="mt-4 flex items-center justify-between text-[13px] sm:mt-6 sm:text-sm">
+        <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
+          PRICE
+        </span>
+        <span className="text-base font-semibold text-white sm:text-lg">{product.price}</span>
+      </div>
+    </motion.button>
   );
 }
