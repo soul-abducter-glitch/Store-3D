@@ -4,6 +4,14 @@ import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
 import { ArrowLeft, Download, LogOut, Package, Settings, ShoppingCart, Trash2, User } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
+import {
+  ORDER_PROGRESS_STEPS,
+  ORDER_STATUS_UNREAD_KEY,
+  getOrderProgressStage,
+  getOrderStatusLabel,
+  getOrderStatusTone,
+  normalizeOrderStatus,
+} from "@/lib/orderStatus";
 
 type CartItem = {
   id: string;
@@ -153,6 +161,7 @@ export default function ProfilePage() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartItemCount, setCartItemCount] = useState(0);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
   const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
 
   useEffect(() => {
@@ -204,6 +213,17 @@ export default function ProfilePage() {
   }, [cartItems]);
 
   useEffect(() => {
+    if (activeTab !== "orders") {
+      return;
+    }
+    if (typeof window === "undefined") {
+      return;
+    }
+    window.localStorage.setItem(ORDER_STATUS_UNREAD_KEY, "0");
+    window.dispatchEvent(new Event("order-status-unread"));
+  }, [activeTab]);
+
+  useEffect(() => {
     fetch(`${apiBase}/api/users/me?depth=2`, {
       credentials: "include",
     })
@@ -240,7 +260,15 @@ export default function ProfilePage() {
     let active = true;
     let currentController: AbortController | null = null;
     const params = new URLSearchParams();
-    params.set("where[customer.email][equals]", String(user.email).toLowerCase());
+    const normalizedEmail = user?.email ? String(user.email).toLowerCase() : "";
+    if (user?.id && normalizedEmail) {
+      params.set("where[or][0][user][equals]", String(user.id));
+      params.set("where[or][1][customer.email][equals]", normalizedEmail);
+    } else if (user?.id) {
+      params.set("where[user][equals]", String(user.id));
+    } else if (normalizedEmail) {
+      params.set("where[customer.email][equals]", normalizedEmail);
+    }
     params.set("depth", "2");
     params.set("limit", "20");
 
@@ -356,18 +384,52 @@ export default function ProfilePage() {
     return getOrderFormatLabel(items[0]?.format);
   };
 
-  const getOrderStatusLabel = (status?: string) => {
-    if (status === "Paid") return "Оплачено";
-    if (status === "Printing") return "В печати";
-    if (status === "Shipped") return "Отправлено";
-    return "В обработке";
+  const getOrderStatusClass = (status?: string) => getOrderStatusTone(status);
+
+  const canCancelOrder = (status?: string | null) => {
+    const key = normalizeOrderStatus(status);
+    return key !== "ready" && key !== "completed" && key !== "cancelled";
   };
 
-  const getOrderStatusClass = (status?: string) => {
-    if (status === "Paid") return "text-emerald-400";
-    if (status === "Shipped") return "text-emerald-400";
-    if (status === "Printing") return "text-[#2ED1FF]";
-    return "text-white/60";
+  const handleCancelOrder = async (orderId: string) => {
+    if (cancelingOrderId) {
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Отменить заказ? Эта операция необратима.");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    setCancelingOrderId(orderId);
+    setOrdersError(null);
+
+    try {
+      const response = await fetch(`${apiBase}/api/orders/${orderId}`, {
+        method: "PATCH",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ status: "cancelled" }),
+      });
+
+      if (!response.ok) {
+        throw new Error("Failed to cancel order");
+      }
+
+      setOrders((prev) =>
+        prev.map((order) =>
+          String(order.id) === orderId ? { ...order, status: "cancelled" } : order
+        )
+      );
+      window.dispatchEvent(new Event("orders-updated"));
+    } catch {
+      setOrdersError("Не удалось отменить заказ.");
+    } finally {
+      setCancelingOrderId(null);
+    }
   };
 
   const purchasedProducts: PurchasedProduct[] = Array.isArray(user?.purchasedProducts)
@@ -548,13 +610,13 @@ export default function ProfilePage() {
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-white">{item.name}</p>
                       <p className="text-xs text-white/60">
-                        {item.formatLabel} · x{item.quantity}
+                        {item.formatLabel} x{item.quantity}
                       </p>
                     </div>
                     <div className="text-right">
-                      <p className="text-sm font-semibold text-white">{lineTotal} в‚Ѕ</p>
+                      <p className="text-sm font-semibold text-white">{lineTotal} ₽</p>
                       <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                        {item.priceLabel} в‚Ѕ
+                        {item.priceLabel} ₽
                       </p>
                     </div>
                     <button
@@ -572,8 +634,8 @@ export default function ProfilePage() {
           </div>
           {cartItems.length > 0 && (
             <div className="mt-3 flex items-center justify-between text-sm text-white/70">
-              <span className="uppercase tracking-[0.2em] text-white/50">РС‚РѕРіРѕ</span>
-              <span className="text-base font-semibold text-white">{cartTotalLabel} в‚Ѕ</span>
+              <span className="uppercase tracking-[0.2em] text-white/50">Итого</span>
+              <span className="text-base font-semibold text-white">{cartTotalLabel} ₽</span>
             </div>
           )}
         </div>
@@ -636,6 +698,10 @@ export default function ProfilePage() {
                 !ordersError &&
                 orders.map((order) => {
                   const totalLabel = typeof order.total === "number" ? formatPrice(order.total) : null;
+                  const progressStage = getOrderProgressStage(order.status);
+                  const statusKey = normalizeOrderStatus(order.status);
+                  const canCancel = canCancelOrder(statusKey);
+                  const orderId = String(order.id);
                   return (
                     <div
                       key={order.id}
@@ -660,8 +726,43 @@ export default function ProfilePage() {
                           <p className={`mt-2 text-sm font-semibold ${getOrderStatusClass(order.status)}`}>
                             {getOrderStatusLabel(order.status)}
                           </p>
+                          <div className="mt-3">
+                            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-white/40">
+                              {ORDER_PROGRESS_STEPS.map((step, index) => (
+                                <span
+                                  key={step}
+                                  className={index <= progressStage ? "text-[#2ED1FF]" : "text-white/30"}
+                                >
+                                  {step}
+                                </span>
+                              ))}
+                            </div>
+                            <div className="mt-2 grid grid-cols-3 gap-2">
+                              {ORDER_PROGRESS_STEPS.map((step, index) => (
+                                <div
+                                  key={`${step}-bar`}
+                                  className={`h-1.5 rounded-full ${
+                                    index <= progressStage
+                                      ? "bg-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.6)]"
+                                      : "bg-white/10"
+                                  }`}
+                                />
+                              ))}
+                            </div>
+                          </div>
                           {totalLabel && (
-                            <p className="mt-1 text-sm text-white/70">РС‚РѕРіРѕ: {totalLabel} в‚Ѕ</p>
+                            <p className="mt-1 text-sm text-white/70">Итого: {totalLabel} ₽</p>
+                          )}
+                          {canCancel && (
+                            <button
+                              type="button"
+                              disabled={cancelingOrderId === orderId}
+                              aria-disabled={cancelingOrderId === orderId}
+                              onClick={() => handleCancelOrder(orderId)}
+                              className="mt-3 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-300 transition hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {cancelingOrderId === orderId ? "Отменяем..." : "Отменить заказ"}
+                            </button>
                           )}
                         </div>
                       </div>
@@ -738,7 +839,7 @@ export default function ProfilePage() {
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
               <form className="space-y-6" onSubmit={handleSettingsSubmit}>
                 <div className="space-y-2">
-                  <label className="text-xs uppercase tracking-[0.3em] text-white/50">РРјСЏ</label>
+                  <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
                   <input
                     type="text"
                     defaultValue={user.name || "Демо пользователь"}
@@ -771,7 +872,7 @@ export default function ProfilePage() {
                   </label>
                   <input
                     type="password"
-                    placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў"
+                    placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
@@ -795,3 +896,5 @@ export default function ProfilePage() {
     </div>
   );
 }
+
+

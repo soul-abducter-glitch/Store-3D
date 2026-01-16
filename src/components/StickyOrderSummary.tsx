@@ -63,7 +63,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                 <p className="text-xs text-white/50">x{item.quantity}</p>
               </div>
               <div className="text-right text-sm font-semibold text-white">
-                {formatPrice(item.priceValue * item.quantity)}в‚Ѕ
+                {formatPrice(item.priceValue * item.quantity)}₽
               </div>
             </div>
           ))}
@@ -76,7 +76,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               <Package className="h-4 w-4" />
               Товары
             </span>
-            <span className="font-medium">{formatPrice(subtotal)}в‚Ѕ</span>
+            <span className="font-medium">{formatPrice(subtotal)}₽</span>
           </div>
           
           {deliveryCost > 0 && (
@@ -85,7 +85,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                 <Truck className="h-4 w-4" />
                 Доставка
               </span>
-              <span className="font-medium">{formatPrice(deliveryCost)}в‚Ѕ</span>
+              <span className="font-medium">{formatPrice(deliveryCost)}₽</span>
             </div>
           )}
           
@@ -94,7 +94,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               <CreditCard className="h-5 w-5" />
               Итого
             </span>
-            <span className="text-[#2ED1FF]">{formatPrice(total)}в‚Ѕ</span>
+            <span className="text-[#2ED1FF]">{formatPrice(total)}₽</span>
           </div>
         </div>
 

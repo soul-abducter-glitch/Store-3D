@@ -30,6 +30,11 @@ const normalizeRelationshipId = (value: unknown) => {
   return base;
 };
 
+const normalizeEmail = (value?: string) => {
+  if (!value) return "";
+  return value.trim().toLowerCase();
+};
+
 const normalizePrintSpecs = (value: any) => {
   if (!value || typeof value !== "object") {
     return undefined;
@@ -54,10 +59,31 @@ const normalizePrintSpecs = (value: any) => {
   };
 };
 
+const normalizeOrderStatus = (value?: string) => {
+  if (!value) return "paid";
+  const raw = String(value);
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "paid" || raw === "Paid") return "paid";
+  if (normalized === "accepted" || normalized === "in_progress") return "accepted";
+  if (normalized === "printing" || raw === "Printing") return "printing";
+  if (normalized === "ready" || raw === "Shipped") return "ready";
+  if (normalized === "completed" || normalized === "done") return "completed";
+  if (normalized === "cancelled" || normalized === "canceled") return "cancelled";
+  return "paid";
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayload();
     const data = await request.json();
+    const baseData =
+      data && typeof data === "object"
+        ? (() => {
+            const next = { ...data } as Record<string, unknown>;
+            delete next.user;
+            return next;
+          })()
+        : {};
 
     const rawItems = Array.isArray(data?.items) ? data.items : [];
     const items =
@@ -100,10 +126,38 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const incomingCustomFile = normalizeRelationshipId(data?.customFile);
+    const incomingSpecs = normalizePrintSpecs(data?.technicalSpecs);
     const orderData = {
-      ...data,
+      ...baseData,
       items,
+      status: normalizeOrderStatus(data?.status),
+      customFile: incomingCustomFile ?? undefined,
+      technicalSpecs: incomingSpecs,
     };
+
+    if (!orderData.customFile || !orderData.technicalSpecs) {
+      const firstPrintItem = items.find((item) => item.customerUpload || item.printSpecs);
+      if (firstPrintItem) {
+        if (!orderData.customFile && firstPrintItem.customerUpload) {
+          orderData.customFile = firstPrintItem.customerUpload;
+        }
+        if (!orderData.technicalSpecs && firstPrintItem.printSpecs) {
+          orderData.technicalSpecs = {
+            material: firstPrintItem.printSpecs.material,
+            dimensions: firstPrintItem.printSpecs.dimensions,
+            volumeCm3: firstPrintItem.printSpecs.volumeCm3,
+          };
+        }
+      }
+    }
+
+    const rawCustomerEmail =
+      typeof orderData?.customer?.email === "string" ? orderData.customer.email : "";
+    const customerEmail = normalizeEmail(rawCustomerEmail);
+    if (orderData?.customer && customerEmail) {
+      orderData.customer.email = customerEmail;
+    }
 
     // Verify referenced products exist to avoid relationship validation errors
     for (const item of items) {
@@ -141,6 +195,25 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             error: `Customer upload ${String(item.customerUpload)} not found.`,
+          },
+          { status: 400 }
+        );
+      }
+    }
+
+    if (orderData.customFile) {
+      try {
+        await payload.findByID({
+          collection: "media",
+          id: orderData.customFile as any,
+          depth: 0,
+          overrideAccess: true,
+        });
+      } catch {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Custom file ${String(orderData.customFile)} not found.`,
           },
           { status: 400 }
         );

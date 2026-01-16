@@ -7,9 +7,15 @@ type AuthMode = "login" | "register";
 
 type AuthFormProps = {
   onSuccess?: () => void;
+  redirectOnSuccess?: boolean;
+  redirectTo?: string | null;
 };
 
-export default function AuthForm({ onSuccess }: AuthFormProps) {
+export default function AuthForm({
+  onSuccess,
+  redirectOnSuccess = true,
+  redirectTo = null,
+}: AuthFormProps) {
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -20,6 +26,9 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
   const searchParams = useSearchParams();
 
   const resolveRedirect = () => {
+    if (redirectTo) {
+      return redirectTo;
+    }
     const next = searchParams.get("next");
     
     if (next && next.startsWith("/")) {
@@ -112,7 +121,9 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
       }
 
       onSuccess?.();
-      window.location.assign(resolveRedirect());
+      if (redirectOnSuccess) {
+        window.location.assign(resolveRedirect());
+      }
     } catch (err) {
       setError("Network error. Please try again.");
       setSubmitting(false);
@@ -137,7 +148,9 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
       <form onSubmit={handleSubmit} className="space-y-4">
         {mode === "register" && (
           <div className="space-y-2">
-            <label className="text-xs uppercase tracking-[0.3em] text-white/50">РРјСЏ</label>
+            <label className="text-xs uppercase tracking-[0.3em] text-white/50">
+              {"\u0418\u043c\u044f"}
+            </label>
             <input
               type="text"
               required
@@ -169,7 +182,7 @@ export default function AuthForm({ onSuccess }: AuthFormProps) {
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
-            placeholder="вЂўвЂўвЂўвЂўвЂўвЂўвЂўвЂў"
+            placeholder={"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"}
           />
         </div>
 

@@ -54,6 +54,19 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
   return base;
 };
 
+const normalizeOrderStatus = (value?: string) => {
+  if (!value) return "paid";
+  const raw = String(value);
+  const normalized = raw.trim().toLowerCase();
+  if (normalized === "paid" || raw === "Paid") return "paid";
+  if (normalized === "accepted" || normalized === "in_progress") return "accepted";
+  if (normalized === "printing" || raw === "Printing") return "printing";
+  if (normalized === "ready" || raw === "Shipped") return "ready";
+  if (normalized === "completed" || normalized === "done") return "completed";
+  if (normalized === "cancelled" || normalized === "canceled") return "cancelled";
+  return "paid";
+};
+
 export const Orders: CollectionConfig = {
   slug: "orders",
   admin: {
@@ -67,9 +80,24 @@ export const Orders: CollectionConfig = {
   },
   hooks: {
     beforeChange: [
-      async ({ data, req, operation }) => {
+      async ({ data, req, operation, originalDoc }) => {
         if (operation !== "create" && operation !== "update") {
           return data;
+        }
+
+        const hasStatusUpdate =
+          operation === "update" &&
+          data &&
+          Object.prototype.hasOwnProperty.call(data, "status");
+        if (hasStatusUpdate) {
+          const nextStatus = normalizeOrderStatus(data?.status);
+          const prevStatus = normalizeOrderStatus(originalDoc?.status);
+          if (
+            nextStatus === "cancelled" &&
+            (prevStatus === "ready" || prevStatus === "completed")
+          ) {
+            throw new Error("Нельзя отменить заказ после статуса «Готов к выдаче».");
+          }
         }
 
         const items = Array.isArray(data?.items) ? data.items : [];
@@ -122,6 +150,7 @@ export const Orders: CollectionConfig = {
 
         return {
           ...data,
+          status: normalizeOrderStatus(data?.status),
           items: normalizedItems,
           total,
         };
@@ -155,7 +184,7 @@ export const Orders: CollectionConfig = {
           }
         }
 
-        if (userId && doc.status === "Paid") {
+        if (userId && doc.status === "paid") {
           const digitalProductIds = collectDigitalProductIds(doc.items || [])
             .map(normalizeRelationshipId)
             .filter((id): id is string | number => id !== null);
@@ -330,6 +359,35 @@ export const Orders: CollectionConfig = {
       ],
     },
     {
+      name: "customFile",
+      type: "upload",
+      relationTo: "media",
+    },
+    {
+      name: "technicalSpecs",
+      type: "group",
+      fields: [
+        {
+          name: "material",
+          type: "text",
+        },
+        {
+          name: "dimensions",
+          type: "group",
+          fields: [
+            { name: "x", type: "number" },
+            { name: "y", type: "number" },
+            { name: "z", type: "number" },
+          ],
+        },
+        {
+          name: "volumeCm3",
+          type: "number",
+          min: 0,
+        },
+      ],
+    },
+    {
       name: "total",
       type: "number",
       required: true,
@@ -339,12 +397,14 @@ export const Orders: CollectionConfig = {
       name: "status",
       type: "select",
       required: true,
-      defaultValue: "Pending",
+      defaultValue: "paid",
       options: [
-        { label: "Pending", value: "Pending" },
-        { label: "Paid", value: "Paid" },
-        { label: "Printing", value: "Printing" },
-        { label: "Shipped", value: "Shipped" },
+        { label: "Оплачено / Ожидает проверки", value: "paid" },
+        { label: "Принято в работу", value: "accepted" },
+        { label: "Печатается", value: "printing" },
+        { label: "Готов к выдаче", value: "ready" },
+        { label: "Отменен", value: "cancelled" },
+        { label: "Завершен", value: "completed" },
       ],
     },
   ],

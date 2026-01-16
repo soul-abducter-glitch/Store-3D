@@ -39,6 +39,7 @@ import {
 import ModelView, { RenderMode } from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
+import { ORDER_STATUS_UNREAD_KEY } from "@/lib/orderStatus";
 
 const CATEGORY_SHELL = [
   {
@@ -374,6 +375,7 @@ export default function Home() {
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
+  const [hasUnreadStatus, setHasUnreadStatus] = useState(false);
   const [products, setProducts] = useState<ProductDoc[]>([]);
   const [categoriesData, setCategoriesData] = useState<CategoryDoc[]>([]);
   const [productsError, setProductsError] = useState(false);
@@ -498,6 +500,20 @@ export default function Home() {
     } catch {
       setCartItems([]);
     }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const updateUnread = () => {
+      const raw = window.localStorage.getItem(ORDER_STATUS_UNREAD_KEY);
+      const count = raw ? Number(raw) : 0;
+      setHasUnreadStatus(Number.isFinite(count) && count > 0);
+    };
+    updateUnread();
+    window.addEventListener("order-status-unread", updateUnread);
+    return () => window.removeEventListener("order-status-unread", updateUnread);
   }, []);
 
   useEffect(() => {
@@ -1042,6 +1058,7 @@ export default function Home() {
                 setAuthModalOpen(false);
                 router.push("/profile");
               }}
+              redirectOnSuccess={false}
             />
           </div>
         </div>
@@ -1059,6 +1076,7 @@ export default function Home() {
         onToggleSidebar={handleToggleSidebar}
         cartCount={cartCount}
         onCartToggle={handleToggleCart}
+        hasUnreadStatus={hasUnreadStatus}
       />
       <AnimatePresence>
         {isSidebarOpen && (
@@ -1586,6 +1604,7 @@ type HeaderProps = {
   onToggleSidebar: () => void;
   cartCount: number;
   onCartToggle: () => void;
+  hasUnreadStatus: boolean;
 };
 
 function Header({
@@ -1595,6 +1614,7 @@ function Header({
   onToggleSidebar,
   cartCount,
   onCartToggle,
+  hasUnreadStatus,
 }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -1711,9 +1731,12 @@ function Header({
           <a
             href="/profile"
             aria-label="Профиль"
-            className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
+            className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
           >
             <User className="h-5 w-5" />
+            {hasUnreadStatus && (
+              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
+            )}
           </a>
         </motion.div>
       </motion.div>

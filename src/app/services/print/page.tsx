@@ -6,9 +6,7 @@ import { Canvas } from "@react-three/fiber";
 import { Grid, OrbitControls } from "@react-three/drei";
 import {
   Box3,
-  BoxGeometry,
   Color,
-  EdgesGeometry,
   Group,
   Mesh,
   MeshStandardMaterial,
@@ -19,9 +17,11 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader";
-import { UploadCloud, AlertTriangle, ShoppingCart } from "lucide-react";
+import { UploadCloud, AlertTriangle, ShoppingCart, X } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
+import AuthForm from "@/components/AuthForm";
+import { toast } from "sonner";
 
 type TechMode = "sla" | "fdm";
 type QualityKey = "pro" | "standard";
@@ -34,6 +34,11 @@ type ModelMetrics = {
 
 const BED_SIZE = 200;
 const BASE_FEE = 350;
+const PENDING_CART_KEY = "store3d_pending_print_item";
+const UPLOAD_TIMEOUT_MS = 300_000;
+const PRESIGN_TIMEOUT_MS = 30_000;
+const COMPLETE_TIMEOUT_MS = 120_000;
+const PROGRESS_SEGMENTS = 10;
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
 const ACCEPTED_TYPES = [
@@ -84,6 +89,13 @@ const formatNumber = (value: number, digits = 1) => {
 const formatPrice = (value: number) => {
   const rounded = Math.max(0, Math.round(value));
   return new Intl.NumberFormat("ru-RU").format(rounded);
+};
+
+const buildProgressBar = (progress: number) => {
+  const clamped = Math.max(0, Math.min(100, Math.round(progress)));
+  const filled = Math.round((clamped / 100) * PROGRESS_SEGMENTS);
+  const empty = PROGRESS_SEGMENTS - filled;
+  return `[${"#".repeat(filled)}${"-".repeat(empty)}] ${clamped}%`;
 };
 
 const buildCartThumbnail = (label: string) => {
@@ -264,23 +276,15 @@ const computePreviewScale = (maxSceneDim: number) => {
 };
 
 const PrintBed = () => {
-  const edges = useMemo(() => {
-    const geometry = new BoxGeometry(BED_SIZE, BED_SIZE, BED_SIZE);
-    return new EdgesGeometry(geometry);
-  }, []);
-
   return (
     <group position={[0, BED_SIZE / 2, 0]}>
-      <lineSegments geometry={edges}>
-        <lineBasicMaterial color="#2ED1FF" transparent opacity={0.7} />
-      </lineSegments>
       <mesh
         rotation={[-Math.PI / 2, 0, 0]}
         position={[0, -BED_SIZE / 2 + 0.5, 0]}
         receiveShadow
       >
         <planeGeometry args={[BED_SIZE, BED_SIZE]} />
-        <meshStandardMaterial color="#0a141b" transparent opacity={0.25} />
+        <meshStandardMaterial color="#0a141b" transparent opacity={0.05} />
       </mesh>
     </group>
   );
@@ -290,11 +294,11 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
   return (
     <Canvas
       shadows
+      gl={{ alpha: true, antialias: true }}
       camera={{ position: [280, 170, 340], fov: 40, near: 1, far: 2000 }}
       dpr={[1, 1.5]}
-      className="h-full w-full"
+      className="h-full w-full bg-transparent"
     >
-      <color attach="background" args={["#060708"]} />
       <ambientLight intensity={0.7} />
       <directionalLight
         position={[180, 240, 120]}
@@ -343,10 +347,11 @@ export default function PrintServicePage() {
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [dragActive, setDragActive] = useState(false);
-  const [uploadStatus, setUploadStatus] = useState<"idle" | "analyzing" | "uploading" | "ready">(
-    "idle"
-  );
+  const [uploadStatus, setUploadStatus] = useState<
+    "idle" | "analyzing" | "uploading" | "finalizing" | "ready"
+  >("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
     url?: string;
@@ -360,7 +365,40 @@ export default function PrintServicePage() {
   const [previewScale, setPreviewScale] = useState(1);
   const [serviceProductId, setServiceProductId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
+  const [isAuthModalOpen, setAuthModalOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const isUploadBusy =
+    uploadStatus === "uploading" || uploadStatus === "analyzing" || uploadStatus === "finalizing";
+  const canAddToCart =
+    Boolean(uploadedMedia?.id) &&
+    Boolean(metrics) &&
+    Boolean(serviceProductId) &&
+    uploadStatus === "ready";
+
+  const resolveExistingUpload = async (file: File) => {
+    if (!apiBase) return null;
+    const params = new URLSearchParams();
+    params.set("limit", "1");
+    params.set("depth", "0");
+    params.set("sort", "-createdAt");
+    params.set("where[filename][equals]", file.name);
+    params.set("where[filesize][equals]", String(file.size));
+    params.set("where[isCustomerUpload][equals]", "true");
+
+    try {
+      const response = await fetch(`${apiBase}/api/media?${params.toString()}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return data?.docs?.[0] ?? null;
+    } catch {
+      return null;
+    }
+  };
 
   useEffect(() => {
     const nextMaterials = materialsByTech[technology];
@@ -390,6 +428,16 @@ export default function PrintServicePage() {
       .catch(() => {
         setServiceProductId(null);
       });
+  }, [apiBase]);
+
+  useEffect(() => {
+    fetch(`${apiBase}/api/users/me`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const user = data?.user ?? data?.doc ?? null;
+        setIsLoggedIn(Boolean(user?.id));
+      })
+      .catch(() => setIsLoggedIn(false));
   }, [apiBase]);
 
   const previewMaterials = useMemo(
@@ -457,7 +505,7 @@ export default function PrintServicePage() {
       const hasExtension = ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
       const hasMimeType = file.type ? ACCEPTED_TYPES.includes(file.type) : false;
       if (!hasExtension && !hasMimeType) {
-        setUploadError("Поддерживаются только .stl, .obj, .glb, .gltf");
+        setUploadError("Не удалось разобрать файл.");
         setUploadStatus("idle");
         return;
       }
@@ -467,6 +515,7 @@ export default function PrintServicePage() {
       setModelObject(null);
       setUploadError(null);
       setUploadStatus("analyzing");
+      setUploadProgress(0);
       setPreviewScale(1);
       console.log("Analyzing file:", file.name);
 
@@ -532,56 +581,220 @@ export default function PrintServicePage() {
         return;
       }
 
+      const existingUpload = await resolveExistingUpload(file);
+      if (existingUpload?.id) {
+        console.log("Using existing upload record:", {
+          id: existingUpload.id,
+          filename: existingUpload.filename,
+          url: existingUpload.url,
+        });
+        setUploadedMedia({
+          id: String(existingUpload.id),
+          url: existingUpload.url,
+          filename: existingUpload.filename,
+        });
+        setUploadProgress(100);
+        setUploadStatus("ready");
+        showSuccess("Файл уже загружен, используем сохраненную копию.");
+        return;
+      }
+
       setUploadStatus("uploading");
-      console.log("Uploading file to /api/customer-upload:", file.name);
+      const uploadStartedAt = Date.now();
+      const uploadMeta = { name: file.name, type: file.type, size: file.size };
+      let phase: "upload" | "finalize" = "upload";
+      console.log("Uploading file via presigned URL:", uploadMeta);
 
       try {
-        const formData = new FormData();
-        formData.append("file", file);
-        const response = await fetch("/api/customer-upload", {
-          method: "POST",
-          body: formData,
-        });
-        console.log("Upload response status:", response.status);
+        const presignController = new AbortController();
+        const presignTimeout = window.setTimeout(
+          () => presignController.abort(),
+          PRESIGN_TIMEOUT_MS
+        );
+        let presignResponse: Response;
+        try {
+          presignResponse = await fetch("/api/customer-upload/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filename: file.name,
+              contentType: file.type || "application/octet-stream",
+              size: file.size,
+            }),
+            signal: presignController.signal,
+          });
+        } finally {
+          window.clearTimeout(presignTimeout);
+        }
+        console.log("Presign response status:", presignResponse.status);
 
-        if (!response.ok) {
-          let errorMessage = "Upload failed";
+        if (!presignResponse.ok) {
+          let errorMessage = "Failed to start upload";
           try {
-            const errorData = await response.json();
+            const errorData = await presignResponse.json();
             errorMessage = errorData?.error || errorData?.message || errorMessage;
-            console.warn("Upload error response:", errorData);
+            console.warn("Presign error response:", errorData);
           } catch {
-            const fallbackText = await response.text().catch(() => "");
+            const fallbackText = await presignResponse.text().catch(() => "");
             if (fallbackText) {
               errorMessage = fallbackText;
             }
-            console.warn("Upload error response (text):", fallbackText);
+            console.warn("Presign error response (text):", fallbackText);
           }
           throw new Error(errorMessage);
         }
 
-        const data = await response.json();
-        console.log("Upload success payload:", data);
-        if (!data?.doc?.id) {
+        const presignData = await presignResponse.json();
+        if (!presignData?.uploadUrl || !presignData?.key) {
+          throw new Error("Presign response missing upload data");
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const buildXhrError = (label: string) => {
+            const responseText =
+              typeof xhr.responseText === "string" ? xhr.responseText.slice(0, 800) : "";
+            const error = new Error(`${label} (status ${xhr.status || 0})`);
+            (error as any).details = {
+              status: xhr.status,
+              statusText: xhr.statusText,
+              readyState: xhr.readyState,
+              responseText,
+            };
+            return error;
+          };
+
+          xhr.open("PUT", presignData.uploadUrl, true);
+          xhr.timeout = UPLOAD_TIMEOUT_MS;
+          xhr.setRequestHeader(
+            "Content-Type",
+            presignData.contentType || "application/octet-stream"
+          );
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              setUploadProgress(percent);
+            }
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              setUploadProgress(100);
+              resolve();
+            } else {
+              reject(buildXhrError("Upload failed"));
+            }
+          };
+          xhr.onerror = () => reject(buildXhrError("Upload network error"));
+          xhr.ontimeout = () => reject(buildXhrError("Upload timed out"));
+          xhr.send(file);
+        });
+
+        setUploadStatus("finalizing");
+        phase = "finalize";
+
+        const completeController = new AbortController();
+        const completeTimeout = window.setTimeout(
+          () => completeController.abort(),
+          COMPLETE_TIMEOUT_MS
+        );
+        let completeResponse: Response;
+        try {
+          completeResponse = await fetch("/api/customer-upload/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              key: presignData.key,
+              fileUrl: presignData.fileUrl,
+              filename: file.name,
+              contentType: file.type || "application/octet-stream",
+              size: file.size,
+            }),
+            signal: completeController.signal,
+          });
+        } finally {
+          window.clearTimeout(completeTimeout);
+        }
+
+        if (!completeResponse.ok) {
+          let errorMessage = "Failed to finalize upload";
+          try {
+            const errorData = await completeResponse.json();
+            errorMessage = errorData?.error || errorData?.message || errorMessage;
+            console.warn("Complete error response:", errorData);
+          } catch {
+            const fallbackText = await completeResponse.text().catch(() => "");
+            if (fallbackText) {
+              errorMessage = fallbackText;
+            }
+            console.warn("Complete error response (text):", fallbackText);
+          }
+          throw new Error(errorMessage);
+        }
+
+        const completeData = await completeResponse.json();
+        console.log("Upload success payload:", completeData, {
+          ms: Date.now() - uploadStartedAt,
+        });
+        if (!completeData?.doc?.id) {
           throw new Error("Upload failed");
         }
 
         setUploadedMedia({
-          id: String(data.doc.id),
-          url: data.doc.url,
-          filename: data.doc.filename,
+          id: String(completeData.doc.id),
+          url: completeData.doc.url,
+          filename: completeData.doc.filename,
         });
         setUploadStatus("ready");
       } catch (error) {
+        if ((error as any)?.name === "AbortError") {
+          console.warn("Upload aborted (timeout)", {
+            ...uploadMeta,
+            ms: Date.now() - uploadStartedAt,
+            phase,
+          });
+          if (phase === "finalize") {
+            const existing = await resolveExistingUpload(file);
+            if (existing?.id) {
+              setUploadedMedia({
+                id: String(existing.id),
+                url: existing.url,
+                filename: existing.filename,
+              });
+              setUploadStatus("ready");
+              return;
+            }
+          }
+          setUploadError(
+            phase === "finalize"
+              ? "Сохранение в базе заняло слишком много времени. Попробуйте обновить страницу."
+              : "Загрузка заняла слишком много времени. Попробуйте снова."
+          );
+          setUploadStatus("idle");
+          return;
+        }
         const message =
           error instanceof Error && error.message
             ? error.message
             : "Не удалось загрузить файл в систему.";
+        const errorInfo =
+          error instanceof Error
+            ? {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+                details: (error as any)?.details,
+              }
+            : { error };
+        console.error("Upload failed", {
+          ...uploadMeta,
+          ms: Date.now() - uploadStartedAt,
+          ...errorInfo,
+        });
         setUploadError(message);
         setUploadStatus("idle");
       }
     },
-    [previewMaterials, previewMode]
+    [apiBase, previewMaterials, previewMode, resolveExistingUpload, showSuccess]
   );
 
   useEffect(() => {
@@ -612,38 +825,51 @@ export default function PrintServicePage() {
     event.currentTarget.value = "";
   };
 
-  const handleAddToCart = async () => {
-    if (!uploadedMedia?.id || !metrics || !serviceProductId) {
-      showError("Загрузите файл и дождитесь анализа.");
-      return;
-    }
+  const buildCartItem = () => ({
+    id: `custom-print:${uploadedMedia?.id ?? "pending"}`,
+    productId: serviceProductId ?? "",
+    name: "Печать на заказ",
+    formatKey: "physical" as const,
+    formatLabel: "Печатная модель",
+    priceLabel: `${formatPrice(price)} ₽`,
+    priceValue: Math.round(price),
+    quantity: 1,
+    thumbnailUrl: buildCartThumbnail("Печать"),
+    customPrint: {
+      uploadId: uploadedMedia?.id ?? "",
+      uploadUrl: uploadedMedia?.url,
+      uploadName: uploadedMedia?.filename,
+      technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
+      material,
+      quality: quality === "pro" ? "0.05mm" : "0.1mm",
+      dimensions: metrics?.size,
+      volumeCm3: metrics?.volumeCm3,
+    },
+  });
 
-    setIsAdding(true);
+  const persistPendingCart = (item: ReturnType<typeof buildCartItem>) => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(PENDING_CART_KEY, JSON.stringify(item));
+  };
 
-    const cartItem = {
-      id: `custom-print:${uploadedMedia.id}`,
-      productId: serviceProductId,
-      name: "Печать на заказ",
-      formatKey: "physical",
-      formatLabel: "Печатная модель",
-      priceLabel: `${formatPrice(price)} ₽`,
-      priceValue: Math.round(price),
-      quantity: 1,
-      thumbnailUrl: buildCartThumbnail("Печать"),
-      customPrint: {
-        uploadId: uploadedMedia.id,
-        uploadUrl: uploadedMedia.url,
-        uploadName: uploadedMedia.filename,
-        technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
-        material,
-        quality: quality === "pro" ? "0.05mm" : "0.1mm",
-        dimensions: metrics.size,
-        volumeCm3: metrics.volumeCm3,
-      },
-    };
-
+  const consumePendingCart = () => {
+    if (typeof window === "undefined") return null;
+    const raw = window.localStorage.getItem(PENDING_CART_KEY);
+    if (!raw) return null;
     try {
-      const stored = typeof window !== "undefined" ? window.localStorage.getItem("store3d_cart") : null;
+      const parsed = JSON.parse(raw);
+      window.localStorage.removeItem(PENDING_CART_KEY);
+      return parsed;
+    } catch {
+      window.localStorage.removeItem(PENDING_CART_KEY);
+      return null;
+    }
+  };
+
+  const commitCartItem = (cartItem: ReturnType<typeof buildCartItem>) => {
+    try {
+      const stored =
+        typeof window !== "undefined" ? window.localStorage.getItem("store3d_cart") : null;
       const parsed = stored ? JSON.parse(stored) : [];
       const items = Array.isArray(parsed) ? parsed : [];
       const existingIndex = items.findIndex((item: any) => item.id === cartItem.id);
@@ -654,11 +880,67 @@ export default function PrintServicePage() {
       }
       window.localStorage.setItem("store3d_cart", JSON.stringify(items));
       window.dispatchEvent(new CustomEvent("cart-updated"));
-      showSuccess("Файл добавлен в корзину.");
+      return true;
     } catch {
+      return false;
+    }
+  };
+
+  const handleAddToCart = async () => {
+    if (isUploadBusy) {
+      showError(
+        uploadStatus === "analyzing"
+          ? "Дождитесь завершения анализа модели."
+          : "Дождитесь завершения загрузки модели."
+      );
+      return;
+    }
+
+    if (!uploadedMedia?.id || !metrics) {
+      showError("Загрузите файл и дождитесь анализа.");
+      return;
+    }
+
+    if (!serviceProductId) {
+      showError("Сервисный продукт пока недоступен. Обновите страницу через пару секунд.");
+      return;
+    }
+
+    const cartItem = buildCartItem();
+
+    if (!isLoggedIn) {
+      persistPendingCart(cartItem);
+      const success = commitCartItem(cartItem);
+      if (success) {
+        showSuccess("Файл добавлен в корзину. Войдите, чтобы оформить заказ.");
+      } else {
+        showError("Не удалось обновить корзину.");
+      }
+      setAuthModalOpen(true);
+      return;
+    }
+
+    setIsAdding(true);
+    const success = commitCartItem(cartItem);
+    if (success) {
+      showSuccess("Файл добавлен в корзину.");
+    } else {
       showError("Не удалось обновить корзину.");
-    } finally {
-      setIsAdding(false);
+    }
+    setIsAdding(false);
+  };
+
+  const handleAuthSuccess = () => {
+    setIsLoggedIn(true);
+    setAuthModalOpen(false);
+    const pending = consumePendingCart();
+    if (pending) {
+      const success = commitCartItem(pending);
+      if (success) {
+        toast.success("Заявка сохранена в корзине", {
+          className: "sonner-toast",
+        });
+      }
     }
   };
 
@@ -671,6 +953,21 @@ export default function PrintServicePage() {
       </div>
 
       <ToastContainer toasts={toasts} onRemove={removeToast} position="top-right" />
+      {isAuthModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
+          <div className="relative w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b0b0b] p-6 shadow-2xl">
+            <button
+              type="button"
+              aria-label="Close auth modal"
+              className="absolute right-4 top-4 text-white/60 transition hover:text-white"
+              onClick={() => setAuthModalOpen(false)}
+            >
+              <X className="h-5 w-5" />
+            </button>
+            <AuthForm onSuccess={handleAuthSuccess} redirectOnSuccess={false} />
+          </div>
+        </div>
+      )}
 
       <header className="relative z-10 border-b border-white/10 bg-[#050505]/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-4">
@@ -716,17 +1013,11 @@ export default function PrintServicePage() {
 
         <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section
-            className="relative min-h-[520px] overflow-hidden rounded-[32px] border border-white/10 bg-white/[0.03] shadow-2xl"
+            className="relative min-h-[520px] overflow-hidden"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
-            <div className="absolute inset-0 cad-grid-pattern opacity-30" />
-            <div className="absolute inset-0">
-              <div className="absolute left-10 top-10 h-24 w-24 rounded-full bg-[radial-gradient(circle,rgba(46,209,255,0.12),transparent_70%)] blur-xl" />
-              <div className="absolute bottom-8 right-10 h-24 w-24 rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.12),transparent_70%)] blur-xl" />
-            </div>
-
             <div className="relative h-full">
               <PrintScene model={modelObject} />
             </div>
@@ -751,7 +1042,7 @@ export default function PrintServicePage() {
 
             <button
               type="button"
-              className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur transition hover:border-[#7FE7FF]"
+              className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF]"
               onClick={() => fileInputRef.current?.click()}
             >
               <UploadCloud className="h-4 w-4" />
@@ -766,7 +1057,10 @@ export default function PrintServicePage() {
               onChange={handleFilePick}
             />
 
-            {(uploadError || uploadStatus === "uploading" || uploadStatus === "analyzing") && (
+            {(uploadError ||
+              uploadStatus === "uploading" ||
+              uploadStatus === "analyzing" ||
+              uploadStatus === "finalizing") && (
               <div className="absolute left-6 top-6 flex items-center gap-3 rounded-full border border-white/10 bg-black/70 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 backdrop-blur">
                 {uploadError ? (
                   <>
@@ -775,9 +1069,16 @@ export default function PrintServicePage() {
                   </>
                 ) : uploadStatus === "analyzing" ? (
                   <span>АНАЛИЗ МОДЕЛИ...</span>
+                ) : uploadStatus === "finalizing" ? (
+                  <span>СОХРАНЯЕМ В БАЗЕ...</span>
                 ) : (
-                  <span>ЗАГРУЗКА В ХРАНИЛИЩЕ...</span>
+                  <span>ЗАГРУЗКА В ХРАНИЛИЩЕ... {buildProgressBar(uploadProgress)}</span>
                 )}
+              </div>
+            )}
+            {uploadStatus === "ready" && uploadedMedia?.id && (
+              <div className="absolute left-6 top-6 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-emerald-200">
+                ЗАГРУЗКА ЗАВЕРШЕНА
               </div>
             )}
             {isPreviewScaled && (
@@ -808,7 +1109,7 @@ export default function PrintServicePage() {
                 <div className="mt-3 border-t border-white/10 pt-3 text-xs uppercase tracking-[0.2em] text-white/60">
                   <div className="flex items-center justify-between">
                     <span>Volume</span>
-                    <span>{metrics ? `${formatNumber(metrics.volumeCm3)} cm³` : "--"}</span>
+                    <span>{metrics ? `${formatNumber(metrics.volumeCm3)} см3` : "--"}</span>
                   </div>
                 </div>
                 {!fitsBed && (
@@ -947,7 +1248,7 @@ export default function PrintServicePage() {
                 Итоговая цена
               </p>
               <p className="mt-3 text-3xl font-semibold text-[#D4AF37]">
-                {formatPrice(price)} ₽
+                {formatPrice(price)} ?
               </p>
               <p className="mt-1 text-xs uppercase tracking-[0.2em] text-[#D4AF37]/60">
                 BASE {BASE_FEE} + ОПЦИИ
@@ -957,8 +1258,11 @@ export default function PrintServicePage() {
             <button
               type="button"
               onClick={handleAddToCart}
-              disabled={!uploadedMedia?.id || uploadStatus !== "ready" || !serviceProductId || isAdding}
-              className="w-full rounded-full bg-[#D4AF37] px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-[#050505] transition hover:bg-[#f5d57a] disabled:cursor-not-allowed disabled:opacity-60"
+              disabled={isAdding}
+              aria-disabled={!canAddToCart || isAdding}
+              className={`w-full rounded-full bg-[#D4AF37] px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-[#050505] transition ${
+                canAddToCart ? "hover:bg-[#f5d57a]" : ""
+              } disabled:cursor-not-allowed disabled:opacity-60`}
             >
               {isAdding ? "Добавляем..." : "ДОБАВИТЬ В КОРЗИНУ"}
             </button>
@@ -973,4 +1277,12 @@ export default function PrintServicePage() {
     </div>
   );
 }
+
+
+
+
+
+
+
+
 

@@ -18,6 +18,7 @@ export const Media: CollectionConfig = {
     adminThumbnail: () => null,
     imageSizes: [],
     disableLocalStorage: true, // Используем S3 (Tebi.io)
+    filesRequiredOnCreate: false, // Allow creating records after direct-to-S3 upload
     mimeTypes: [
       "image/*",
       "model/*",
@@ -56,7 +57,6 @@ export const Media: CollectionConfig = {
       options: [
         { label: "Image", value: "image" },
         { label: "3D Model (.glb/.gltf)", value: "3d-model" },
-        { label: "STL File", value: "stl" },
         { label: "Other", value: "other" },
       ],
     },

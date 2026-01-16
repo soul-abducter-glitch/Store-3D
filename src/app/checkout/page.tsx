@@ -100,6 +100,8 @@ const normalizeStoredItem = (item: any): CartItem | null => {
   const resolvedProductId =
     typeof rawProduct === "string"
       ? rawProduct
+      : typeof rawProduct === "number"
+        ? String(rawProduct)
       : rawProduct && typeof rawProduct === "object"
         ? rawProduct.id || rawProduct.value || rawProduct._id || null
         : null;
@@ -174,7 +176,7 @@ const resolveDeliveryCost = (method?: string) => {
 };
 const paymentOptions = [
   { value: "card", label: "Оплата картой" },
-  { value: "sbp", label: "РЎР‘Рџ" },
+  { value: "sbp", label: "СБП" },
   { value: "cash", label: "Наличными при получении" },
 ];
 
@@ -463,7 +465,7 @@ const CheckoutPage = () => {
       const payload: Record<string, any> = {
         items,
         total: grandTotal,
-        status: "Paid",
+        status: "paid",
         customer: {
           name,
           email,
@@ -617,7 +619,7 @@ const CheckoutPage = () => {
 
                 <div className="grid gap-4 sm:grid-cols-2">
                   <div className="space-y-2 sm:col-span-2">
-                    <label className="text-xs uppercase tracking-[0.3em] text-white/50">РРјСЏ</label>
+                    <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
                     <input
                       type="text"
                       value={form.name}

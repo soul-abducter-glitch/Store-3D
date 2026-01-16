@@ -1,11 +1,10 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
 import { RootLayout as PayloadRootLayout, handleServerFunctions } from "@payloadcms/next/layouts";
-import { getPayload, type ServerFunctionClientArgs } from "payload";
+import type { ServerFunctionClientArgs } from "payload";
 import "./globals.css";
 
-import payloadConfig from "../../payload.config";
-import { importMap } from "./(payload)/admin/importMap";
+import ClientNotifications from "@/components/ClientNotifications";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -22,8 +21,23 @@ const isAdminMode =
   process.env.PORT === "3001" ||
   (process.env.NEXT_PUBLIC_SERVER_URL || "").includes("3001");
 
+const loadPayloadContext = async () => {
+  const [{ getPayload }, payloadConfigModule, importMapModule] = await Promise.all([
+    import("payload"),
+    import("../../payload.config"),
+    import("./(payload)/admin/importMap"),
+  ]);
+
+  return {
+    getPayload,
+    payloadConfig: payloadConfigModule.default,
+    importMap: importMapModule.importMap,
+  };
+};
+
 async function serverFunction(args: ServerFunctionClientArgs) {
   "use server";
+  const { getPayload, payloadConfig, importMap } = await loadPayloadContext();
   const payload = await getPayload({ config: payloadConfig, importMap });
   return handleServerFunctions({
     ...args,
@@ -43,6 +57,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   if (isAdminMode) {
+    const { getPayload, payloadConfig, importMap } = await loadPayloadContext();
     const payload = await getPayload({ config: payloadConfig, importMap });
 
     return PayloadRootLayout({
@@ -56,6 +71,7 @@ export default async function RootLayout({
   return (
     <html lang="en" className="overflow-x-hidden">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased overflow-x-hidden`}>
+        <ClientNotifications />
         {children}
       </body>
     </html>
