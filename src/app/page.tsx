@@ -20,6 +20,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  Heart,
   Layers,
   Menu,
   Palette,
@@ -39,6 +40,7 @@ import ModelView, { RenderMode } from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
 import { ORDER_STATUS_UNREAD_KEY } from "@/lib/orderStatus";
+import { useFavorites, type FavoriteItem } from "@/lib/favorites";
 
 type TechMode = "SLA Resin" | "FDM Plastic";
 type ModelBounds = {
@@ -527,7 +529,6 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
-  const [isLoggedIn, setIsLoggedIn] = useState<boolean | null>(null);
   const [hasUnreadStatus, setHasUnreadStatus] = useState(false);
   const [products, setProducts] = useState<ProductDoc[]>([]);
   const [categoriesData, setCategoriesData] = useState<CategoryDoc[]>([]);
@@ -540,6 +541,8 @@ export default function Home() {
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isWorkshopOpen, setWorkshopOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [userProfile, setUserProfile] = useState<any | null>(null);
+  const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const controlsRef = useRef<any | null>(null);
   const previousRenderModeRef = useRef<RenderMode>("final");
@@ -548,6 +551,18 @@ export default function Home() {
 
   const formatLabelForKey = (formatKey: FormatMode) =>
     formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
+
+  const refreshUser = useCallback(() => {
+    fetch(`${apiBase}/api/users/me`, { credentials: "include" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        const user = data?.user ?? data?.doc ?? null;
+        setUserProfile(user);
+      })
+      .catch(() => {
+        setUserProfile(null);
+      });
+  }, [apiBase]);
 
   const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     if (!source || typeof source !== "object") {
@@ -677,14 +692,8 @@ export default function Home() {
   }, [cartItems]);
 
   useEffect(() => {
-    fetch(`${apiBase}/api/users/me`, { credentials: "include" })
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        const user = data?.user ?? data?.doc ?? null;
-        setIsLoggedIn(Boolean(user?.id));
-      })
-      .catch(() => setIsLoggedIn(false));
-  }, [apiBase]);
+    refreshUser();
+  }, [refreshUser]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -974,12 +983,30 @@ export default function Home() {
     setHeroBounds(null);
   }, [currentModelId]);
 
+  const isFavorite = useCallback((id: string) => favoriteIds.has(id), [favoriteIds]);
+  const buildFavoriteItem = (product: CatalogProduct): FavoriteItem => {
+    const formatLabel = product.formatKey
+      ? formatLabelForKey(product.formatKey)
+      : product.type.toUpperCase();
+    return {
+      id: product.id,
+      name: product.name,
+      slug: product.slug,
+      priceLabel: product.price,
+      priceValue: product.priceValue,
+      thumbnailUrl: product.thumbnailUrl,
+      tech: product.tech,
+      formatLabel,
+      formatKey: product.formatKey ?? null,
+    };
+  };
   const heroName = currentProduct?.name ?? "Нет модели";
   const heroSku = currentProduct?.sku || currentProduct?.slug || "-";
   const heroPriceLabel = formatCurrency(currentProduct?.priceValue ?? null);
   const heroPolyCount = currentProduct?.polyCount ?? null;
   const heroPrintTime = currentProduct?.printTime ?? null;
   const heroScale = currentProduct?.scale ?? null;
+  const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
   const isInterior = preview === "interior";
   const heroDimensions =
     formatDimensions(heroBounds, currentProduct?.scale ?? null, currentProduct?.modelScale ?? null) ??
@@ -1047,6 +1074,16 @@ export default function Home() {
 
   const showSystemStandby = productsError || dataLoading || filteredProducts.length === 0;
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
+  const userLabel = useMemo(() => {
+    const raw =
+      userProfile?.username ??
+      userProfile?.name ??
+      userProfile?.email ??
+      userProfile?.fullName ??
+      "Neo";
+    const value = String(raw || "Neo");
+    return value.includes("@") ? value.split("@")[0] : value;
+  }, [userProfile]);
   const cartTotal = cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
   const cartTotalLabel = formatCurrency(cartTotal);
 
@@ -1104,6 +1141,19 @@ export default function Home() {
   const handleCheckout = () => {
     setIsCartOpen(false);
     router.push("/checkout");
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch(`${apiBase}/api/users/logout`, {
+        method: "POST",
+        credentials: "include",
+      });
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      setUserProfile(null);
+    }
   };
 
   const toggleRenderMode = (mode: RenderMode) => {
@@ -1179,7 +1229,7 @@ export default function Home() {
             </button>
             <AuthForm
               onSuccess={() => {
-                setIsLoggedIn(true);
+                refreshUser();
                 setAuthModalOpen(false);
                 router.push("/profile");
               }}
@@ -1201,6 +1251,10 @@ export default function Home() {
         onToggleSidebar={handleToggleSidebar}
         cartCount={cartCount}
         onCartToggle={handleToggleCart}
+        favoritesCount={favorites.length}
+        isLoggedIn={Boolean(userProfile?.id)}
+        userLabel={userLabel}
+        onLogout={handleLogout}
         hasUnreadStatus={hasUnreadStatus}
       />
       <AnimatePresence>
@@ -1237,7 +1291,7 @@ export default function Home() {
                   activeCategory={activeCategory}
                   onCategoryChange={setActiveCategory}
                   onRequestClose={() => setIsSidebarOpen(false)}
-                className="h-full w-full overflow-y-auto rounded-none border-r border-white/10 pt-14"
+                className="h-full w-full overflow-y-auto rounded-none border-r border-white/10 pt-20"
               />
               <button
                 type="button"
@@ -1342,7 +1396,7 @@ export default function Home() {
           </motion.div>
         )}
       </AnimatePresence>
-      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 sm:px-6 sm:pb-24">
+      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 pt-24 sm:px-6 sm:pb-24 sm:pt-28">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr]">
           <Sidebar
             format={format}
@@ -1488,6 +1542,23 @@ export default function Home() {
                     >
                       <ShoppingCart className="h-4 w-4" />
                       В корзину
+                    </button>
+                    <button
+                      type="button"
+                      className={`flex min-h-[44px] items-center gap-2 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-4 sm:text-[11px] ${
+                        isCurrentFavorite
+                          ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
+                          : "border-white/15 bg-white/5 text-white/70 hover:text-white"
+                      }`}
+                      onClick={() =>
+                        currentProduct && toggleFavorite(buildFavoriteItem(currentProduct))
+                      }
+                    >
+                      <Heart
+                        className="h-4 w-4"
+                        fill={isCurrentFavorite ? "currentColor" : "none"}
+                      />
+                      {isCurrentFavorite ? "В избранном" : "В избранное"}
                     </button>
                   </div>
                   </div>
@@ -1679,6 +1750,8 @@ export default function Home() {
                         product={product}
                         isSelected={product.id === currentModelId}
                         onClick={() => setCurrentModelId(product.id)}
+                        isFavorite={isFavorite(product.id)}
+                        onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
                       />
                     ))}
                   </motion.div>
@@ -1699,6 +1772,10 @@ type HeaderProps = {
   onToggleSidebar: () => void;
   cartCount: number;
   onCartToggle: () => void;
+  favoritesCount: number;
+  isLoggedIn: boolean;
+  userLabel: string;
+  onLogout: () => void;
   hasUnreadStatus: boolean;
 };
 
@@ -1709,16 +1786,29 @@ function Header({
   onToggleSidebar,
   cartCount,
   onCartToggle,
+  favoritesCount,
+  isLoggedIn,
+  userLabel,
+  onLogout,
   hasUnreadStatus,
 }: HeaderProps) {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [cartPopKey, setCartPopKey] = useState(0);
+  const prevCartCountRef = useRef(cartCount);
 
   useEffect(() => {
     if (isSearchOpen) {
       inputRef.current?.focus();
     }
   }, [isSearchOpen]);
+
+  useEffect(() => {
+    if (cartCount > prevCartCountRef.current) {
+      setCartPopKey((prev) => prev + 1);
+    }
+    prevCartCountRef.current = cartCount;
+  }, [cartCount]);
 
   const toggleSearch = () => {
     setIsSearchOpen((prev) => {
@@ -1738,7 +1828,7 @@ function Header({
   };
 
   return (
-    <header className="sticky top-0 z-20 border-b border-white/10 bg-[#050505]/80 backdrop-blur-xl">
+    <header className="fixed top-0 left-0 right-0 z-30 border-b border-white/10 bg-obsidian/60 backdrop-blur-xl shadow-[0_12px_30px_rgba(0,0,0,0.35)]">
       <motion.div
         variants={containerVariants}
         initial="hidden"
@@ -1810,6 +1900,22 @@ function Header({
           >
             {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
           </button>
+          <a
+            href="/favorites"
+            aria-label="Избранное"
+            className={`relative flex h-11 w-11 items-center justify-center rounded-full border transition md:h-10 md:w-10 ${
+              favoritesCount > 0
+                ? "border-rose-400/40 bg-rose-500/10 text-rose-200 shadow-[0_0_16px_rgba(244,63,94,0.35)]"
+                : "border-white/10 bg-white/5 text-white/70 hover:text-white"
+            }`}
+          >
+            <Heart className="h-5 w-5" fill={favoritesCount > 0 ? "currentColor" : "none"} />
+            {favoritesCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-rose-400 text-[10px] font-semibold text-[#050505] shadow-[0_0_10px_rgba(244,63,94,0.45)]">
+                {favoritesCount}
+              </span>
+            )}
+          </a>
           <button
             type="button"
             aria-label="Корзина"
@@ -1818,21 +1924,76 @@ function Header({
           >
             <ShoppingCart className="h-5 w-5" />
             {cartCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2ED1FF] text-[10px] font-semibold text-[#050505]">
+              <motion.span
+                key={cartPopKey}
+                initial={{ scale: 1, boxShadow: "0 0 0 rgba(46,209,255,0)" }}
+                animate={{
+                  scale: [1, 1.15, 1],
+                  boxShadow: [
+                    "0 0 0 rgba(46,209,255,0)",
+                    "0 0 16px rgba(46,209,255,0.9)",
+                    "0 0 0 rgba(46,209,255,0)",
+                  ],
+                }}
+                transition={{ duration: 0.3 }}
+                className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-[#2ED1FF] text-[10px] font-semibold text-[#050505]"
+              >
                 {cartCount}
-              </span>
+              </motion.span>
             )}
           </button>
-          <a
-            href="/profile"
-            aria-label="Профиль"
-            className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
-          >
-            <User className="h-5 w-5" />
-            {hasUnreadStatus && (
-              <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
-            )}
-          </a>
+          {isLoggedIn ? (
+            <div className="relative hidden md:flex">
+              <div className="group relative">
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/40 hover:text-white"
+                >
+                  <span className="relative flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/5">
+                    <User className="h-4 w-4" />
+                    {hasUnreadStatus && (
+                      <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
+                    )}
+                  </span>
+                  <span className="max-w-[120px] truncate text-[10px] tracking-[0.3em]">
+                    {userLabel}
+                  </span>
+                </button>
+                <div className="pointer-events-none absolute right-0 top-full z-30 mt-3 w-52 translate-y-2 rounded-2xl border border-white/10 bg-[#0b0f12]/95 p-2 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 opacity-0 shadow-2xl backdrop-blur-xl transition group-hover:translate-y-0 group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:translate-y-0 group-focus-within:opacity-100 group-focus-within:pointer-events-auto">
+                  <a
+                    href="/profile"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-white/70 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Профиль
+                  </a>
+                  <a
+                    href="/profile"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-white/70 transition hover:bg-white/5 hover:text-white"
+                  >
+                    Мои заказы
+                  </a>
+                  <button
+                    type="button"
+                    className="flex w-full items-center justify-between rounded-xl px-3 py-2 text-rose-200 transition hover:bg-rose-500/10"
+                    onClick={onLogout}
+                  >
+                    Выход
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <a
+              href="/profile"
+              aria-label="Профиль"
+              className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
+            >
+              <User className="h-5 w-5" />
+              {hasUnreadStatus && (
+                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]" />
+              )}
+            </a>
+          )}
         </motion.div>
       </motion.div>
     </header>
@@ -2389,21 +2550,37 @@ type ProductCardProps = {
   product: CatalogProduct;
   isSelected: boolean;
   onClick: () => void;
+  isFavorite: boolean;
+  onToggleFavorite: () => void;
 };
 
-function ProductCard({ product, isSelected, onClick }: ProductCardProps) {
+function ProductCard({
+  product,
+  isSelected,
+  onClick,
+  isFavorite,
+  onToggleFavorite,
+}: ProductCardProps) {
   const formatLabel =
     product.formatKey === "digital"
       ? "DIGITAL STL"
       : product.formatKey === "physical"
         ? "PHYSICAL"
         : product.type.toUpperCase();
+  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      onClick();
+    }
+  };
 
   return (
-    <motion.button
-      type="button"
+    <motion.article
       variants={itemVariants}
+      role="button"
+      tabIndex={0}
       aria-pressed={isSelected}
+      onKeyDown={handleKeyDown}
       onClick={onClick}
       className={`mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
         isSelected
@@ -2421,6 +2598,21 @@ function ProductCard({ product, isSelected, onClick }: ProductCardProps) {
         <span className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)]">
           {formatLabel}
         </span>
+        <button
+          type="button"
+          aria-label={isFavorite ? "Удалить из избранного" : "Добавить в избранное"}
+          className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border text-white transition ${
+            isFavorite
+              ? "border-rose-400/60 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
+              : "border-white/10 bg-black/40 text-white/70 hover:text-white"
+          }`}
+          onClick={(event) => {
+            event.stopPropagation();
+            onToggleFavorite();
+          }}
+        >
+          <Heart className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} />
+        </button>
       </div>
       <div className="flex items-start justify-between">
         <div>
@@ -2442,6 +2634,6 @@ function ProductCard({ product, isSelected, onClick }: ProductCardProps) {
         </span>
         <span className="text-base font-semibold text-white sm:text-lg">{product.price}</span>
       </div>
-    </motion.button>
+    </motion.article>
   );
 }
