@@ -53,6 +53,7 @@ type SidebarCategory = {
   id: string;
   title: string;
   count: number;
+  children?: SidebarCategory[];
 };
 
 type CategoryDoc = {
@@ -66,6 +67,10 @@ type MediaDoc = {
   url?: string;
   filename?: string;
   thumbnail?: string | null;
+};
+
+type SidebarCategoryNode = SidebarCategory & {
+  parentKey: string | null;
 };
 
 type ProductDoc = {
@@ -900,30 +905,101 @@ export default function Home() {
   }, [countBasisProducts]);
 
   const sidebarCategories = useMemo<SidebarCategory[]>(() => {
+    const nodes = new Map<string, SidebarCategoryNode>();
     const seen = new Set<string>();
-    const items =
-      categoriesData
-        ?.filter((category) => category?.id && category?.title)
-        .map((category) => {
-          const title = category.title?.trim() ?? "";
-          if (!title) {
-            return null;
-          }
-          const dedupeKey = normalizeCategoryKey(title);
-          if (!dedupeKey || seen.has(dedupeKey)) {
-            return null;
-          }
-          seen.add(dedupeKey);
-          return {
-            id: dedupeKey,
-            title,
-            count: categoryCountsByKey.get(dedupeKey) ?? 0,
-          };
-        })
-        .filter((item): item is SidebarCategory => Boolean(item)) ?? [];
 
-    return items.sort((a, b) => a.title.localeCompare(b.title, "ru"));
-  }, [categoriesData, categoryCountsByKey]);
+    const resolveParentKey = (parent?: CategoryDoc["parent"] | null) => {
+      if (!parent) {
+        return null;
+      }
+      if (typeof parent === "object") {
+        const title = (parent as { title?: string }).title;
+        if (title) {
+          return normalizeCategoryKey(title);
+        }
+        const id = (parent as { id?: string | number }).id;
+        if (id !== undefined) {
+          return categoryKeyById.get(String(id)) ?? null;
+        }
+      }
+      if (typeof parent === "string" || typeof parent === "number") {
+        return categoryKeyById.get(String(parent)) ?? null;
+      }
+      return null;
+    };
+
+    const addNode = (title: string, parentKey: string | null) => {
+      const key = normalizeCategoryKey(title);
+      if (!key) {
+        return;
+      }
+      if (seen.has(key)) {
+        const existing = nodes.get(key);
+        if (existing && parentKey && !existing.parentKey) {
+          existing.parentKey = parentKey;
+        }
+        return;
+      }
+      seen.add(key);
+      nodes.set(key, {
+        id: key,
+        title,
+        count: categoryCountsByKey.get(key) ?? 0,
+        children: [],
+        parentKey,
+      });
+    };
+
+    categoriesData
+      ?.filter((category) => category?.id && category?.title)
+      .forEach((category) => {
+        const title = category.title?.trim() ?? "";
+        if (!title) {
+          return;
+        }
+        const parentKey = resolveParentKey(category.parent ?? null);
+        addNode(title, parentKey);
+      });
+
+    const animeKey = normalizeCategoryKey("Аниме");
+    const animeGirlsKey = normalizeCategoryKey("Аниме девушки");
+    if (animeKey) {
+      addNode("Аниме", null);
+    }
+    if (animeGirlsKey) {
+      addNode("Аниме девушки", animeKey ?? null);
+      const animeNode = animeKey ? nodes.get(animeKey) : null;
+      const animeGirlsNode = nodes.get(animeGirlsKey);
+      if (animeNode && animeGirlsNode) {
+        animeGirlsNode.parentKey = animeKey;
+      }
+    }
+
+    const roots: SidebarCategory[] = [];
+    nodes.forEach((node) => {
+      if (node.parentKey && nodes.has(node.parentKey)) {
+        const parent = nodes.get(node.parentKey);
+        if (parent) {
+          parent.children = parent.children ?? [];
+          parent.children.push(node);
+          return;
+        }
+      }
+      roots.push(node);
+    });
+
+    const sortNodes = (list: SidebarCategory[]) => {
+      list.sort((a, b) => a.title.localeCompare(b.title, "ru"));
+      list.forEach((item) => {
+        if (item.children?.length) {
+          sortNodes(item.children);
+        }
+      });
+    };
+
+    sortNodes(roots);
+    return roots;
+  }, [categoriesData, categoryCountsByKey, categoryKeyById]);
 
   const defaultModelId = useMemo(() => {
     const featured = normalizedProducts.find((product) => product.isFeatured);
@@ -1398,7 +1474,7 @@ export default function Home() {
         )}
       </AnimatePresence>
       <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 pt-24 sm:px-6 sm:pb-24 sm:pt-28">
-        <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr]">
+        <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr] md:items-start">
           <Sidebar
             format={format}
             onFormatChange={setFormat}
@@ -1411,7 +1487,7 @@ export default function Home() {
               categories={sidebarCategories}
               activeCategory={activeCategory}
               onCategoryChange={setActiveCategory}
-            className="hidden md:flex"
+            className="hidden md:flex md:self-start"
           />
           <main className="space-y-8 lg:space-y-10">
             <motion.section
@@ -1526,10 +1602,10 @@ export default function Home() {
                 )}
                   <div className="absolute inset-x-4 bottom-4 z-50 flex flex-wrap items-end justify-between gap-3 sm:inset-x-8 sm:bottom-8 sm:gap-4">
                   <div className="order-1 max-w-full sm:max-w-[420px]">
-                  <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60 sm:text-sm">
+                  <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60 sm:text-[10px]">
                     TECH_ID: {heroSku}
                   </p>
-                    <h2 className="text-2xl font-bold italic tracking-wide text-white sm:text-3xl lg:text-4xl">
+                    <h2 className="text-lg font-bold italic leading-tight tracking-[0.01em] text-white sm:text-xl lg:text-2xl">
                       {heroName}
                     </h2>
                   <div className="mt-3 flex flex-wrap items-center gap-3 sm:mt-4 sm:gap-4">
@@ -1751,7 +1827,7 @@ export default function Home() {
                 ) : (
                   <motion.div
                     variants={containerVariants}
-                    className="columns-1 gap-4 md:columns-2 xl:columns-3 sm:gap-6"
+                    className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3"
                   >
                     {filteredProducts?.map((product) => (
                       <ProductCard
@@ -2052,6 +2128,42 @@ function Sidebar({
   onRequestClose,
   className,
 }: SidebarProps) {
+  const [isCategoryListOpen, setCategoryListOpen] = useState(false);
+  const [expandedCategories, setExpandedCategories] = useState<Record<string, boolean>>({});
+  const pinnedCategoryIds = new Set(["аниме", "аниме девушки"]);
+
+  const toggleCategoryGroup = (categoryId: string) => {
+    setExpandedCategories((prev) => ({ ...prev, [categoryId]: !prev[categoryId] }));
+  };
+
+  const resolveCategoryCount = (category: SidebarCategory): number => {
+    if (!category.children?.length) {
+      return category.count;
+    }
+    const nestedCount = category.children.reduce(
+      (total, child) => total + resolveCategoryCount(child),
+      0
+    );
+    return Math.max(category.count, nestedCount);
+  };
+
+  const isCategoryTreeActive = (category: SidebarCategory): boolean =>
+    activeCategory === category.id ||
+    Boolean(category.children?.some((child) => isCategoryTreeActive(child)));
+
+  const shouldShowCategory = (category: SidebarCategory): boolean => {
+    if (pinnedCategoryIds.has(category.id)) {
+      return true;
+    }
+    if (isCategoryTreeActive(category)) {
+      return true;
+    }
+    if (resolveCategoryCount(category) > 0) {
+      return true;
+    }
+    return Boolean(category.children?.some((child) => pinnedCategoryIds.has(child.id)));
+  };
+
   return (
     <motion.aside
       variants={containerVariants}
@@ -2158,46 +2270,107 @@ function Sidebar({
         <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs">
           Категории
         </p>
-          <div className="space-y-2">
-            <button
-              type="button"
-              className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
-                activeCategory
-                  ? "bg-white/5 text-white/60 hover:text-white"
-                  : "bg-white/10 text-white"
-              }`}
-              onClick={() => {
+        <div className="space-y-2">
+          <button
+            type="button"
+            className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
+              activeCategory
+                ? "bg-white/5 text-white/60 hover:text-white"
+                : "bg-white/10 text-white"
+            }`}
+            onClick={() => {
+              setCategoryListOpen((prev) => !prev);
+              if (activeCategory) {
                 onCategoryChange("");
-                onRequestClose?.();
-              }}
-            >
-              <span>Все категории</span>
-            </button>
-            {categories?.map((category) => {
-              const isActive = activeCategory === category.id;
-              return (
-                <button
-                  key={category.id}
-                  type="button"
-                  className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
-                    isActive
-                      ? "bg-white/10 text-white"
-                      : "bg-white/5 text-white/60 hover:text-white"
-                  }`}
-                  onClick={() => {
-                    onCategoryChange(category.id);
-                    onRequestClose?.();
-                  }}
-                >
-                  <span>{category.title}</span>
-                  <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
-                    [{category.count}]
-                  </span>
-                </button>
-              );
-            })}
+              }
+            }}
+          >
+            <span>Все категории</span>
+            <ChevronRight
+              className={`h-4 w-4 text-white/60 transition ${
+                isCategoryListOpen ? "rotate-90 text-white" : ""
+              }`}
+            />
+          </button>
+          <div className={`${isCategoryListOpen ? "space-y-2" : "hidden"}`}>
+            {categories
+              ?.filter((category) => shouldShowCategory(category))
+              .map((category) => {
+                const visibleChildren =
+                  category.children?.filter((child) => shouldShowCategory(child)) ?? [];
+                const hasChildren = visibleChildren.length > 0;
+                const isExpanded =
+                  expandedCategories[category.id] ||
+                  Boolean(visibleChildren.some((child) => isCategoryTreeActive(child)));
+                const isActive = isCategoryTreeActive(category);
+                const displayCount = resolveCategoryCount(category);
+
+                return (
+                  <div key={category.id} className="space-y-1">
+                    <button
+                      type="button"
+                      className={`flex w-full min-h-[42px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
+                        isActive
+                          ? "bg-white/10 text-white"
+                          : "bg-white/5 text-white/60 hover:text-white"
+                      }`}
+                      onClick={() => {
+                        if (hasChildren) {
+                          toggleCategoryGroup(category.id);
+                        } else {
+                          onCategoryChange(category.id);
+                          onRequestClose?.();
+                        }
+                      }}
+                    >
+                      <span>{category.title}</span>
+                      <span className="flex items-center gap-2">
+                        <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
+                          [{displayCount}]
+                        </span>
+                        {hasChildren && (
+                          <ChevronRight
+                            className={`h-4 w-4 text-white/40 transition ${
+                              isExpanded ? "rotate-90 text-white/80" : ""
+                            }`}
+                          />
+                        )}
+                      </span>
+                    </button>
+                    {hasChildren && (
+                      <div className={`${isExpanded ? "space-y-1" : "hidden"} pl-4`}>
+                        {visibleChildren.map((child) => {
+                          const isChildActive = activeCategory === child.id;
+                          const childCount = resolveCategoryCount(child);
+                          return (
+                            <button
+                              key={child.id}
+                              type="button"
+                              className={`flex w-full min-h-[40px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[12px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
+                                isChildActive
+                                  ? "bg-white/10 text-white"
+                                  : "bg-white/5 text-white/60 hover:text-white"
+                              }`}
+                              onClick={() => {
+                                onCategoryChange(child.id);
+                                onRequestClose?.();
+                              }}
+                            >
+                              <span>{child.title}</span>
+                              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
+                                [{childCount}]
+                              </span>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
           </div>
-        </motion.div>
+        </div>
+      </motion.div>
 
         <motion.div
           variants={itemVariants}
@@ -2465,7 +2638,7 @@ function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
   ];
 
   return (
-    <div className="absolute left-3 right-3 top-3 z-50 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:gap-3 sm:px-4 sm:py-3 sm:text-xs">
+    <div className="absolute left-3 right-3 top-3 z-50 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/65 sm:left-8 sm:right-auto sm:top-8 sm:gap-3 sm:px-4 sm:py-3 sm:text-xs">
       <div className="flex items-center justify-between gap-3">
         <span className="text-[9px] tracking-[0.35em] text-white/40">ИНЖЕНЕРНЫЙ ВИД</span>
         <button
@@ -2638,7 +2811,7 @@ function ProductCard({
       aria-pressed={isSelected}
       onKeyDown={handleKeyDown}
       onClick={onClick}
-      className={`group mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
+      className={`group flex h-full w-full flex-col rounded-3xl bg-white/5 px-4 pt-4 pb-3 text-left backdrop-blur-xl light-sweep transition-all sm:px-6 sm:pt-6 sm:pb-4 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(0,0,0,0.35)] ${
         isSelected
           ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
           : "border border-transparent"
@@ -2672,21 +2845,23 @@ function ProductCard({
         </button>
       </div>
       <div className="flex items-start justify-between">
-        <div>
-          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]">
+        <div className="min-w-0">
+          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]/90">
             {formatLabel}
           </p>
-          <h4 className="mt-3 text-lg font-semibold text-white sm:text-xl">
+          <h4 className="mt-3 min-h-[2.6rem] text-lg font-semibold leading-snug text-white sm:min-h-[3rem] sm:text-xl sm:leading-snug [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
             {product.name}
           </h4>
-          <p className="mt-2 text-[13px] text-white/60 sm:text-sm">{product.tech}</p>
+          <p className="mt-2 truncate text-[13px] text-white/50 sm:text-sm">
+            {product.tech}
+          </p>
         </div>
         {product.verified && (
           <CheckCircle2 className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
         )}
       </div>
-      <div className="mt-4 flex items-center justify-between text-[13px] sm:mt-6 sm:text-sm">
-        <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
+      <div className="mt-auto flex items-center justify-between pt-3 text-[13px] sm:pt-4 sm:text-sm">
+        <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
           PRICE
         </span>
         <span className="text-base font-semibold text-white sm:text-lg">{product.price}</span>
