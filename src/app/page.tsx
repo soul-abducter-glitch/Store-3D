@@ -89,6 +89,7 @@ type ProductDoc = {
     | null;
   rawModel?: MediaDoc | string | null;
   paintedModel?: MediaDoc | string | null;
+  thumbnail?: MediaDoc | string | null;
 };
 
 type CatalogProduct = {
@@ -812,7 +813,7 @@ export default function Home() {
         typeof product.modelScale === "number" ? product.modelScale : null;
       const printTime = product.printTime ?? null;
       const scale = product.scale ?? null;
-      const thumbnailUrl = resolveProductThumbnail(product.rawModel ?? null);
+      const thumbnailUrl = resolveProductThumbnail(product.thumbnail ?? null);
 
       return {
         id: String(product.id ?? product.name ?? ""),
@@ -1537,15 +1538,21 @@ export default function Home() {
                     </span>
                     <button
                       type="button"
-                      className="flex min-h-[44px] items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:min-h-0 sm:px-4 sm:text-[11px]"
+                      aria-label="В корзину"
+                      title="В корзину"
+                      className="group flex h-9 items-center rounded-full bg-[#2ED1FF]/20 px-3 text-[10px] uppercase tracking-[0.14em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:text-[11px]"
                       onClick={() => currentProduct && addToCart(currentProduct)}
                     >
                       <ShoppingCart className="h-4 w-4" />
-                      В корзину
+                      <span className="ml-2 whitespace-nowrap transition-all duration-200 md:ml-0 md:max-w-0 md:overflow-hidden md:opacity-0 md:group-hover:ml-2 md:group-hover:max-w-[120px] md:group-hover:opacity-100">
+                        В корзину
+                      </span>
                     </button>
                     <button
                       type="button"
-                      className={`flex min-h-[44px] items-center gap-2 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-4 sm:text-[11px] ${
+                      aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
+                      title={isCurrentFavorite ? "В избранном" : "В избранное"}
+                      className={`group flex h-9 items-center rounded-full border px-3 text-[10px] uppercase tracking-[0.14em] transition sm:text-[11px] ${
                         isCurrentFavorite
                           ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
                           : "border-white/15 bg-white/5 text-white/70 hover:text-white"
@@ -1558,7 +1565,9 @@ export default function Home() {
                         className="h-4 w-4"
                         fill={isCurrentFavorite ? "currentColor" : "none"}
                       />
-                      {isCurrentFavorite ? "В избранном" : "В избранное"}
+                      <span className="ml-2 whitespace-nowrap transition-all duration-200 md:ml-0 md:max-w-0 md:overflow-hidden md:opacity-0 md:group-hover:ml-2 md:group-hover:max-w-[150px] md:group-hover:opacity-100">
+                        {isCurrentFavorite ? "В избранном" : "В избранное"}
+                      </span>
                     </button>
                   </div>
                   </div>
@@ -1854,6 +1863,12 @@ function Header({
           className="hidden items-center justify-center gap-4 text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] md:flex"
         >
           <a
+            href="/ai-lab"
+            className="rounded-full border border-white/15 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.35em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+          >
+            AI ЛАБОРАТОРИЯ
+          </a>
+          <a
             href="/services/print"
             className="rounded-full border border-[#2ED1FF] bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.45)] transition hover:border-[#7FE7FF] hover:text-white"
           >
@@ -1870,6 +1885,12 @@ function Header({
             className="hidden rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-2 text-[8px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] sm:inline-flex md:hidden"
           >
             ПЕЧАТЬ НА ЗАКАЗ
+          </a>
+          <a
+            href="/ai-lab"
+            className="hidden rounded-full border border-white/15 bg-white/5 px-3 py-2 text-[8px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:inline-flex md:hidden"
+          >
+            AI ЛАБОРАТОРИЯ
           </a>
           <button
             type="button"
@@ -2431,31 +2452,66 @@ type HUDProps = {
 };
 
 function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
+  const [isHudExpanded, setHudExpanded] = useState(false);
   const polyLabel = formatCount(polyCount) ?? "2,452,900";
   const printLabel = printTime || "14h 22m";
   const scaleLabel = scale || "1:1 REAL";
   const dimensionsLabel = dimensions || "-";
+  const hudItems = [
+    { label: "ПОЛИГОНЫ", compactLabel: "ПОЛИГ.", value: polyLabel, accent: true },
+    { label: "ВРЕМЯ_ПЕЧАТИ", compactLabel: "ВРЕМЯ", value: printLabel },
+    { label: "МАСШТАБ", compactLabel: "МАСШ", value: scaleLabel },
+    { label: "ГАБАРИТЫ", compactLabel: "ГАБ.", value: dimensionsLabel },
+  ];
 
   return (
-    <div className="absolute left-3 right-3 top-3 z-50 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:grid-cols-1 sm:gap-2 sm:px-4 sm:py-3 sm:text-xs">
-      <div className="col-span-3 text-[9px] tracking-[0.35em] text-white/40">
-        ИНЖЕНЕРНЫЙ ВИД
+    <div className="absolute left-3 right-3 top-3 z-50 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.04] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/70 sm:left-8 sm:right-auto sm:top-8 sm:gap-3 sm:px-4 sm:py-3 sm:text-xs">
+      <div className="flex items-center justify-between gap-3">
+        <span className="text-[9px] tracking-[0.35em] text-white/40">ИНЖЕНЕРНЫЙ ВИД</span>
+        <button
+          type="button"
+          aria-expanded={isHudExpanded}
+          aria-controls="hud-details"
+          className="flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[8px] tracking-[0.3em] text-white/60 transition hover:border-white/30 hover:text-white/90"
+          onClick={() => setHudExpanded((prev) => !prev)}
+        >
+          <span>{isHudExpanded ? "СВЕРНУТЬ" : "ДЕТАЛИ"}</span>
+          <ChevronRight
+            className={`h-3 w-3 transition ${isHudExpanded ? "rotate-90" : ""}`}
+          />
+        </button>
       </div>
-      <div className="flex flex-col gap-1 text-center text-[#2ED1FF] sm:flex-row sm:items-center sm:gap-2 sm:text-left">
-        <span>ПОЛИГОНЫ:</span>
-        <span className="text-white">{polyLabel}</span>
+      <div
+        className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${
+          isHudExpanded ? "hidden" : ""
+        }`}
+      >
+        {hudItems.map((item) => (
+          <div key={item.label} className="flex items-baseline gap-1 whitespace-nowrap">
+            <span className="text-white/40">{item.compactLabel}:</span>
+            <span className={item.accent ? "text-[#2ED1FF]" : "text-white"}>
+              {item.value}
+            </span>
+          </div>
+        ))}
       </div>
-      <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
-        <span>ВРЕМЯ_ПЕЧАТИ:</span>
-        <span className="text-white">{printLabel}</span>
-      </div>
-      <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
-        <span>МАСШТАБ:</span>
-        <span className="text-white">{scaleLabel}</span>
-      </div>
-      <div className="flex flex-col gap-1 text-center sm:mt-2 sm:flex-row sm:items-center sm:gap-2 sm:text-left">
-        <span>ГАБАРИТЫ:</span>
-        <span className="text-white">{dimensionsLabel}</span>
+      <div
+        id="hud-details"
+        className={`grid grid-cols-3 gap-2 sm:grid-cols-1 sm:gap-2 ${
+          isHudExpanded ? "" : "hidden"
+        }`}
+      >
+        {hudItems.map((item, index) => (
+          <div
+            key={item.label}
+            className={`flex flex-col gap-1 text-center sm:flex-row sm:items-center sm:gap-2 sm:text-left ${
+              index > 0 ? "sm:mt-2" : ""
+            } ${item.accent ? "text-[#2ED1FF]" : ""}`}
+          >
+            <span>{item.label}:</span>
+            <span className="text-white">{item.value}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
@@ -2582,7 +2638,7 @@ function ProductCard({
       aria-pressed={isSelected}
       onKeyDown={handleKeyDown}
       onClick={onClick}
-      className={`mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
+      className={`group mb-4 w-full break-inside-avoid rounded-3xl bg-white/5 p-4 text-left backdrop-blur-xl light-sweep transition sm:mb-6 sm:p-6 ${
         isSelected
           ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
           : "border border-transparent"
@@ -2593,8 +2649,9 @@ function ProductCard({
           src={product.thumbnailUrl}
           alt={product.name}
           loading="lazy"
-          className="h-36 w-full object-cover sm:h-40"
+          className="h-36 w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105 sm:h-40"
         />
+        <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.35)]" />
         <span className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)]">
           {formatLabel}
         </span>

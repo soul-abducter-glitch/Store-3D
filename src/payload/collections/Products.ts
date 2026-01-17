@@ -134,5 +134,10 @@ export const Products: CollectionConfig = {
       type: "upload",
       relationTo: "media",
     },
+    {
+      name: "thumbnail",
+      type: "upload",
+      relationTo: "media",
+    },
   ],
 };

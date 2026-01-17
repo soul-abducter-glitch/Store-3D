@@ -81,3 +81,52 @@
   letter-spacing: 0.18em;
   text-transform: uppercase;
 }
+
+@keyframes scanline {
+  0% {
+    transform: translateY(-120%);
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(120%);
+    opacity: 0;
+  }
+}
+
+.scanline {
+  animation: scanline 2.8s linear infinite;
+}
+
+@keyframes log-scroll {
+  0% {
+    transform: translateY(0);
+  }
+  100% {
+    transform: translateY(-50%);
+  }
+}
+
+.log-scroll {
+  animation: log-scroll 1.4s linear infinite;
+}
+
+@keyframes laser-scan {
+  0% {
+    top: 8%;
+    opacity: 0.4;
+  }
+  50% {
+    opacity: 0.9;
+  }
+  100% {
+    top: 88%;
+    opacity: 0.4;
+  }
+}
+
+.laser-scan {
+  animation: laser-scan 2s ease-in-out infinite;
+}
