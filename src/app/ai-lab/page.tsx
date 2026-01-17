@@ -123,7 +123,7 @@ function NeuralCore({ active }: { active: boolean }) {
           metalness={0.4}
         />
       </mesh>
-      <Sparkles count={140} scale={4.2} size={2} color="#BFF4FF" speed={0.6} opacity={0.65} />
+      <Sparkles count={90} scale={3.6} size={1.6} color="#BFF4FF" speed={0.35} opacity={0.45} />
     </group>
   );
 }
@@ -258,9 +258,9 @@ export default function AiLabPage() {
   const displayStage = isSynthRunning ? statusLine : statusStages[0];
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#040405] text-white">
-      <div className="absolute inset-0 cad-grid-pattern opacity-[0.28]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.12),_transparent_45%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.1),_transparent_40%)]" />
+    <div className="relative min-h-screen overflow-hidden bg-[#030304] text-white">
+      <div className="absolute inset-0 cad-grid-pattern opacity-[0.22]" />
+      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.08),_transparent_50%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.07),_transparent_45%)]" />
 
       <header className="relative z-20 border-b border-white/10 bg-obsidian/70 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
@@ -311,15 +311,15 @@ export default function AiLabPage() {
               camera={{ position: [3.6, 2.6, 4.6], fov: 40 }}
               className="h-full w-full"
             >
-              <color attach="background" args={["#050505"]} />
+              <color attach="background" args={["#040405"]} />
               <ambientLight intensity={0.65} />
               <ReactorLights active={isSynthRunning} />
               <Grid
                 infiniteGrid
-                sectionColor="#1f2937"
-                cellColor="#0b3b4f"
-                fadeDistance={18}
-                fadeStrength={3}
+                sectionColor="#152b36"
+                cellColor="#0b2230"
+                fadeDistance={16}
+                fadeStrength={4}
                 position={[0, -1.2, 0]}
               />
               <Suspense fallback={null}>
@@ -375,7 +375,7 @@ export default function AiLabPage() {
           </div>
         </section>
 
-        <aside className="relative flex h-fit flex-col gap-6 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:sticky lg:top-24">
+        <aside className="relative flex h-fit flex-col gap-5 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:sticky lg:top-24">
           <div className="space-y-2">
             <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/50">
               AI 3D GENERATION SUITE
@@ -415,10 +415,10 @@ export default function AiLabPage() {
           </div>
 
           <div
-            className={`relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed bg-black/20 p-4 text-center transition ${
+            className={`relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
               dragActive
-                ? "border-[#2ED1FF]/70 bg-[#0b1014]/70"
-                : "border-white/15 hover:border-white/40"
+                ? "border-[#2ED1FF]/70 bg-[#0b1014]/70 shadow-[0_0_24px_rgba(46,209,255,0.35)]"
+                : "border-white/20 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.06),transparent_60%)] shadow-[inset_0_0_40px_rgba(46,209,255,0.08)] hover:border-white/40"
             }`}
             onClick={handleBrowse}
             onDragOver={(event) => {

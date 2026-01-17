@@ -643,36 +643,48 @@ export default function ProfilePage() {
         <div className="mt-8 flex gap-3 border-b border-white/10">
           <button
             onClick={() => setActiveTab("orders")}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
-              activeTab === "orders"
-                ? "border-b-2 border-[#2ED1FF] text-[#2ED1FF]"
-                : "text-white/50 hover:text-white"
+            className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
+              activeTab === "orders" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
             }`}
           >
             <Package className="h-4 w-4" />
             Мои заказы
+            {activeTab === "orders" && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-4 -bottom-px h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.7)]"
+              />
+            )}
           </button>
           <button
             onClick={() => setActiveTab("downloads")}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
-              activeTab === "downloads"
-                ? "border-b-2 border-[#2ED1FF] text-[#2ED1FF]"
-                : "text-white/50 hover:text-white"
+            className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
+              activeTab === "downloads" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
             }`}
           >
             <Download className="h-4 w-4" />
             Цифровая библиотека
+            {activeTab === "downloads" && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-4 -bottom-px h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.7)]"
+              />
+            )}
           </button>
           <button
             onClick={() => setActiveTab("settings")}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
-              activeTab === "settings"
-                ? "border-b-2 border-[#2ED1FF] text-[#2ED1FF]"
-                : "text-white/50 hover:text-white"
+            className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
+              activeTab === "settings" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
             }`}
           >
             <Settings className="h-4 w-4" />
             Настройки
+            {activeTab === "settings" && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-4 -bottom-px h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.7)]"
+              />
+            )}
           </button>
         </div>
 
@@ -759,7 +771,7 @@ export default function ProfilePage() {
                               disabled={cancelingOrderId === orderId}
                               aria-disabled={cancelingOrderId === orderId}
                               onClick={() => handleCancelOrder(orderId)}
-                              className="mt-3 rounded-full border border-red-500/30 bg-red-500/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-300 transition hover:bg-red-500/20 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                              className="mt-3 rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               {cancelingOrderId === orderId ? "Отменяем..." : "Отменить заказ"}
                             </button>

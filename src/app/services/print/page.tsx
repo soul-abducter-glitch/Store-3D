@@ -1005,7 +1005,7 @@ export default function PrintServicePage() {
             </p>
             <h1 className="mt-3 text-3xl font-semibold text-white">Печать на заказ</h1>
           </div>
-          <div className="flex items-center gap-3 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/60">
+          <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[9px] uppercase tracking-[0.25em] text-white/55">
             <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
             SYSTEM ONLINE
           </div>
@@ -1024,18 +1024,31 @@ export default function PrintServicePage() {
 
             {!modelObject && (
               <div
-                className={`pointer-events-none absolute inset-6 flex items-center justify-center rounded-[28px] border border-dashed text-center text-xs uppercase tracking-[0.3em] ${
+                className={`pointer-events-none absolute inset-6 flex items-center justify-center rounded-[28px] border border-dashed text-center text-xs uppercase tracking-[0.3em] shadow-[inset_0_0_40px_rgba(46,209,255,0.08)] ${
                   dragActive
                     ? "border-[#2ED1FF] bg-[#2ED1FF]/10 text-[#BFF4FF]"
-                    : "border-white/15 bg-black/20 text-white/50"
+                    : "border-white/15 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.05),transparent_55%)] text-white/50"
                 }`}
               >
-                <div className="max-w-xs space-y-3">
+                <div className="max-w-sm space-y-4">
                   <UploadCloud className="mx-auto h-10 w-10 text-[#2ED1FF]" />
-                  <p>Бросьте STL или OBJ</p>
-                  <p className="text-[10px] tracking-[0.25em] text-white/40">
-                    ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ: .STL, .OBJ (MAX 100MB)
-                  </p>
+                  <div className="space-y-2">
+                    <p>Бросьте STL или OBJ</p>
+                    <p className="text-[10px] tracking-[0.25em] text-white/40">
+                      ПОДДЕРЖИВАЕМЫЕ ФОРМАТЫ: .STL, .OBJ (MAX 100MB)
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center justify-center gap-2 text-[9px] tracking-[0.2em] text-white/45">
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
+                      .STL
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
+                      .OBJ
+                    </span>
+                    <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1">
+                      .GLB
+                    </span>
+                  </div>
                 </div>
               </div>
             )}
@@ -1088,7 +1101,7 @@ export default function PrintServicePage() {
             )}
           </section>
 
-          <aside className="space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+          <aside className="space-y-5 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
             <div className="space-y-3">
               <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                 Технические данные
@@ -1120,157 +1133,166 @@ export default function PrintServicePage() {
               </div>
             </div>
 
-            <div className="space-y-3">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                Технология
-              </p>
-              <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
-                <button
-                  type="button"
-                  className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
-                    technology === "sla"
-                      ? "bg-white/15 text-white"
-                      : "text-white/50 hover:text-white"
-                  }`}
-                  onClick={() => setTechnology("sla")}
-                >
-                  SLA Resin
-                </button>
-                <button
-                  type="button"
-                  className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
-                    technology === "fdm"
-                      ? "bg-white/15 text-white"
-                      : "text-white/50 hover:text-white"
-                  }`}
-                  onClick={() => setTechnology("fdm")}
-                >
-                  FDM Plastic
-                </button>
-              </div>
-            </div>
-
-            <div className="space-y-3">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                Режим
-              </p>
-              <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-white/60">
-                <span>Авто</span>
-                <button
-                  type="button"
-                  className={`flex h-7 w-12 items-center rounded-full border border-white/20 p-1 transition ${
-                    previewModeAuto ? "bg-[#2ED1FF]/40" : "bg-white/5"
-                  }`}
-                  onClick={() => setPreviewModeAuto((prev) => !prev)}
-                >
-                  <span
-                    className={`block h-4 w-4 rounded-full bg-[#2ED1FF] transition ${
-                      previewModeAuto ? "translate-x-5" : "translate-x-0"
-                    }`}
-                  />
-                </button>
-                <span>Ручной</span>
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                {[
-                  { key: "hologram" as const, label: "Голограмма" },
-                  { key: "resin" as const, label: "Смола" },
-                  { key: "plastic" as const, label: "Пластик" },
-                  { key: "original" as const, label: "Оригинал" },
-                ].map((option) => (
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                  Технология
+                </p>
+                <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
                   <button
-                    key={option.key}
                     type="button"
-                    className={`rounded-2xl border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition ${
-                      previewMode === option.key
-                        ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
-                        : "border-white/10 bg-white/5 text-white/60 hover:text-white"
+                    className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
+                      technology === "sla"
+                        ? "bg-white/15 text-white"
+                        : "text-white/50 hover:text-white"
                     }`}
-                    onClick={() => {
-                      setPreviewModeAuto(false);
-                      setPreviewMode(option.key);
-                    }}
+                    onClick={() => setTechnology("sla")}
                   >
-                    {option.label}
+                    SLA Resin
                   </button>
-                ))}
+                  <button
+                    type="button"
+                    className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
+                      technology === "fdm"
+                        ? "bg-white/15 text-white"
+                        : "text-white/50 hover:text-white"
+                    }`}
+                    onClick={() => setTechnology("fdm")}
+                  >
+                    FDM Plastic
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                  Режим
+                </p>
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-white/60">
+                  <span>Авто</span>
+                  <button
+                    type="button"
+                    className={`flex h-7 w-12 items-center rounded-full border border-white/20 p-1 transition ${
+                      previewModeAuto ? "bg-[#2ED1FF]/40" : "bg-white/5"
+                    }`}
+                    onClick={() => setPreviewModeAuto((prev) => !prev)}
+                  >
+                    <span
+                      className={`block h-4 w-4 rounded-full bg-[#2ED1FF] transition ${
+                        previewModeAuto ? "translate-x-5" : "translate-x-0"
+                      }`}
+                    />
+                  </button>
+                  <span>Ручной</span>
+                </div>
+                <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
+                  Визуализация
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { key: "hologram" as const, label: "Голограмма" },
+                    { key: "resin" as const, label: "Смола" },
+                    { key: "plastic" as const, label: "Пластик" },
+                    { key: "original" as const, label: "Оригинал" },
+                  ].map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={`rounded-2xl border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition ${
+                        previewMode === option.key
+                          ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
+                          : "border-white/10 bg-white/5 text-white/60 hover:text-white"
+                      }`}
+                      onClick={() => {
+                        setPreviewModeAuto(false);
+                        setPreviewMode(option.key);
+                      }}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <div className="space-y-3">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                Материал
-              </p>
-              <p className="text-xs text-white/50">{materialHint}</p>
+            <div className="space-y-4 rounded-2xl border border-white/10 bg-white/[0.02] p-4">
               <div className="space-y-2">
-                {materialsByTech[technology].map((option) => (
-                  <button
-                    key={option.label}
-                    type="button"
-                    className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition ${
-                      material === option.label
-                        ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
-                        : "border-white/10 bg-white/5 text-white/60 hover:text-white"
-                    }`}
-                    onClick={() => setMaterial(option.label)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                  Материал
+                </p>
+                <p className="text-xs text-white/50">{materialHint}</p>
+                <div className="space-y-2">
+                  {materialsByTech[technology].map((option) => (
+                    <button
+                      key={option.label}
+                      type="button"
+                      className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition ${
+                        material === option.label
+                          ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
+                          : "border-white/10 bg-white/5 text-white/60 hover:text-white"
+                      }`}
+                      onClick={() => setMaterial(option.label)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="h-px bg-white/10" />
+              <div className="space-y-2">
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                  Качество
+                </p>
+                <p className="text-xs text-white/50">{qualityHint}</p>
+                <div className="space-y-2">
+                  {qualityOptions.map((option) => (
+                    <button
+                      key={option.key}
+                      type="button"
+                      className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition ${
+                        quality === option.key
+                          ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
+                          : "border-white/10 bg-white/5 text-white/60 hover:text-white"
+                      }`}
+                      onClick={() => setQuality(option.key)}
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
               </div>
             </div>
 
             <div className="space-y-3">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                Качество
-              </p>
-              <p className="text-xs text-white/50">{qualityHint}</p>
-              <div className="space-y-2">
-                {qualityOptions.map((option) => (
-                  <button
-                    key={option.key}
-                    type="button"
-                    className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition ${
-                      quality === option.key
-                        ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
-                        : "border-white/10 bg-white/5 text-white/60 hover:text-white"
-                    }`}
-                    onClick={() => setQuality(option.key)}
-                  >
-                    {option.label}
-                  </button>
-                ))}
+              <div className="rounded-[24px] border border-[#D4AF37]/40 bg-[#0c0b05] p-5">
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/80">
+                  Итоговая цена
+                </p>
+                <p className="mt-3 text-3xl font-semibold text-[#D4AF37]">
+                {formatPrice(price)} ₽
+                </p>
+                <p className="mt-1 text-xs uppercase tracking-[0.2em] text-[#D4AF37]/60">
+                  BASE {BASE_FEE} + ОПЦИИ
+                </p>
               </div>
-            </div>
 
-            <div className="rounded-[24px] border border-[#D4AF37]/40 bg-[#0c0b05] p-5">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/80">
-                Итоговая цена
-              </p>
-              <p className="mt-3 text-3xl font-semibold text-[#D4AF37]">
-                {formatPrice(price)} ?
-              </p>
-              <p className="mt-1 text-xs uppercase tracking-[0.2em] text-[#D4AF37]/60">
-                BASE {BASE_FEE} + ОПЦИИ
-              </p>
+              <button
+                type="button"
+                onClick={handleAddToCart}
+                disabled={isAdding}
+                aria-disabled={!canAddToCart || isAdding}
+                className={`w-full rounded-full bg-[#D4AF37] px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-[#050505] transition ${
+                  canAddToCart ? "hover:bg-[#f5d57a]" : ""
+                } disabled:cursor-not-allowed disabled:opacity-60`}
+              >
+                {isAdding ? "Добавляем..." : "ДОБАВИТЬ В КОРЗИНУ"}
+              </button>
+              {!serviceProductId && (
+                <p className="text-xs text-white/50">
+                  Подключаем сервисный продукт. Обновите страницу через пару секунд.
+                </p>
+              )}
             </div>
-
-            <button
-              type="button"
-              onClick={handleAddToCart}
-              disabled={isAdding}
-              aria-disabled={!canAddToCart || isAdding}
-              className={`w-full rounded-full bg-[#D4AF37] px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-[#050505] transition ${
-                canAddToCart ? "hover:bg-[#f5d57a]" : ""
-              } disabled:cursor-not-allowed disabled:opacity-60`}
-            >
-              {isAdding ? "Добавляем..." : "ДОБАВИТЬ В КОРЗИНУ"}
-            </button>
-            {!serviceProductId && (
-              <p className="text-xs text-white/50">
-                Подключаем сервисный продукт. Обновите страницу через пару секунд.
-              </p>
-            )}
           </aside>
         </div>
       </main>
