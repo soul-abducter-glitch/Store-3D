@@ -1,10 +1,39 @@
-﻿import type { CollectionConfig } from "payload";
-
-import { isAuthenticated } from "../access.ts";
+﻿import type { Access, CollectionConfig } from "payload";
 
 const normalizeEmail = (value?: string) => {
   if (!value) return "";
   return value.trim().toLowerCase();
+};
+
+const parseAdminEmails = () =>
+  (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((entry) => normalizeEmail(entry))
+    .filter(Boolean);
+
+const isPrivilegedRequest = (req?: any) => {
+  const adminEmails = parseAdminEmails();
+  if (!adminEmails.length) {
+    return false;
+  }
+  const email = normalizeEmail(req?.user?.email);
+  return Boolean(email && adminEmails.includes(email));
+};
+
+const isOrderOwner: Access = ({ req }) => {
+  const user = req.user;
+  if (!user) {
+    return false;
+  }
+  if (isPrivilegedRequest(req)) {
+    return true;
+  }
+  const email = normalizeEmail((user as any)?.email);
+  const or: any[] = [{ user: { equals: user.id } }];
+  if (email) {
+    or.push({ "customer.email": { equals: email } });
+  }
+  return { or };
 };
 
 const findUserIdByEmail = async (payloadInstance: any, email?: string) => {
@@ -55,7 +84,7 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
 };
 
 const normalizeOrderStatus = (value?: string) => {
-  if (!value) return "paid";
+  if (!value) return "accepted";
   const raw = String(value);
   const normalized = raw.trim().toLowerCase();
   if (normalized === "paid" || raw === "Paid") return "paid";
@@ -73,10 +102,10 @@ export const Orders: CollectionConfig = {
     useAsTitle: "id",
   },
   access: {
-    read: isAuthenticated,
+    read: isOrderOwner,
     create: () => true,
-    update: isAuthenticated,
-    delete: isAuthenticated,
+    update: isOrderOwner,
+    delete: isOrderOwner,
   },
   hooks: {
     beforeChange: [
@@ -84,19 +113,24 @@ export const Orders: CollectionConfig = {
         if (operation !== "create" && operation !== "update") {
           return data;
         }
+        const hasStatusField = data && Object.prototype.hasOwnProperty.call(data, "status");
+        const prevStatus = normalizeOrderStatus(originalDoc?.status);
+        let nextStatus = normalizeOrderStatus(hasStatusField ? data?.status : originalDoc?.status);
+        const privileged = isPrivilegedRequest(req);
 
-        const hasStatusUpdate =
-          operation === "update" &&
-          data &&
-          Object.prototype.hasOwnProperty.call(data, "status");
-        if (hasStatusUpdate) {
-          const nextStatus = normalizeOrderStatus(data?.status);
-          const prevStatus = normalizeOrderStatus(originalDoc?.status);
+        if (hasStatusField && nextStatus === "paid" && !privileged) {
+          if (operation === "update") {
+            throw new Error("Статус оплаты может быть установлен только администратором.");
+          }
+          nextStatus = "accepted";
+        }
+
+        if (hasStatusField) {
           if (
             nextStatus === "cancelled" &&
             (prevStatus === "ready" || prevStatus === "completed")
           ) {
-            throw new Error("Нельзя отменить заказ после статуса «Готов к выдаче».");
+            throw new Error("Нельзя отменить заказ после статуса <Готов к выдаче>.");
           }
         }
 
@@ -143,16 +177,17 @@ export const Orders: CollectionConfig = {
         if (data?.customer?.email) {
           data.customer.email = normalizeEmail(data.customer.email);
         }
-
-        if (!data?.user && req?.user?.id) {
-          data.user = req.user.id;
-        }
+        const resolvedUser =
+          req?.user?.id && !privileged
+            ? req.user.id
+            : data?.user || req?.user?.id || undefined;
 
         return {
           ...data,
-          status: normalizeOrderStatus(data?.status),
+          status: nextStatus,
           items: normalizedItems,
           total,
+          ...(resolvedUser ? { user: resolvedUser } : {}),
         };
       },
     ],
@@ -409,3 +444,5 @@ export const Orders: CollectionConfig = {
     },
   ],
 };
+
+

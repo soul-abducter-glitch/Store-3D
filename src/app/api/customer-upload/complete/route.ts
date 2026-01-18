@@ -7,11 +7,49 @@ import { importMap } from "../../../(payload)/admin/importMap";
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
+const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const UPLOAD_KEY_PREFIX = "media/customer-uploads/";
+const ALLOWED_EXTENSIONS = new Set([".stl", ".obj", ".glb", ".gltf"]);
+const EXTENSION_CONTENT_TYPE: Record<string, string> = {
+  ".stl": "model/stl",
+  ".obj": "model/obj",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+};
+const EXTENSION_ALLOWED_CONTENT_TYPES: Record<string, string[]> = {
+  ".stl": [
+    "model/stl",
+    "application/sla",
+    "application/vnd.ms-pki.stl",
+    "application/octet-stream",
+  ],
+  ".obj": ["model/obj", "text/plain", "application/octet-stream"],
+  ".glb": ["model/gltf-binary", "application/octet-stream"],
+  ".gltf": ["model/gltf+json", "application/gltf+json", "application/octet-stream"],
+};
+
 const getPayload = async () =>
   getPayloadHMR({
     config: payloadConfig,
     importMap,
   });
+
+const getExtension = (filename: string) => {
+  const lower = filename.toLowerCase();
+  const dotIndex = lower.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === lower.length - 1) {
+    return "";
+  }
+  return lower.slice(dotIndex);
+};
+
+const normalizeContentType = (value: string) => value.split(";")[0].trim().toLowerCase();
+
+const isAllowedContentType = (extension: string, value: string) => {
+  const allowed = EXTENSION_ALLOWED_CONTENT_TYPES[extension];
+  if (!allowed) return false;
+  return allowed.includes(value);
+};
 
 const resolveFileType = (filename: string) => {
   const lower = filename.toLowerCase();
@@ -74,6 +112,40 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    if (size <= 0 || size > MAX_UPLOAD_BYTES) {
+      return NextResponse.json(
+        { success: false, error: "Invalid file size." },
+        { status: 400 }
+      );
+    }
+    if (!key.startsWith(UPLOAD_KEY_PREFIX)) {
+      return NextResponse.json(
+        { success: false, error: "Invalid upload key." },
+        { status: 400 }
+      );
+    }
+    const extension = getExtension(filename);
+    if (!ALLOWED_EXTENSIONS.has(extension)) {
+      return NextResponse.json(
+        { success: false, error: "Unsupported file type." },
+        { status: 400 }
+      );
+    }
+    if (!key.toLowerCase().endsWith(extension)) {
+      return NextResponse.json(
+        { success: false, error: "Upload key does not match filename." },
+        { status: 400 }
+      );
+    }
+    if (contentType) {
+      const normalizedContentType = normalizeContentType(contentType);
+      if (!isAllowedContentType(extension, normalizedContentType)) {
+        return NextResponse.json(
+          { success: false, error: "Unsupported content type." },
+          { status: 400 }
+        );
+      }
+    }
 
     const bucket = process.env.S3_BUCKET || "";
     if (!bucket) {
@@ -83,12 +155,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const mimeType = resolveMimeType(filename, contentType);
+    const mimeType = EXTENSION_CONTENT_TYPE[extension] || resolveMimeType(filename, contentType);
     const fileType = resolveFileType(filename);
-    const url =
-      typeof body?.fileUrl === "string" && body.fileUrl
-        ? body.fileUrl
-        : buildPublicUrl(bucket, key);
+    const url = buildPublicUrl(bucket, key);
 
     const existingWhere = buildExistingWhere(filename, size, url);
     const existing = await payload.find({

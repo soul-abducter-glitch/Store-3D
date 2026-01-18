@@ -181,6 +181,13 @@ const paymentOptions = [
 ];
 
 const citySuggestions = ["Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань"];
+const streetSuggestionsByCity: Record<string, string[]> = {
+  Москва: ["Арбат", "Тверская", "Покровка", "Мясницкая", "Никольская", "Садовое кольцо"],
+  "Санкт-Петербург": ["Невский проспект", "Малая Конюшенная", "Литейный", "Гороховая"],
+  Новосибирск: ["Красный проспект", "Гоголя", "Ленина", "Советская"],
+  Екатеринбург: ["Ленина", "Малышева", "8 Марта", "Вайнера"],
+  Казань: ["Баумана", "Пушкина", "Кремлевская", "Петербургская"],
+};
 
 const shippingLabels = {
   sectionTitle: "\u0414\u043e\u0441\u0442\u0430\u0432\u043a\u0430",
@@ -280,12 +287,39 @@ const CheckoutPage = () => {
               ...prev,
               name: user.name || prev.name,
               email: user.email || prev.email,
+              address: user.shippingAddress || prev.address,
             }));
           }
         })
         .catch(() => {});
     }
   }, [apiBase, userId]);
+
+  const streetSuggestions = useMemo(() => {
+    const list = streetSuggestionsByCity[form.city] ?? [];
+    const raw = form.address.trim();
+    if (raw.length < 2) return [];
+    const parts = raw.split(",").map((item) => item.trim()).filter(Boolean);
+    const query = (parts[parts.length - 1] ?? raw).toLowerCase();
+    if (query.length < 2) return [];
+    return list
+      .filter((street) => street.toLowerCase().includes(query))
+      .slice(0, 6);
+  }, [form.city, form.address]);
+
+  const applyStreetSuggestion = (street: string) => {
+    setForm((prev) => {
+      const parts = prev.address
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      if (parts.length === 0) {
+        return { ...prev, address: street };
+      }
+      parts[parts.length - 1] = street;
+      return { ...prev, address: parts.join(", ") };
+    });
+  };
 
   const validateProducts = async (items: CartItem[]) => {
     if (items.length === 0) return { valid: true, invalidProducts: [] };
@@ -696,11 +730,30 @@ const CheckoutPage = () => {
                         placeholder="Город, дом, квартира"
                         className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                       />
+                      {streetSuggestions.length > 0 && (
+                        <div className="rounded-2xl border border-white/10 bg-[#0b0f12]/80 p-2 text-xs text-white/70 shadow-[0_0_18px_rgba(0,0,0,0.35)] backdrop-blur">
+                          <p className="px-2 py-1 text-[10px] uppercase tracking-[0.3em] text-white/40">
+                            Улицы
+                          </p>
+                          <div className="space-y-1">
+                            {streetSuggestions.map((street) => (
+                              <button
+                                key={street}
+                                type="button"
+                                className="w-full rounded-xl px-3 py-2 text-left transition hover:bg-white/5 hover:text-white"
+                                onClick={() => applyStreetSuggestion(street)}
+                              >
+                                {street}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="space-y-2">
-                      <label className="flex items-center justify-between text-xs uppercase tracking-[0.3em] text-white/50">
+                      <label className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/50">
                         <span>zip_code</span>
-                        <span className="text-[10px] tracking-[0.4em] text-white/40">
+                        <span className="text-[10px] tracking-[0.25em] text-white/40">
                           {shippingLabels.zipHelper}
                         </span>
                       </label>
@@ -731,8 +784,8 @@ const CheckoutPage = () => {
                         key={option.value}
                         className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
                           paymentMethod === option.value
-                            ? "border-[#2ED1FF] bg-[#2ED1FF]/15 text-white"
-                            : "border-white/10 bg-white/5 text-white/70 hover:border-white/20"
+                            ? "border-[#2ED1FF]/80 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.3)]"
+                            : "border-white/15 bg-white/5 text-white/75 hover:border-white/25 hover:bg-white/10"
                         }`}
                       >
                         <input

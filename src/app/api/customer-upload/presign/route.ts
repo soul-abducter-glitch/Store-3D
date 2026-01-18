@@ -9,11 +9,47 @@ export const runtime = "nodejs";
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 900;
 
+const ALLOWED_EXTENSIONS = new Set([".stl", ".obj", ".glb", ".gltf"]);
+const EXTENSION_CONTENT_TYPE: Record<string, string> = {
+  ".stl": "model/stl",
+  ".obj": "model/obj",
+  ".glb": "model/gltf-binary",
+  ".gltf": "model/gltf+json",
+};
+const EXTENSION_ALLOWED_CONTENT_TYPES: Record<string, string[]> = {
+  ".stl": [
+    "model/stl",
+    "application/sla",
+    "application/vnd.ms-pki.stl",
+    "application/octet-stream",
+  ],
+  ".obj": ["model/obj", "text/plain", "application/octet-stream"],
+  ".glb": ["model/gltf-binary", "application/octet-stream"],
+  ".gltf": ["model/gltf+json", "application/gltf+json", "application/octet-stream"],
+};
+
 const sanitizeFilename = (filename: string) =>
   filename
     .replace(/[/\\]/g, "_")
     .replace(/[^a-zA-Z0-9._-]/g, "_")
     .slice(0, 180);
+
+const getExtension = (filename: string) => {
+  const lower = filename.toLowerCase();
+  const dotIndex = lower.lastIndexOf(".");
+  if (dotIndex <= 0 || dotIndex === lower.length - 1) {
+    return "";
+  }
+  return lower.slice(dotIndex);
+};
+
+const normalizeContentType = (value: string) => value.split(";")[0].trim().toLowerCase();
+
+const isAllowedContentType = (extension: string, value: string) => {
+  const allowed = EXTENSION_ALLOWED_CONTENT_TYPES[extension];
+  if (!allowed) return false;
+  return allowed.includes(value);
+};
 
 const getS3Client = () => {
   const endpoint = process.env.S3_ENDPOINT || "";
@@ -80,14 +116,34 @@ export async function POST(request: NextRequest) {
 
     const filename = typeof payload?.filename === "string" ? payload.filename : "";
     const size = typeof payload?.size === "number" ? payload.size : 0;
-    const contentTypeValue =
+    const providedContentType =
       typeof payload?.contentType === "string" && payload.contentType
-        ? payload.contentType
-        : "application/octet-stream";
+        ? normalizeContentType(payload.contentType)
+        : "";
 
     if (!filename || size <= 0) {
       return NextResponse.json(
         { success: false, error: "Missing filename or size." },
+        { status: 400 }
+      );
+    }
+    const safeFilename = sanitizeFilename(filename);
+    if (!safeFilename) {
+      return NextResponse.json(
+        { success: false, error: "Invalid filename." },
+        { status: 400 }
+      );
+    }
+    const extension = getExtension(safeFilename);
+    if (!ALLOWED_EXTENSIONS.has(extension)) {
+      return NextResponse.json(
+        { success: false, error: "Unsupported file type." },
+        { status: 400 }
+      );
+    }
+    if (providedContentType && !isAllowedContentType(extension, providedContentType)) {
+      return NextResponse.json(
+        { success: false, error: "Unsupported content type." },
         { status: 400 }
       );
     }
@@ -106,8 +162,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const safeFilename = sanitizeFilename(filename);
     const key = `media/customer-uploads/${Date.now()}-${requestId}-${safeFilename}`;
+    const contentTypeValue = EXTENSION_CONTENT_TYPE[extension] || "application/octet-stream";
     const command = new PutObjectCommand({
       Bucket: bucket,
       Key: key,

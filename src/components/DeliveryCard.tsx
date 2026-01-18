@@ -26,7 +26,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
       className={`
         w-full text-left rounded-2xl border-2 p-6 transition-all duration-300 backdrop-blur-xl
         ${selected
-          ? "border-[#2ED1FF] bg-[#2ED1FF]/10 shadow-[0_0_30px_rgba(46,209,255,0.2)]"
+          ? "border-[#2ED1FF]/80 bg-[#0b1014] shadow-[0_0_36px_rgba(46,209,255,0.25)]"
           : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
         }
       `}
@@ -36,7 +36,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
           <div
             className={`
               flex h-12 w-12 items-center justify-center rounded-xl
-              ${selected ? "bg-[#2ED1FF]/20 text-[#2ED1FF]" : "bg-white/10 text-white/70"}
+              ${selected ? "bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_16px_rgba(46,209,255,0.35)]" : "bg-white/10 text-white/70"}
             `}
           >
             {option.icon}
@@ -48,7 +48,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
               <span
                 className={`
                   text-sm font-medium px-2 py-1 rounded-full
-                  ${selected ? "bg-[#2ED1FF]/20 text-[#2ED1FF]" : "bg-white/10 text-white/60"}
+                  ${selected ? "bg-[#2ED1FF]/20 text-[#BFF4FF]" : "bg-white/10 text-white/60"}
                 `}
               >
                 {option.price}
@@ -84,7 +84,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
         <div
           className={`
             w-4 h-4 rounded-full border-2 transition-all duration-200
-            ${selected ? "border-[#2ED1FF] bg-[#2ED1FF]" : "border-white/30 bg-transparent"}
+            ${selected ? "border-[#2ED1FF] bg-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.45)]" : "border-white/30 bg-transparent"}
           `}
         >
           {selected && <div className="w-full h-full rounded-full bg-[#050505] scale-50" />}

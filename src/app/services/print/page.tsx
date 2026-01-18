@@ -39,6 +39,8 @@ const UPLOAD_TIMEOUT_MS = 300_000;
 const PRESIGN_TIMEOUT_MS = 30_000;
 const COMPLETE_TIMEOUT_MS = 120_000;
 const PROGRESS_SEGMENTS = 10;
+const STALLED_TIMEOUT_MS = 15_000;
+const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
 const ACCEPTED_TYPES = [
@@ -89,6 +91,29 @@ const formatNumber = (value: number, digits = 1) => {
 const formatPrice = (value: number) => {
   const rounded = Math.max(0, Math.round(value));
   return new Intl.NumberFormat("ru-RU").format(rounded);
+};
+
+const formatDuration = (ms: number) => {
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
+const formatSpeed = (bytesPerSecond: number) => {
+  if (!Number.isFinite(bytesPerSecond) || bytesPerSecond <= 0) return "0 KB/s";
+  const kb = bytesPerSecond / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB/s`;
+  const mb = kb / 1024;
+  return `${mb.toFixed(2)} MB/s`;
+};
+
+const buildUploadLogLine = (message: string, data?: Record<string, unknown>) => {
+  const time = new Date().toLocaleTimeString("ru-RU", { hour12: false });
+  if (!data) {
+    return `[${time}] ${message}`;
+  }
+  return `[${time}] ${message} ${JSON.stringify(data)}`;
 };
 
 const buildProgressBar = (progress: number) => {
@@ -348,10 +373,22 @@ export default function PrintServicePage() {
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<
-    "idle" | "analyzing" | "uploading" | "finalizing" | "ready"
+    "idle" | "analyzing" | "pending" | "uploading" | "finalizing" | "ready"
   >("idle");
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [pendingFile, setPendingFile] = useState<File | null>(null);
+  const [uploadSpeedBps, setUploadSpeedBps] = useState(0);
+  const [uploadElapsedMs, setUploadElapsedMs] = useState(0);
+  const [uploadEtaMs, setUploadEtaMs] = useState<number | null>(null);
+  const [uploadStalled, setUploadStalled] = useState(false);
+  const [uploadDebug, setUploadDebug] = useState<string[]>([]);
+  const [uploadDebugEnabled, setUploadDebugEnabled] = useState(DEFAULT_UPLOAD_DEBUG_ENABLED);
+  const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
+  const uploadStartRef = useRef<number | null>(null);
+  const lastProgressRef = useRef<{ time: number; loaded: number } | null>(null);
+  const lastLoggedPercentRef = useRef<number>(-1);
+  const lastStallLoggedRef = useRef(false);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
     url?: string;
@@ -370,6 +407,7 @@ export default function PrintServicePage() {
   const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
   const isUploadBusy =
     uploadStatus === "uploading" || uploadStatus === "analyzing" || uploadStatus === "finalizing";
+  const canStartUpload = Boolean(pendingFile) && uploadStatus === "pending";
   const canAddToCart =
     Boolean(uploadedMedia?.id) &&
     Boolean(metrics) &&
@@ -507,12 +545,19 @@ export default function PrintServicePage() {
       if (!hasExtension && !hasMimeType) {
         setUploadError("Не удалось разобрать файл.");
         setUploadStatus("idle");
+        setPendingFile(null);
         return;
       }
 
       setUploadedMedia(null);
       setMetrics(null);
       setModelObject(null);
+      setPendingFile(null);
+      setUploadSpeedBps(0);
+      setUploadElapsedMs(0);
+      setUploadEtaMs(null);
+      setUploadStalled(false);
+      setUploadDebug([]);
       setUploadError(null);
       setUploadStatus("analyzing");
       setUploadProgress(0);
@@ -580,222 +625,316 @@ export default function PrintServicePage() {
         setUploadStatus("idle");
         return;
       }
+      setPendingFile(file);
+      setUploadStatus("pending");
+    },
+    [previewMaterials, previewMode]
+  );
 
-      const existingUpload = await resolveExistingUpload(file);
-      if (existingUpload?.id) {
-        console.log("Using existing upload record:", {
-          id: existingUpload.id,
-          filename: existingUpload.filename,
-          url: existingUpload.url,
+  const pushUploadLog = useCallback((message: string, data?: Record<string, unknown>) => {
+    if (!uploadDebugEnabled) {
+      return;
+    }
+    setUploadDebug((prev) => {
+      const next = [...prev, buildUploadLogLine(message, data)];
+      return next.slice(-10);
+    });
+    if (data) {
+      console.info("[upload]", message, data);
+      return;
+    }
+    console.info("[upload]", message);
+  }, [uploadDebugEnabled]);
+
+  const startUpload = useCallback(async () => {
+    if (!pendingFile || isUploadBusy) return;
+    const file = pendingFile;
+    setUploadError(null);
+    setUploadProgress(0);
+    setUploadSpeedBps(0);
+    setUploadElapsedMs(0);
+    setUploadEtaMs(null);
+    setUploadStalled(false);
+    setUploadDebug([]);
+    uploadStartRef.current = Date.now();
+    lastProgressRef.current = { time: uploadStartRef.current, loaded: 0 };
+    lastLoggedPercentRef.current = -1;
+    lastStallLoggedRef.current = false;
+    pushUploadLog("upload-start", { name: file.name, size: file.size, type: file.type });
+
+    const existingUpload = await resolveExistingUpload(file);
+    if (existingUpload?.id) {
+      console.log("Using existing upload record:", {
+        id: existingUpload.id,
+        filename: existingUpload.filename,
+        url: existingUpload.url,
+      });
+      setUploadedMedia({
+        id: String(existingUpload.id),
+        url: existingUpload.url,
+        filename: existingUpload.filename,
+      });
+      setUploadProgress(100);
+      setUploadStatus("ready");
+      setPendingFile(null);
+      pushUploadLog("upload-reused", { id: existingUpload.id });
+      showSuccess("Файл уже загружен, используем сохраненную копию.");
+      return;
+    }
+
+    setUploadStatus("uploading");
+    const uploadStartedAt = Date.now();
+    const uploadMeta = { name: file.name, type: file.type, size: file.size };
+    let phase: "upload" | "finalize" = "upload";
+    console.log("Uploading file via presigned URL:", uploadMeta);
+    pushUploadLog("presign-request");
+
+    try {
+      const presignController = new AbortController();
+      const presignTimeout = window.setTimeout(
+        () => presignController.abort(),
+        PRESIGN_TIMEOUT_MS
+      );
+      let presignResponse: Response;
+      try {
+        presignResponse = await fetch("/api/customer-upload/presign", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            filename: file.name,
+            contentType: file.type || "application/octet-stream",
+            size: file.size,
+          }),
+          signal: presignController.signal,
         });
-        setUploadedMedia({
-          id: String(existingUpload.id),
-          url: existingUpload.url,
-          filename: existingUpload.filename,
-        });
-        setUploadProgress(100);
-        setUploadStatus("ready");
-        showSuccess("Файл уже загружен, используем сохраненную копию.");
-        return;
+      } finally {
+        window.clearTimeout(presignTimeout);
+      }
+      console.log("Presign response status:", presignResponse.status);
+      pushUploadLog("presign-response", { status: presignResponse.status });
+
+      if (!presignResponse.ok) {
+        let errorMessage = "Failed to start upload";
+        try {
+          const errorData = await presignResponse.json();
+          errorMessage = errorData?.error || errorData?.message || errorMessage;
+          console.warn("Presign error response:", errorData);
+        } catch {
+          const fallbackText = await presignResponse.text().catch(() => "");
+          if (fallbackText) {
+            errorMessage = fallbackText;
+          }
+          console.warn("Presign error response (text):", fallbackText);
+        }
+        throw new Error(errorMessage);
       }
 
-      setUploadStatus("uploading");
-      const uploadStartedAt = Date.now();
-      const uploadMeta = { name: file.name, type: file.type, size: file.size };
-      let phase: "upload" | "finalize" = "upload";
-      console.log("Uploading file via presigned URL:", uploadMeta);
-
+      const presignData = await presignResponse.json();
+      if (!presignData?.uploadUrl || !presignData?.key) {
+        throw new Error("Presign response missing upload data");
+      }
       try {
-        const presignController = new AbortController();
-        const presignTimeout = window.setTimeout(
-          () => presignController.abort(),
-          PRESIGN_TIMEOUT_MS
+        const parsed = new URL(presignData.uploadUrl);
+        pushUploadLog("upload-target", { host: parsed.host, path: parsed.pathname });
+      } catch {
+        pushUploadLog("upload-target", { host: "unknown" });
+      }
+
+      await new Promise<void>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        uploadXhrRef.current = xhr;
+        const buildXhrError = (label: string, code?: string) => {
+          const responseText =
+            typeof xhr.responseText === "string" ? xhr.responseText.slice(0, 800) : "";
+          const error = new Error(`${label} (status ${xhr.status || 0})`);
+          (error as any).code = code;
+          (error as any).details = {
+            status: xhr.status,
+            statusText: xhr.statusText,
+            readyState: xhr.readyState,
+            responseText,
+          };
+          return error;
+        };
+
+        xhr.open("PUT", presignData.uploadUrl, true);
+        xhr.timeout = UPLOAD_TIMEOUT_MS;
+        xhr.setRequestHeader(
+          "Content-Type",
+          presignData.contentType || "application/octet-stream"
         );
-        let presignResponse: Response;
-        try {
-          presignResponse = await fetch("/api/customer-upload/presign", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              filename: file.name,
-              contentType: file.type || "application/octet-stream",
-              size: file.size,
-            }),
-            signal: presignController.signal,
-          });
-        } finally {
-          window.clearTimeout(presignTimeout);
-        }
-        console.log("Presign response status:", presignResponse.status);
-
-        if (!presignResponse.ok) {
-          let errorMessage = "Failed to start upload";
-          try {
-            const errorData = await presignResponse.json();
-            errorMessage = errorData?.error || errorData?.message || errorMessage;
-            console.warn("Presign error response:", errorData);
-          } catch {
-            const fallbackText = await presignResponse.text().catch(() => "");
-            if (fallbackText) {
-              errorMessage = fallbackText;
-            }
-            console.warn("Presign error response (text):", fallbackText);
-          }
-          throw new Error(errorMessage);
-        }
-
-        const presignData = await presignResponse.json();
-        if (!presignData?.uploadUrl || !presignData?.key) {
-          throw new Error("Presign response missing upload data");
-        }
-
-        await new Promise<void>((resolve, reject) => {
-          const xhr = new XMLHttpRequest();
-          const buildXhrError = (label: string) => {
-            const responseText =
-              typeof xhr.responseText === "string" ? xhr.responseText.slice(0, 800) : "";
-            const error = new Error(`${label} (status ${xhr.status || 0})`);
-            (error as any).details = {
-              status: xhr.status,
-              statusText: xhr.statusText,
-              readyState: xhr.readyState,
-              responseText,
-            };
-            return error;
-          };
-
-          xhr.open("PUT", presignData.uploadUrl, true);
-          xhr.timeout = UPLOAD_TIMEOUT_MS;
-          xhr.setRequestHeader(
-            "Content-Type",
-            presignData.contentType || "application/octet-stream"
-          );
-          xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
-              setUploadProgress(percent);
-            }
-          };
-          xhr.onload = () => {
-            if (xhr.status >= 200 && xhr.status < 300) {
-              setUploadProgress(100);
-              resolve();
-            } else {
-              reject(buildXhrError("Upload failed"));
-            }
-          };
-          xhr.onerror = () => reject(buildXhrError("Upload network error"));
-          xhr.ontimeout = () => reject(buildXhrError("Upload timed out"));
-          xhr.send(file);
-        });
-
-        setUploadStatus("finalizing");
-        phase = "finalize";
-
-        const completeController = new AbortController();
-        const completeTimeout = window.setTimeout(
-          () => completeController.abort(),
-          COMPLETE_TIMEOUT_MS
-        );
-        let completeResponse: Response;
-        try {
-          completeResponse = await fetch("/api/customer-upload/complete", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              key: presignData.key,
-              fileUrl: presignData.fileUrl,
-              filename: file.name,
-              contentType: file.type || "application/octet-stream",
-              size: file.size,
-            }),
-            signal: completeController.signal,
-          });
-        } finally {
-          window.clearTimeout(completeTimeout);
-        }
-
-        if (!completeResponse.ok) {
-          let errorMessage = "Failed to finalize upload";
-          try {
-            const errorData = await completeResponse.json();
-            errorMessage = errorData?.error || errorData?.message || errorMessage;
-            console.warn("Complete error response:", errorData);
-          } catch {
-            const fallbackText = await completeResponse.text().catch(() => "");
-            if (fallbackText) {
-              errorMessage = fallbackText;
-            }
-            console.warn("Complete error response (text):", fallbackText);
-          }
-          throw new Error(errorMessage);
-        }
-
-        const completeData = await completeResponse.json();
-        console.log("Upload success payload:", completeData, {
-          ms: Date.now() - uploadStartedAt,
-        });
-        if (!completeData?.doc?.id) {
-          throw new Error("Upload failed");
-        }
-
-        setUploadedMedia({
-          id: String(completeData.doc.id),
-          url: completeData.doc.url,
-          filename: completeData.doc.filename,
-        });
-        setUploadStatus("ready");
-      } catch (error) {
-        if ((error as any)?.name === "AbortError") {
-          console.warn("Upload aborted (timeout)", {
-            ...uploadMeta,
-            ms: Date.now() - uploadStartedAt,
-            phase,
-          });
-          if (phase === "finalize") {
-            const existing = await resolveExistingUpload(file);
-            if (existing?.id) {
-              setUploadedMedia({
-                id: String(existing.id),
-                url: existing.url,
-                filename: existing.filename,
+        xhr.upload.onprogress = (event) => {
+          if (event.lengthComputable) {
+            const percent = Math.round((event.loaded / event.total) * 100);
+            const now = Date.now();
+            const elapsedMs = uploadStartRef.current ? now - uploadStartRef.current : 0;
+            const speedBps = elapsedMs > 0 ? event.loaded / (elapsedMs / 1000) : 0;
+            const etaMs =
+              speedBps > 0 && file.size > event.loaded
+                ? ((file.size - event.loaded) / speedBps) * 1000
+                : null;
+            setUploadProgress(percent);
+            setUploadSpeedBps(speedBps);
+            setUploadElapsedMs(elapsedMs);
+            setUploadEtaMs(etaMs);
+            lastProgressRef.current = { time: now, loaded: event.loaded };
+            if (percent >= lastLoggedPercentRef.current + 10 || percent === 100) {
+              lastLoggedPercentRef.current = percent;
+              pushUploadLog("upload-progress", {
+                percent,
+                loaded: event.loaded,
+                total: event.total,
               });
-              setUploadStatus("ready");
-              return;
             }
           }
-          setUploadError(
-            phase === "finalize"
-              ? "Сохранение в базе заняло слишком много времени. Попробуйте обновить страницу."
-              : "Загрузка заняла слишком много времени. Попробуйте снова."
-          );
-          setUploadStatus("idle");
-          return;
+        };
+        xhr.onload = () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            setUploadProgress(100);
+            setUploadEtaMs(0);
+            pushUploadLog("upload-complete", { status: xhr.status });
+            resolve();
+          } else {
+            pushUploadLog("upload-failed", { status: xhr.status, statusText: xhr.statusText });
+            reject(buildXhrError("Upload failed", "UPLOAD_FAILED"));
+          }
+        };
+        xhr.onerror = () => {
+          pushUploadLog("upload-network-error", { status: xhr.status, statusText: xhr.statusText });
+          reject(buildXhrError("Upload network error", "UPLOAD_NETWORK"));
+        };
+        xhr.ontimeout = () => {
+          pushUploadLog("upload-timeout", { status: xhr.status });
+          reject(buildXhrError("Upload timed out", "UPLOAD_TIMEOUT"));
+        };
+        xhr.send(file);
+      });
+
+      setUploadStatus("finalizing");
+      phase = "finalize";
+      pushUploadLog("complete-request");
+
+      const completeController = new AbortController();
+      const completeTimeout = window.setTimeout(
+        () => completeController.abort(),
+        COMPLETE_TIMEOUT_MS
+      );
+      let completeResponse: Response;
+      try {
+        completeResponse = await fetch("/api/customer-upload/complete", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            key: presignData.key,
+            fileUrl: presignData.fileUrl,
+            filename: file.name,
+            contentType: file.type || "application/octet-stream",
+            size: file.size,
+          }),
+          signal: completeController.signal,
+        });
+      } finally {
+        window.clearTimeout(completeTimeout);
+      }
+
+      if (!completeResponse.ok) {
+        let errorMessage = "Failed to finalize upload";
+        try {
+          const errorData = await completeResponse.json();
+          errorMessage = errorData?.error || errorData?.message || errorMessage;
+          console.warn("Complete error response:", errorData);
+        } catch {
+          const fallbackText = await completeResponse.text().catch(() => "");
+          if (fallbackText) {
+            errorMessage = fallbackText;
+          }
+          console.warn("Complete error response (text):", fallbackText);
         }
-        const message =
-          error instanceof Error && error.message
-            ? error.message
-            : "Не удалось загрузить файл в систему.";
-        const errorInfo =
-          error instanceof Error
-            ? {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-                details: (error as any)?.details,
-              }
-            : { error };
-        console.error("Upload failed", {
+        throw new Error(errorMessage);
+      }
+
+      const completeData = await completeResponse.json();
+      pushUploadLog("complete-response", { status: completeResponse.status, id: completeData?.doc?.id });
+      console.log("Upload success payload:", completeData, {
+        ms: Date.now() - uploadStartedAt,
+      });
+      if (!completeData?.doc?.id) {
+        throw new Error("Upload failed");
+      }
+
+      setUploadedMedia({
+        id: String(completeData.doc.id),
+        url: completeData.doc.url,
+        filename: completeData.doc.filename,
+      });
+      setUploadStatus("ready");
+      setPendingFile(null);
+      uploadXhrRef.current = null;
+      pushUploadLog("upload-done", { ms: Date.now() - uploadStartedAt });
+    } catch (error) {
+      uploadXhrRef.current = null;
+        if ((error as any)?.name === "AbortError") {
+        console.warn("Upload aborted (timeout)", {
           ...uploadMeta,
           ms: Date.now() - uploadStartedAt,
-          ...errorInfo,
+          phase,
         });
-        setUploadError(message);
-        setUploadStatus("idle");
+        if (phase === "finalize") {
+          const existing = await resolveExistingUpload(file);
+          if (existing?.id) {
+            setUploadedMedia({
+              id: String(existing.id),
+              url: existing.url,
+              filename: existing.filename,
+            });
+            setUploadStatus("ready");
+            setPendingFile(null);
+            return;
+          }
+        }
+        setUploadError(
+          phase === "finalize"
+            ? "Сохранение в базе заняло слишком много времени. Попробуйте обновить страницу."
+            : "Загрузка заняла слишком много времени. Попробуйте снова."
+        );
+        setUploadStatus("pending");
+        return;
       }
-    },
-    [apiBase, previewMaterials, previewMode, resolveExistingUpload, showSuccess]
-  );
+      const errorCode = (error as any)?.code;
+      if (errorCode === "UPLOAD_TIMEOUT") {
+        setUploadError("Загрузка заняла слишком много времени. Попробуйте снова.");
+        setUploadProgress(0);
+        setUploadStatus("pending");
+        return;
+      }
+      if (errorCode === "UPLOAD_NETWORK") {
+        setUploadError("Проблема с сетью при загрузке. Проверьте подключение и попробуйте снова.");
+        setUploadProgress(0);
+      setUploadStatus("pending");
+      return;
+    }
+    const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось загрузить файл в систему.";
+      const errorInfo =
+        error instanceof Error
+          ? {
+              name: error.name,
+              message: error.message,
+              stack: error.stack,
+              details: (error as any)?.details,
+            }
+          : { error };
+      console.error("Upload failed", {
+        ...uploadMeta,
+        ms: Date.now() - uploadStartedAt,
+        ...errorInfo,
+      });
+      setUploadError(message);
+      setUploadStatus("pending");
+    }
+  }, [pendingFile, isUploadBusy, resolveExistingUpload, showSuccess]);
 
   useEffect(() => {
     if (!modelObject) {
@@ -803,6 +942,44 @@ export default function PrintServicePage() {
     }
     applyPreviewMaterial(modelObject, previewMode, previewMaterials);
   }, [modelObject, previewMaterials, previewMode]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (window.location.search.includes("uploadDebug=1")) {
+      setUploadDebugEnabled(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (uploadStatus !== "uploading") {
+      setUploadStalled(false);
+      return;
+    }
+    const interval = window.setInterval(() => {
+      if (uploadStartRef.current) {
+        setUploadElapsedMs(Date.now() - uploadStartRef.current);
+      }
+      const last = lastProgressRef.current;
+      if (last && Date.now() - last.time > STALLED_TIMEOUT_MS) {
+        setUploadStalled(true);
+        if (!lastStallLoggedRef.current) {
+          lastStallLoggedRef.current = true;
+          if (uploadDebugEnabled) {
+            setUploadDebug((prev) =>
+              [...prev, buildUploadLogLine("upload-stalled")].slice(-10)
+            );
+            console.info("[upload]", "upload-stalled");
+          }
+        }
+      } else {
+        setUploadStalled(false);
+        lastStallLoggedRef.current = false;
+      }
+    }, 1000);
+    return () => window.clearInterval(interval);
+  }, [uploadStatus]);
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
@@ -897,7 +1074,11 @@ export default function PrintServicePage() {
     }
 
     if (!uploadedMedia?.id || !metrics) {
-      showError("Загрузите файл и дождитесь анализа.");
+      showError(
+        uploadStatus === "pending"
+          ? "Нажмите «Загрузить», чтобы отправить модель."
+          : "Загрузите файл и дождитесь анализа."
+      );
       return;
     }
 
@@ -1053,14 +1234,26 @@ export default function PrintServicePage() {
               </div>
             )}
 
-            <button
-              type="button"
-              className="absolute bottom-6 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF]"
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <UploadCloud className="h-4 w-4" />
-              {modelObject ? "Заменить файл" : "Загрузить файл"}
-            </button>
+            <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
+              <button
+                type="button"
+                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF]"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <UploadCloud className="h-4 w-4" />
+                {modelObject ? "Заменить файл" : "Выбрать файл"}
+              </button>
+              {canStartUpload && (
+                <button
+                  type="button"
+                  className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+                  onClick={startUpload}
+                >
+                  <UploadCloud className="h-4 w-4" />
+                  Загрузить модель
+                </button>
+              )}
+            </div>
 
             <input
               ref={fileInputRef}
@@ -1073,7 +1266,8 @@ export default function PrintServicePage() {
             {(uploadError ||
               uploadStatus === "uploading" ||
               uploadStatus === "analyzing" ||
-              uploadStatus === "finalizing") && (
+              uploadStatus === "finalizing" ||
+              uploadStatus === "pending") && (
               <div className="absolute left-6 top-6 flex items-center gap-3 rounded-full border border-white/10 bg-black/70 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 backdrop-blur">
                 {uploadError ? (
                   <>
@@ -1082,16 +1276,34 @@ export default function PrintServicePage() {
                   </>
                 ) : uploadStatus === "analyzing" ? (
                   <span>АНАЛИЗ МОДЕЛИ...</span>
+                ) : uploadStatus === "pending" ? (
+                  <span>ГОТОВ К ЗАГРУЗКЕ</span>
                 ) : uploadStatus === "finalizing" ? (
                   <span>СОХРАНЯЕМ В БАЗЕ...</span>
                 ) : (
-                  <span>ЗАГРУЗКА В ХРАНИЛИЩЕ... {buildProgressBar(uploadProgress)}</span>
+                  <div className="flex flex-col">
+                    <span>ЗАГРУЗКА В ХРАНИЛИЩЕ... {buildProgressBar(uploadProgress)}</span>
+                    <span className="mt-1 text-[9px] tracking-[0.25em] text-white/40">
+                      {formatSpeed(uploadSpeedBps)} / {formatDuration(uploadElapsedMs)}
+                      {uploadEtaMs && uploadEtaMs > 0 ? ` / ETA ${formatDuration(uploadEtaMs)}` : ""}
+                      {uploadStalled ? " / НЕТ ПРОГРЕССА" : ""}
+                    </span>
+                  </div>
                 )}
               </div>
             )}
             {uploadStatus === "ready" && uploadedMedia?.id && (
               <div className="absolute left-6 top-6 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-emerald-200">
                 ЗАГРУЗКА ЗАВЕРШЕНА
+              </div>
+            )}
+            {uploadDebugEnabled && uploadDebug.length > 0 && (
+              <div className="pointer-events-none absolute left-6 top-20 max-w-[320px] rounded-2xl border border-white/10 bg-black/70 px-3 py-2 text-[9px] uppercase tracking-[0.2em] text-white/60 backdrop-blur">
+                <div className="space-y-1">
+                  {uploadDebug.map((line, index) => (
+                    <div key={`${line}-${index}`}>{line}</div>
+                  ))}
+                </div>
               </div>
             )}
             {isPreviewScaled && (

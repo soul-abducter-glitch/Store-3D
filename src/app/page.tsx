@@ -1647,7 +1647,7 @@ export default function Home() {
                     </button>
                   </div>
                   </div>
-                  <div className="order-3 w-full flex items-center justify-start gap-2 overflow-x-auto rounded-full px-3 py-2 glass-dock sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-3 sm:px-4">
+                  <div className="order-3 w-full flex items-center justify-start gap-3 overflow-x-auto rounded-full px-4 py-2.5 glass-dock border-white/15 bg-white/5 sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-4 sm:px-5">
                   <DockButton
                     active={autoRotate}
                     label="Авто-поворот"
@@ -1837,6 +1837,7 @@ export default function Home() {
                         onClick={() => setCurrentModelId(product.id)}
                         isFavorite={isFavorite(product.id)}
                         onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
+                        onAddToCart={() => addToCart(product)}
                       />
                     ))}
                   </motion.div>
@@ -1992,7 +1993,7 @@ function Header({
           <button
             type="button"
             aria-label="Поиск"
-            className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
+            className="hidden h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(191,244,255,0.22)] md:flex"
             onClick={toggleSearch}
           >
             {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
@@ -2002,8 +2003,8 @@ function Header({
             aria-label="Избранное"
             className={`relative flex h-11 w-11 items-center justify-center rounded-full border transition md:h-10 md:w-10 ${
               favoritesCount > 0
-                ? "border-rose-400/40 bg-rose-500/10 text-rose-200 shadow-[0_0_16px_rgba(244,63,94,0.35)]"
-                : "border-white/10 bg-white/5 text-white/70 hover:text-white"
+                ? "border-rose-300/50 bg-rose-500/15 text-rose-100 shadow-[0_0_18px_rgba(244,63,94,0.45)] hover:border-rose-300/70"
+                : "border-white/15 bg-white/5 text-white/80 hover:border-white/35 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(191,244,255,0.22)]"
             }`}
           >
             <Heart className="h-5 w-5" fill={favoritesCount > 0 ? "currentColor" : "none"} />
@@ -2016,7 +2017,7 @@ function Header({
           <button
             type="button"
             aria-label="Корзина"
-            className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:h-10 md:w-10"
+            className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/50 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(46,209,255,0.25)] md:h-10 md:w-10"
             onClick={onCartToggle}
           >
             <ShoppingCart className="h-5 w-5" />
@@ -2083,7 +2084,7 @@ function Header({
             <a
               href="/profile"
               aria-label="Профиль"
-              className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:flex"
+              className="relative hidden h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-white/35 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(191,244,255,0.22)] md:flex"
             >
               <User className="h-5 w-5" />
               {hasUnreadStatus && (
@@ -2178,10 +2179,10 @@ function Sidebar({
         <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
           <button
             type="button"
-            className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
+            className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:text-xs ${
               technology === "SLA Resin"
-                ? "bg-white/15 text-white"
-                : "text-white/50 hover:text-white"
+                ? "border border-white/25 bg-white/15 text-white shadow-[0_0_12px_rgba(255,255,255,0.12)]"
+                : "border border-white/10 bg-white/5 text-white/60 hover:border-white/25 hover:text-white"
             }`}
             onClick={() => onTechnologyChange("SLA Resin")}
           >
@@ -2189,10 +2190,10 @@ function Sidebar({
           </button>
           <button
             type="button"
-            className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
+            className={`rounded-full min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:text-xs ${
               technology === "FDM Plastic"
-                ? "bg-white/15 text-white"
-                : "text-white/50 hover:text-white"
+                ? "border border-white/25 bg-white/15 text-white shadow-[0_0_12px_rgba(255,255,255,0.12)]"
+                : "border border-white/10 bg-white/5 text-white/60 hover:border-white/25 hover:text-white"
             }`}
             onClick={() => onTechnologyChange("FDM Plastic")}
           >
@@ -2208,10 +2209,10 @@ function Sidebar({
         <div className="grid grid-cols-2 gap-2">
           <button
             type="button"
-            className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
+            className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:text-xs ${
               format === "digital"
-                ? "bg-[#2ED1FF]/20 text-[#2ED1FF]"
-                : "bg-white/5 text-white/60 hover:text-white"
+                ? "border border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
+                : "border border-white/10 bg-white/5 text-white/70 hover:border-white/25 hover:text-white"
             }`}
             onClick={() => onFormatChange("digital")}
           >
@@ -2219,10 +2220,10 @@ function Sidebar({
           </button>
           <button
             type="button"
-            className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] sm:min-h-0 sm:px-3 sm:text-xs ${
+            className={`rounded-2xl min-h-[44px] px-2.5 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:text-xs ${
               format === "physical"
-                ? "bg-[#2ED1FF]/20 text-[#2ED1FF]"
-                : "bg-white/5 text-white/60 hover:text-white"
+                ? "border border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
+                : "border border-white/10 bg-white/5 text-white/70 hover:border-white/25 hover:text-white"
             }`}
             onClick={() => onFormatChange("physical")}
           >
@@ -2254,14 +2255,30 @@ function Sidebar({
           type="button"
           className={`flex w-full min-h-[44px] items-center justify-between rounded-xl px-2.5 py-2 text-left text-[13px] transition sm:min-h-0 sm:px-3 sm:text-sm ${
             useGlobalCatalog
-              ? "bg-white/10 text-white"
-              : "bg-white/5 text-white/60 hover:text-white"
+              ? "border border-white/20 bg-white/10 text-white"
+              : "border border-white/10 bg-white/5 text-white/70 hover:border-white/25 hover:text-white"
           }`}
           onClick={() => onGlobalCatalogChange(!useGlobalCatalog)}
         >
           <span>Показать все модели</span>
-          <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase text-white/40 sm:text-xs">
-            {useGlobalCatalog ? "ON" : "OFF"}
+          <span className="flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase sm:text-xs">
+            <span
+              className={`relative inline-flex h-4 w-8 items-center rounded-full border transition ${
+                useGlobalCatalog
+                  ? "border-[#2ED1FF]/50 bg-[#2ED1FF]/20"
+                  : "border-white/15 bg-white/5"
+              }`}
+              aria-hidden="true"
+            >
+              <span
+                className={`absolute left-0.5 top-0.5 h-3 w-3 rounded-full transition-transform ${
+                  useGlobalCatalog
+                    ? "translate-x-4 bg-[#2ED1FF]"
+                    : "translate-x-0 bg-white/30"
+                }`}
+              />
+            </span>
+            <span className="text-white/50">{useGlobalCatalog ? "ON" : "OFF"}</span>
           </span>
         </button>
       </motion.div>
@@ -2374,36 +2391,39 @@ function Sidebar({
 
         <motion.div
           variants={itemVariants}
-          className="mt-auto flex items-center justify-between gap-3 rounded-2xl bg-[#D4AF37]/10 px-3 py-2.5 sm:px-4 sm:py-3"
+          className="mt-auto flex items-center justify-between gap-4 rounded-2xl border border-[#D4AF37]/15 bg-[#D4AF37]/10 px-3 py-2.5 sm:px-4 sm:py-3"
         >
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#D4AF37]/20 sm:h-9 sm:w-9">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#D4AF37]/20 shadow-[0_0_10px_rgba(212,175,55,0.25)] sm:h-9 sm:w-9">
               <ShieldCheck className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
             </div>
             <div className="min-w-0">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/80">
+              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#D4AF37]/90">
                 ПРОВЕРЕНО_ТОВАР
               </p>
-              <p className="text-sm leading-snug text-white/70">
+              <p className="text-sm leading-snug text-white/80">
                 Показывать только проверенные товары
               </p>
             </div>
           </div>
           <button
-            className={`flex h-11 w-16 shrink-0 items-center rounded-full border border-[#D4AF37]/40 p-1 transition ${
+            type="button"
+            className={`flex h-11 w-16 shrink-0 items-center rounded-full border p-1 transition ${
               verified
-                ? "bg-[#D4AF37]/40 shadow-[0_0_16px_rgba(212,175,55,0.5)]"
-                : "bg-white/5"
+                ? "border-[#D4AF37]/70 bg-[#D4AF37]/30 shadow-[0_0_18px_rgba(212,175,55,0.55)]"
+                : "border-white/15 bg-white/5 hover:border-[#D4AF37]/40 hover:bg-[#D4AF37]/10"
             }`}
             onClick={() => onVerifiedChange(!verified)}
           >
-          <span
-            className={`block h-5 w-5 rounded-full bg-[#D4AF37] transition ${
-              verified ? "translate-x-9" : "translate-x-0"
-            }`}
-          />
-        </button>
-      </motion.div>
+            <span
+              className={`block h-5 w-5 rounded-full transition ${
+                verified
+                  ? "translate-x-9 bg-[#D4AF37] shadow-[0_0_10px_rgba(212,175,55,0.7)]"
+                  : "translate-x-0 bg-white/30"
+              }`}
+            />
+          </button>
+        </motion.div>
     </motion.aside>
   );
 }
@@ -2625,7 +2645,7 @@ type HUDProps = {
 };
 
 function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
-  const [isHudExpanded, setHudExpanded] = useState(false);
+  const [isHudExpanded, setHudExpanded] = useState(true);
   const polyLabel = formatCount(polyCount) ?? "2,452,900";
   const printLabel = printTime || "14h 22m";
   const scaleLabel = scale || "1:1 REAL";
@@ -2724,13 +2744,21 @@ type DockButtonProps = {
 function DockButton({ active, label, icon, onClick }: DockButtonProps) {
   return (
     <button
-      className={`flex min-h-[44px] items-center gap-2 rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:py-2 sm:text-xs ${
-        active ? "bg-white/20 text-white" : "text-white/60 hover:text-white"
+      className={`relative flex min-h-[44px] items-center gap-2 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:py-2 sm:text-xs ${
+        active
+          ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]"
+          : "border-white/10 text-white/70 hover:border-white/25 hover:bg-white/10 hover:text-white"
       }`}
       onClick={onClick}
     >
       {icon}
       {label}
+      {active && (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-3 -bottom-0.5 h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.6)]"
+        />
+      )}
     </button>
   );
 }
@@ -2781,6 +2809,59 @@ type ProductCardProps = {
   onClick: () => void;
   isFavorite: boolean;
   onToggleFavorite: () => void;
+  onAddToCart: () => void;
+};
+
+const buildMaterialDescription = (product: CatalogProduct) => {
+  const keys = product.categoryKeys ?? [];
+  const hasAny = (values: string[]) => values.some((value) => keys.includes(value));
+  const isMiniature = hasAny([
+    "миниатюры",
+    "миниатюра",
+    "фигурки",
+    "фигуры",
+    "персонажи",
+    "аниме",
+    "аниме девушки",
+  ]);
+  const isMechanical = hasAny([
+    "механика",
+    "детали",
+    "индустрия",
+    "техника",
+    "робот",
+    "кибер",
+    "модуль",
+  ]);
+  const isTerrain = hasAny(["архитектура", "интерьер", "экстерьер", "сцены", "террейн", "декор"]);
+
+  if (product.techKey === "SLA Resin") {
+    if (isMiniature) {
+      return "Смола SLA (стандарт/ABS-подобная/прозрачная): высокая детализация, тонкие элементы и гладкая поверхность.";
+    }
+    if (isMechanical) {
+      return "Смола SLA (стандарт/ABS-подобная/прозрачная): точная геометрия и четкие посадки деталей.";
+    }
+    if (isTerrain) {
+      return "Смола SLA (стандарт/ABS-подобная/прозрачная): чистые текстуры и аккуратные поверхности.";
+    }
+    return "Смола SLA (стандарт/ABS-подобная/прозрачная): высокая детализация и гладкая поверхность.";
+  }
+
+  if (product.techKey === "FDM Plastic") {
+    if (isMechanical) {
+      return "Пластик FDM (PLA/PETG/ABS): прочный, подходит для функциональных деталей.";
+    }
+    if (isTerrain) {
+      return "Пластик FDM (PLA/PETG/ABS): хорош для крупных объектов и прототипов.";
+    }
+    if (isMiniature) {
+      return "Пластик FDM (PLA/PETG/ABS): можно печатать, но тонкие детали требуют поддержки.";
+    }
+    return "Пластик FDM (PLA/PETG/ABS): прочный и доступный материал для печати.";
+  }
+
+  return "Материал: уточняется.";
 };
 
 function ProductCard({
@@ -2789,19 +2870,38 @@ function ProductCard({
   onClick,
   isFavorite,
   onToggleFavorite,
+  onAddToCart,
 }: ProductCardProps) {
+  const [favoritePulse, setFavoritePulse] = useState(false);
+  const favoritePulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const formatLabel =
     product.formatKey === "digital"
       ? "DIGITAL STL"
       : product.formatKey === "physical"
         ? "PHYSICAL"
         : product.type.toUpperCase();
+  const statusTag = product.verified ? "VERIFIED" : product.isFeatured ? "POPULAR" : "NEW";
+  const statusTone =
+    statusTag === "VERIFIED"
+      ? "border-[#D4AF37]/50 bg-[#D4AF37]/15 text-[#D4AF37]"
+      : statusTag === "POPULAR"
+        ? "border-[#2ED1FF]/50 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+        : "border-emerald-400/40 bg-emerald-400/15 text-emerald-200";
+  const materialDescription = buildMaterialDescription(product);
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onClick();
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (favoritePulseTimeoutRef.current) {
+        clearTimeout(favoritePulseTimeoutRef.current);
+      }
+    };
+  }, []);
 
   return (
     <motion.article
@@ -2825,24 +2925,57 @@ function ProductCard({
           className="h-36 w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105 sm:h-40"
         />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.35)]" />
-        <span className="absolute left-3 top-3 rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)]">
-          {formatLabel}
-        </span>
-        <button
+        <div className="absolute left-3 top-3 flex items-center gap-2">
+          <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)]">
+            {formatLabel}
+          </span>
+          <span
+            className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] ${statusTone}`}
+          >
+            {statusTag}
+          </span>
+        </div>
+        <motion.button
           type="button"
           aria-label={isFavorite ? "Удалить из избранного" : "Добавить в избранное"}
-          className={`absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border text-white transition ${
+          animate={favoritePulse ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+          transition={{ duration: 0.35 }}
+          className={`group/fav absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border text-white transition ${
             isFavorite
-              ? "border-rose-400/60 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
-              : "border-white/10 bg-black/40 text-white/70 hover:text-white"
+              ? "border-rose-300/70 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
+              : "border-white/10 bg-black/40 text-white/70 hover:border-rose-300/40 hover:text-white"
           }`}
           onClick={(event) => {
             event.stopPropagation();
             onToggleFavorite();
+            if (!isFavorite) {
+              setFavoritePulse(true);
+              if (favoritePulseTimeoutRef.current) {
+                clearTimeout(favoritePulseTimeoutRef.current);
+              }
+              favoritePulseTimeoutRef.current = setTimeout(() => {
+                setFavoritePulse(false);
+              }, 350);
+            }
           }}
         >
           <Heart className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} />
-        </button>
+          <span className="pointer-events-none absolute -bottom-6 right-0 whitespace-nowrap rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-white/70 opacity-0 transition group-hover/fav:opacity-100">
+            В избранное
+          </span>
+        </motion.button>
+        <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 translate-y-2">
+          <button
+            type="button"
+            className="w-full rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+            onClick={(event) => {
+              event.stopPropagation();
+              onAddToCart();
+            }}
+          >
+            В корзину
+          </button>
+        </div>
       </div>
       <div className="flex items-start justify-between">
         <div className="min-w-0">
@@ -2855,6 +2988,9 @@ function ProductCard({
           <p className="mt-2 truncate text-[13px] text-white/50 sm:text-sm">
             {product.tech}
           </p>
+          <p className="mt-1 text-[12px] text-white/45 sm:text-[13px] [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
+            {materialDescription}
+          </p>
         </div>
         {product.verified && (
           <CheckCircle2 className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
@@ -2864,7 +3000,9 @@ function ProductCard({
         <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
           PRICE
         </span>
-        <span className="text-base font-semibold text-white sm:text-lg">{product.price}</span>
+        <span className="text-lg font-semibold text-white shadow-[0_0_14px_rgba(46,209,255,0.25)] sm:text-xl">
+          {product.price}
+        </span>
       </div>
     </motion.article>
   );

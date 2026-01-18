@@ -60,7 +60,7 @@ const normalizePrintSpecs = (value: any) => {
 };
 
 const normalizeOrderStatus = (value?: string) => {
-  if (!value) return "paid";
+  if (!value) return "accepted";
   const raw = String(value);
   const normalized = raw.trim().toLowerCase();
   if (normalized === "paid" || raw === "Paid") return "paid";
@@ -69,7 +69,63 @@ const normalizeOrderStatus = (value?: string) => {
   if (normalized === "ready" || raw === "Shipped") return "ready";
   if (normalized === "completed" || normalized === "done") return "completed";
   if (normalized === "cancelled" || normalized === "canceled") return "cancelled";
-  return "paid";
+  return "accepted";
+};
+
+const PRINT_BASE_FEE = 350;
+const PRINT_TECH_SURCHARGE: Record<string, number> = {
+  "SLA Resin": 120,
+  "FDM Plastic": 0,
+};
+const PRINT_MATERIAL_SURCHARGE: Record<string, number> = {
+  "Tough Resin": 50,
+  "Standard Resin": 0,
+  "Standard PLA": 0,
+  "ABS Pro": 60,
+};
+const PRINT_QUALITY_SURCHARGE: Record<string, number> = {
+  pro: 100,
+  standard: 0,
+};
+
+const normalizePrintTech = (value?: string) => {
+  if (!value) return "SLA Resin";
+  return value.toLowerCase().includes("fdm") ? "FDM Plastic" : "SLA Resin";
+};
+
+const normalizePrintQuality = (value?: string) => {
+  if (!value) return "standard";
+  const raw = value.toLowerCase();
+  if (raw.includes("0.05") || raw.includes("pro")) return "pro";
+  return "standard";
+};
+
+const normalizePrintMaterial = (value?: string, tech?: string) => {
+  const resolvedTech = normalizePrintTech(tech);
+  if (!value) {
+    return resolvedTech === "SLA Resin" ? "Standard Resin" : "Standard PLA";
+  }
+  if (resolvedTech === "SLA Resin") {
+    if (value === "Tough Resin" || value === "Standard Resin") return value;
+    return "Standard Resin";
+  }
+  if (value === "Standard PLA" || value === "ABS Pro") return value;
+  return "Standard PLA";
+};
+
+const resolvePrintPrice = (printSpecs?: {
+  technology?: string;
+  material?: string;
+  quality?: string;
+}) => {
+  if (!printSpecs) return null;
+  const tech = normalizePrintTech(printSpecs.technology);
+  const material = normalizePrintMaterial(printSpecs.material, tech);
+  const quality = normalizePrintQuality(printSpecs.quality);
+  const techFee = PRINT_TECH_SURCHARGE[tech] ?? 0;
+  const materialFee = PRINT_MATERIAL_SURCHARGE[material] ?? 0;
+  const qualityFee = PRINT_QUALITY_SURCHARGE[quality] ?? 0;
+  return Math.max(0, Math.round(PRINT_BASE_FEE + techFee + materialFee + qualityFee));
 };
 
 export async function POST(request: NextRequest) {
@@ -81,6 +137,9 @@ export async function POST(request: NextRequest) {
         ? (() => {
             const next = { ...data } as Record<string, unknown>;
             delete next.user;
+            delete next.items;
+            delete next.status;
+            delete next.total;
             return next;
           })()
         : {};
@@ -104,7 +163,6 @@ export async function POST(request: NextRequest) {
           return {
             product: productId,
             quantity,
-            unitPrice,
             format,
             customerUpload: customerUpload ?? undefined,
             printSpecs,
@@ -131,7 +189,7 @@ export async function POST(request: NextRequest) {
     const orderData = {
       ...baseData,
       items,
-      status: normalizeOrderStatus(data?.status),
+      status: "accepted",
       customFile: incomingCustomFile ?? undefined,
       technicalSpecs: incomingSpecs,
     };
@@ -159,15 +217,18 @@ export async function POST(request: NextRequest) {
       orderData.customer.email = customerEmail;
     }
 
+    const productCache = new Map<string, any>();
+
     // Verify referenced products exist to avoid relationship validation errors
     for (const item of items) {
       try {
-        await payload.findByID({
+        const productDoc = await payload.findByID({
           collection: "products",
           id: item.product as any,
           depth: 0,
           overrideAccess: true,
         });
+        productCache.set(String(productDoc?.id ?? item.product), productDoc);
       } catch {
         return NextResponse.json(
           {
@@ -184,12 +245,21 @@ export async function POST(request: NextRequest) {
         continue;
       }
       try {
-        await payload.findByID({
+        const mediaDoc = await payload.findByID({
           collection: "media",
           id: item.customerUpload as any,
           depth: 0,
           overrideAccess: true,
         });
+        if (!mediaDoc?.isCustomerUpload) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Customer upload ${String(item.customerUpload)} is not a customer file.`,
+            },
+            { status: 400 }
+          );
+        }
       } catch {
         return NextResponse.json(
           {
@@ -203,12 +273,21 @@ export async function POST(request: NextRequest) {
 
     if (orderData.customFile) {
       try {
-        await payload.findByID({
+        const mediaDoc = await payload.findByID({
           collection: "media",
           id: orderData.customFile as any,
           depth: 0,
           overrideAccess: true,
         });
+        if (!mediaDoc?.isCustomerUpload) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Custom file ${String(orderData.customFile)} is not a customer upload.`,
+            },
+            { status: 400 }
+          );
+        }
       } catch {
         return NextResponse.json(
           {
@@ -220,16 +299,25 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    console.log("=== Create Order API Called ===");
-    console.log("Request data:", JSON.stringify(orderData, null, 2));
+    const normalizedItems = items.map((item) => {
+      const productDoc = productCache.get(String(item.product));
+      const productPrice =
+        typeof productDoc?.price === "number" && productDoc.price >= 0
+          ? productDoc.price
+          : 0;
+      const printPrice = resolvePrintPrice(item.printSpecs);
+      const unitPrice =
+        item.customerUpload || item.printSpecs
+          ? Math.max(productPrice, printPrice ?? productPrice)
+          : productPrice;
 
-    // Debug: Check items structure
-    if (orderData.items && Array.isArray(orderData.items)) {
-      console.log("Items count:", orderData.items.length);
-      orderData.items.forEach((item: any, index: number) => {
-        console.log(`Item ${index}:`, JSON.stringify(item, null, 2));
-      });
-    }
+      return {
+        ...item,
+        unitPrice,
+      };
+    });
+
+    orderData.items = normalizedItems;
 
     // Create order using Payload Local API
     const result = await payload.create({

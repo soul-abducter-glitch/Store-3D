@@ -27,7 +27,7 @@ const CheckoutStepper: React.FC<CheckoutStepperProps> = ({ steps }) => {
                 className={`
                   flex h-12 w-12 items-center justify-center rounded-full border-2 text-sm font-semibold transition-all duration-300
                   ${step.current
-                    ? 'border-[#2ED1FF] bg-[#2ED1FF]/20 text-[#2ED1FF] shadow-[0_0_20px_rgba(46,209,255,0.3)]'
+                    ? 'border-[#2ED1FF] bg-[#2ED1FF]/20 text-[#2ED1FF] shadow-[0_0_20px_rgba(46,209,255,0.35)]'
                     : step.completed
                     ? 'border-[#D4AF37] bg-[#D4AF37]/20 text-[#D4AF37]'
                     : 'border-white/20 bg-white/5 text-white/40'
@@ -40,9 +40,12 @@ const CheckoutStepper: React.FC<CheckoutStepperProps> = ({ steps }) => {
                   <span>{step.id}</span>
                 )}
               </div>
-              
+              {step.current && (
+                <span className="mt-2 h-0.5 w-10 rounded-full bg-[#2ED1FF] shadow-[0_0_12px_rgba(46,209,255,0.45)]" />
+              )}
+
               {/* Step Title */}
-              <div className="mt-3 text-center">
+              <div className={`text-center ${step.current ? "mt-2" : "mt-3"}`}>
                 <p className={`text-sm font-semibold ${
                   step.current 
                     ? 'text-[#2ED1FF]' 
@@ -63,7 +66,7 @@ const CheckoutStepper: React.FC<CheckoutStepperProps> = ({ steps }) => {
               <div
                 className={`
                   flex-1 h-0.5 mx-4 mt-[-24px] transition-all duration-300
-                  ${step.completed ? 'bg-[#D4AF37]' : 'bg-white/10'}
+                  ${step.completed ? 'bg-[#D4AF37]' : step.current ? 'bg-[#2ED1FF]/40' : 'bg-white/10'}
                 `}
               />
             )}
