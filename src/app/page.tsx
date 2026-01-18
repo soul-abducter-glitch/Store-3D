@@ -1473,7 +1473,7 @@ export default function Home() {
           </motion.div>
         )}
       </AnimatePresence>
-      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-16 pt-24 sm:px-6 sm:pb-24 sm:pt-28">
+      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-24 sm:px-6 sm:pb-24 sm:pt-28">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr] md:items-start">
           <Sidebar
             format={format}
@@ -1600,75 +1600,79 @@ export default function Home() {
                     </button>
                   </>
                 )}
-                  <div className="absolute inset-x-4 bottom-4 z-50 flex flex-wrap items-end justify-between gap-3 sm:inset-x-8 sm:bottom-8 sm:gap-4">
-                  <div className="order-1 max-w-full sm:max-w-[420px]">
+                  <div className="absolute inset-x-4 bottom-2 z-50 flex flex-col items-stretch gap-2 pb-[env(safe-area-inset-bottom)] sm:inset-x-8 sm:bottom-8 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+                  <div className="order-1 w-full sm:max-w-[420px] sm:w-auto">
                   <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60 sm:text-[10px]">
                     TECH_ID: {heroSku}
                   </p>
                     <h2 className="text-lg font-bold italic leading-tight tracking-[0.01em] text-white sm:text-xl lg:text-2xl">
                       {heroName}
                     </h2>
-                  <div className="mt-3 flex flex-wrap items-center gap-3 sm:mt-4 sm:gap-4">
+                  <div className="mt-2 flex flex-col gap-2 sm:mt-4 sm:flex-row sm:items-center sm:gap-4">
                     <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
                       {heroPriceLabel}
                     </span>
-                    <button
-                      type="button"
-                      aria-label="В корзину"
-                      title="В корзину"
-                      className="group flex h-9 items-center rounded-full bg-[#2ED1FF]/20 px-3 text-[10px] uppercase tracking-[0.14em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:text-[11px]"
-                      onClick={() => currentProduct && addToCart(currentProduct)}
-                    >
-                      <ShoppingCart className="h-4 w-4" />
-                      <span className="ml-2 whitespace-nowrap transition-all duration-200 md:ml-0 md:max-w-0 md:overflow-hidden md:opacity-0 md:group-hover:ml-2 md:group-hover:max-w-[120px] md:group-hover:opacity-100">
-                        В корзину
-                      </span>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
-                      title={isCurrentFavorite ? "В избранном" : "В избранное"}
-                      className={`group flex h-9 items-center rounded-full border px-3 text-[10px] uppercase tracking-[0.14em] transition sm:text-[11px] ${
-                        isCurrentFavorite
-                          ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
-                          : "border-white/15 bg-white/5 text-white/70 hover:text-white"
-                      }`}
-                      onClick={() =>
-                        currentProduct && toggleFavorite(buildFavoriteItem(currentProduct))
-                      }
-                    >
-                      <Heart
-                        className="h-4 w-4"
-                        fill={isCurrentFavorite ? "currentColor" : "none"}
-                      />
-                      <span className="ml-2 whitespace-nowrap transition-all duration-200 md:ml-0 md:max-w-0 md:overflow-hidden md:opacity-0 md:group-hover:ml-2 md:group-hover:max-w-[150px] md:group-hover:opacity-100">
-                        {isCurrentFavorite ? "В избранном" : "В избранное"}
-                      </span>
-                    </button>
+                    <div className="flex w-full items-center gap-2 sm:w-auto">
+                      <button
+                        type="button"
+                        aria-label="В корзину"
+                        title="В корзину"
+                        className="group flex min-h-[48px] flex-1 items-center justify-center rounded-full bg-[#2ED1FF]/25 px-5 text-[10px] uppercase tracking-[0.16em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/35 sm:min-h-0 sm:flex-none sm:px-4 sm:text-[11px]"
+                        onClick={() => currentProduct && addToCart(currentProduct)}
+                      >
+                        <ShoppingCart className="h-4 w-4" />
+                        <span className="ml-2 whitespace-nowrap">В корзину</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
+                        title={isCurrentFavorite ? "В избранном" : "В избранное"}
+                        className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-auto sm:px-3 sm:text-[11px] ${
+                          isCurrentFavorite
+                            ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
+                            : "border-white/15 bg-white/5 text-white/70 hover:text-white"
+                        }`}
+                        onClick={() =>
+                          currentProduct && toggleFavorite(buildFavoriteItem(currentProduct))
+                        }
+                      >
+                        <Heart
+                          className="h-4 w-4"
+                          fill={isCurrentFavorite ? "currentColor" : "none"}
+                        />
+                        <span className="ml-2 hidden whitespace-nowrap sm:inline">
+                          {isCurrentFavorite ? "В избранном" : "В избранное"}
+                        </span>
+                      </button>
+                    </div>
                   </div>
                   </div>
-                  <div className="order-3 w-full flex items-center justify-start gap-3 overflow-x-auto rounded-full px-4 py-2.5 glass-dock border-white/15 bg-white/5 sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-4 sm:px-5">
+                  <div className="order-3 hidden w-full items-center justify-start gap-2 overflow-x-auto rounded-full px-3.5 py-2 glass-dock border-white/15 bg-white/5 sm:flex sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-4 sm:px-5 sm:py-2.5">
                   <DockButton
                     active={autoRotate}
                     label="Авто-поворот"
+                    compactLabel="Авто"
                     icon={<RotateCw className="h-4 w-4" />}
                     onClick={() => setAutoRotate((prev) => !prev)}
                   />
                   <DockButton
                     active={false}
                     label="Zoom +"
+                    compactLabel="Zoom +"
                     icon={<ZoomIn className="h-4 w-4" />}
                     onClick={() => handleZoom("in")}
                   />
                   <DockButton
                     active={false}
                     label="Zoom -"
+                    compactLabel="Zoom -"
                     icon={<ZoomOut className="h-4 w-4" />}
                     onClick={() => handleZoom("out")}
                   />
                   <DockButton
                     active={preview === "interior"}
                     label="В интерьере"
+                    compactLabel="Интерьер"
                     icon={<Scan className="h-4 w-4" />}
                     onClick={() =>
                       setPreview((prev) => (prev === "interior" ? "default" : "interior"))
@@ -1677,13 +1681,14 @@ export default function Home() {
                   <DockButton
                     active={preview === "ar"}
                     label="AR-просмотр"
+                    compactLabel="AR"
                     icon={<Sparkles className="h-4 w-4" />}
                     onClick={() =>
                       setPreview((prev) => (prev === "ar" ? "default" : "ar"))
                     }
                   />
                   </div>
-                  <div className="order-2 relative flex flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:text-xs">
+                  <div className="order-2 relative hidden w-full flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:flex sm:w-auto sm:text-xs">
                     <button
                       type="button"
                       aria-expanded={isWorkshopOpen}
@@ -1792,6 +1797,176 @@ export default function Home() {
                                 </div>
                               </div>
                             )}
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </div>
+                  <div className="fixed inset-x-4 bottom-2 z-40 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-[#0b0f12]/85 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.14em] text-white/70 shadow-[0_10px_30px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:hidden">
+                    <DockButton
+                      active={autoRotate}
+                      label="Авто-поворот"
+                      compactLabel="Авто"
+                      icon={<RotateCw className="h-4 w-4" />}
+                      fullWidth
+                      onClick={() => setAutoRotate((prev) => !prev)}
+                    />
+                    <DockButton
+                      active={false}
+                      label="Zoom +"
+                      compactLabel="Zoom +"
+                      icon={<ZoomIn className="h-4 w-4" />}
+                      fullWidth
+                      onClick={() => handleZoom("in")}
+                    />
+                    <DockButton
+                      active={false}
+                      label="Zoom -"
+                      compactLabel="Zoom -"
+                      icon={<ZoomOut className="h-4 w-4" />}
+                      fullWidth
+                      onClick={() => handleZoom("out")}
+                    />
+                    <DockButton
+                      active={preview === "interior"}
+                      label="В интерьере"
+                      compactLabel="Интерьер"
+                      icon={<Scan className="h-4 w-4" />}
+                      fullWidth
+                      onClick={() =>
+                        setPreview((prev) => (prev === "interior" ? "default" : "interior"))
+                      }
+                    />
+                    <DockButton
+                      active={preview === "ar"}
+                      label="AR-просмотр"
+                      compactLabel="AR"
+                      icon={<Sparkles className="h-4 w-4" />}
+                      fullWidth
+                      onClick={() =>
+                        setPreview((prev) => (prev === "ar" ? "default" : "ar"))
+                      }
+                    />
+                    <DockButton
+                      active={isWorkshopOpen}
+                      label="Мастерская"
+                      compactLabel="Мастер"
+                      icon={<Palette className="h-4 w-4" />}
+                      fullWidth
+                      onClick={() => setWorkshopOpen((prev) => !prev)}
+                    />
+                    <AnimatePresence>
+                      {isWorkshopOpen && (
+                        <motion.div
+                          className="absolute bottom-full left-0 right-0 mb-3 rounded-2xl border border-white/10 bg-[#0b0b0b]/90 p-4 text-[10px] text-white/70 shadow-2xl backdrop-blur-xl"
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 8 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ОСВЕЩЕНИЕ
+                              </p>
+                              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
+                                {lightingPresets.map((option) => {
+                                  const isActive = lightingMode === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                        isActive
+                                          ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                          : "text-white/50 hover:text-white"
+                                      } ${option.value === "lab" ? "col-span-2" : ""}`}
+                                      onClick={() => setLightingMode(option.value)}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ВИД
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                    isWireframeActive
+                                      ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                      : "text-white/50 hover:text-white"
+                                  }`}
+                                  onClick={() => toggleRenderMode("wireframe")}
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                  Сетка
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                    renderMode === "solid"
+                                      ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                      : "text-white/50 hover:text-white"
+                                  }`}
+                                  onClick={() => toggleRenderMode("solid")}
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                  Объём
+                                </button>
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ФИНИШ
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                {finishOptions.map((option) => {
+                                  const isActive = finish === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className={`rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                        isActive
+                                          ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                          : "text-white/50 hover:text-white"
+                                      }`}
+                                      onClick={() => setFinish(option.value)}
+                                    >
+                                      {option.label}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                АКЦЕНТ
+                              </p>
+                              <div className="grid grid-cols-4 gap-2">
+                                {accentOptions.map((option) => {
+                                  const isActive = activeColor === option.value;
+                                  return (
+                                    <button
+                                      key={option.value}
+                                      type="button"
+                                      className={`h-9 w-9 rounded-full border transition ${
+                                        isActive
+                                          ? "border-white/80 shadow-[0_0_10px_rgba(255,255,255,0.35)]"
+                                          : "border-white/20"
+                                      }`}
+                                      style={{ backgroundColor: option.value }}
+                                      onClick={() => setActiveColor(option.value)}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
                           </div>
                         </motion.div>
                       )}
@@ -1919,12 +2094,12 @@ function Header({
         variants={containerVariants}
         initial="hidden"
         animate="show"
-        className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-3 px-4 py-4 sm:px-6 sm:py-5 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-6"
+        className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-5 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-6"
       >
         <motion.div variants={itemVariants} className="flex items-center gap-3 sm:gap-4">
           <div>
             <a href="/" className="block transition hover:opacity-80">
-              <h1 className="text-2xl font-bold tracking-[0.2em] text-white sm:text-3xl">
+              <h1 className="text-xl font-bold tracking-[0.2em] text-white sm:text-3xl">
                 3D-STORE
               </h1>
             </a>
@@ -1972,10 +2147,18 @@ function Header({
           <button
             type="button"
             aria-label="Toggle sidebar"
-            className="flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white md:hidden"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white sm:h-11 sm:w-11 md:hidden"
             onClick={onToggleSidebar}
           >
             {isSidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+          </button>
+          <button
+            type="button"
+            aria-label="Поиск"
+            className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white sm:h-11 sm:w-11 md:hidden"
+            onClick={toggleSearch}
+          >
+            {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
           </button>
           {isSearchOpen && (
             <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 md:flex">
@@ -2001,7 +2184,7 @@ function Header({
           <a
             href="/favorites"
             aria-label="Избранное"
-            className={`relative flex h-11 w-11 items-center justify-center rounded-full border transition md:h-10 md:w-10 ${
+            className={`relative flex h-10 w-10 items-center justify-center rounded-full border transition sm:h-11 sm:w-11 md:h-10 md:w-10 ${
               favoritesCount > 0
                 ? "border-rose-300/50 bg-rose-500/15 text-rose-100 shadow-[0_0_18px_rgba(244,63,94,0.45)] hover:border-rose-300/70"
                 : "border-white/15 bg-white/5 text-white/80 hover:border-white/35 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(191,244,255,0.22)]"
@@ -2017,7 +2200,7 @@ function Header({
           <button
             type="button"
             aria-label="Корзина"
-            className="relative flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/50 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(46,209,255,0.25)] md:h-10 md:w-10"
+            className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/50 hover:bg-white/10 hover:text-white hover:shadow-[0_0_12px_rgba(46,209,255,0.25)] sm:h-11 sm:w-11 md:h-10 md:w-10"
             onClick={onCartToggle}
           >
             <ShoppingCart className="h-5 w-5" />
@@ -2093,6 +2276,31 @@ function Header({
             </a>
           )}
         </motion.div>
+        {isSearchOpen && (
+          <motion.div
+            variants={itemVariants}
+            className="order-last flex w-full items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/70 md:hidden"
+          >
+            <Search className="h-4 w-4 text-white/50" />
+            <input
+              ref={inputRef}
+              type="search"
+              value={searchQuery}
+              onChange={(event) => onSearchChange(event.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              placeholder="Поиск: название, категория, артикул"
+              className="flex-1 bg-transparent text-[10px] uppercase tracking-[0.2em] text-white/80 placeholder:text-white/40 focus:outline-none"
+            />
+            <button
+              type="button"
+              aria-label="Закрыть поиск"
+              className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 text-white/60 transition hover:text-white"
+              onClick={toggleSearch}
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </motion.div>
+        )}
       </motion.div>
     </header>
   );
@@ -2656,16 +2864,29 @@ function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
     { label: "МАСШТАБ", compactLabel: "МАСШ", value: scaleLabel },
     { label: "ГАБАРИТЫ", compactLabel: "ГАБ.", value: dimensionsLabel },
   ];
+  const compactItems = [
+    { label: "ПОЛИГ.", value: polyLabel, accent: true },
+    { label: "ГАБАР.", value: dimensionsLabel },
+  ];
+
+  useEffect(() => {
+    if (window.innerWidth < 640) {
+      setHudExpanded(false);
+    }
+  }, []);
 
   return (
-    <div className="absolute left-3 right-3 top-3 z-50 flex flex-col gap-2 rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.2em] text-white/65 sm:left-8 sm:right-auto sm:top-8 sm:gap-3 sm:px-4 sm:py-3 sm:text-xs">
+    <div className="absolute left-3 right-3 top-2 z-50 flex flex-col gap-1.5 rounded-2xl border border-white/10 bg-white/[0.03] px-2.5 py-1.5 font-[var(--font-jetbrains-mono)] text-[8px] uppercase tracking-[0.16em] text-white/65 sm:left-8 sm:right-auto sm:top-8 sm:gap-3 sm:px-4 sm:py-3 sm:text-xs sm:tracking-[0.2em]">
       <div className="flex items-center justify-between gap-3">
-        <span className="text-[9px] tracking-[0.35em] text-white/40">ИНЖЕНЕРНЫЙ ВИД</span>
+        <span className="text-[8px] tracking-[0.28em] text-white/40 sm:text-[9px] sm:tracking-[0.35em]">
+          <span className="sm:hidden">ИНЖ. ВИД</span>
+          <span className="hidden sm:inline">ИНЖЕНЕРНЫЙ ВИД</span>
+        </span>
         <button
           type="button"
           aria-expanded={isHudExpanded}
           aria-controls="hud-details"
-          className="flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[8px] tracking-[0.3em] text-white/60 transition hover:border-white/30 hover:text-white/90"
+          className="flex items-center gap-1 rounded-full border border-white/10 px-2 py-1 text-[7px] tracking-[0.3em] text-white/60 transition hover:border-white/30 hover:text-white/90 sm:text-[8px]"
           onClick={() => setHudExpanded((prev) => !prev)}
         >
           <span>{isHudExpanded ? "СВЕРНУТЬ" : "ДЕТАЛИ"}</span>
@@ -2675,13 +2896,11 @@ function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
         </button>
       </div>
       <div
-        className={`flex flex-wrap items-center gap-x-3 gap-y-1 ${
-          isHudExpanded ? "hidden" : ""
-        }`}
+        className={`flex items-center gap-3 ${isHudExpanded ? "hidden" : ""}`}
       >
-        {hudItems.map((item) => (
+        {compactItems.map((item) => (
           <div key={item.label} className="flex items-baseline gap-1 whitespace-nowrap">
-            <span className="text-white/40">{item.compactLabel}:</span>
+            <span className="text-white/40">{item.label}</span>
             <span className={item.accent ? "text-[#2ED1FF]" : "text-white"}>
               {item.value}
             </span>
@@ -2690,7 +2909,7 @@ function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
       </div>
       <div
         id="hud-details"
-        className={`grid grid-cols-3 gap-2 sm:grid-cols-1 sm:gap-2 ${
+        className={`grid grid-cols-2 gap-1.5 sm:grid-cols-1 sm:gap-2 ${
           isHudExpanded ? "" : "hidden"
         }`}
       >
@@ -2737,22 +2956,25 @@ function GlobalHudMarkers() {
 type DockButtonProps = {
   active: boolean;
   label: string;
+  compactLabel?: string;
   icon: ReactNode;
+  fullWidth?: boolean;
   onClick: () => void;
 };
 
-function DockButton({ active, label, icon, onClick }: DockButtonProps) {
+function DockButton({ active, label, compactLabel, icon, fullWidth, onClick }: DockButtonProps) {
   return (
     <button
-      className={`relative flex min-h-[44px] items-center gap-2 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.2em] transition sm:min-h-0 sm:px-3 sm:py-2 sm:text-xs ${
+      className={`relative flex min-h-[44px] items-center gap-1.5 rounded-full border px-3 py-2 text-[10px] uppercase tracking-[0.14em] transition sm:min-h-0 sm:gap-2 sm:px-3 sm:py-2 sm:text-xs sm:tracking-[0.2em] ${
         active
           ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]"
           : "border-white/10 text-white/70 hover:border-white/25 hover:bg-white/10 hover:text-white"
-      }`}
+      } ${fullWidth ? "w-full justify-center" : ""}`}
       onClick={onClick}
     >
       {icon}
-      {label}
+      <span className="sm:hidden">{compactLabel ?? label}</span>
+      <span className="hidden sm:inline">{label}</span>
       {active && (
         <span
           aria-hidden="true"
@@ -2911,26 +3133,26 @@ function ProductCard({
       aria-pressed={isSelected}
       onKeyDown={handleKeyDown}
       onClick={onClick}
-      className={`group flex h-full w-full flex-col rounded-3xl bg-white/5 px-4 pt-4 pb-3 text-left backdrop-blur-xl light-sweep transition-all sm:px-6 sm:pt-6 sm:pb-4 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(0,0,0,0.35)] ${
+      className={`group flex h-full w-full flex-col rounded-3xl bg-white/5 px-3.5 pt-3.5 pb-3 text-left backdrop-blur-xl light-sweep transition-all sm:px-6 sm:pt-6 sm:pb-4 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(0,0,0,0.35)] ${
         isSelected
           ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"
           : "border border-transparent"
       }`}
     >
-      <div className="relative mb-4 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+      <div className="relative mb-3 overflow-hidden rounded-2xl border border-white/10 bg-white/5 sm:mb-4">
         <img
           src={product.thumbnailUrl}
           alt={product.name}
           loading="lazy"
-          className="h-36 w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105 sm:h-40"
+          className="h-32 w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105 sm:h-40"
         />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.35)]" />
-        <div className="absolute left-3 top-3 flex items-center gap-2">
-          <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)]">
+        <div className="absolute left-2.5 top-2.5 flex items-center gap-2 sm:left-3 sm:top-3">
+          <span className="rounded-full bg-black/60 px-2.5 py-0.5 text-[8px] font-semibold uppercase tracking-[0.2em] text-white shadow-[0_0_12px_rgba(0,0,0,0.4)] sm:px-3 sm:py-1 sm:text-[10px]">
             {formatLabel}
           </span>
           <span
-            className={`rounded-full border px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.2em] ${statusTone}`}
+            className={`rounded-full border px-2 py-0.5 text-[8px] font-semibold uppercase tracking-[0.2em] sm:text-[9px] ${statusTone}`}
           >
             {statusTag}
           </span>
@@ -2940,7 +3162,7 @@ function ProductCard({
           aria-label={isFavorite ? "Удалить из избранного" : "Добавить в избранное"}
           animate={favoritePulse ? { scale: [1, 1.12, 1] } : { scale: 1 }}
           transition={{ duration: 0.35 }}
-          className={`group/fav absolute right-3 top-3 flex h-9 w-9 items-center justify-center rounded-full border text-white transition ${
+          className={`group/fav absolute right-2.5 top-2.5 flex h-10 w-10 items-center justify-center rounded-full border text-white transition sm:right-3 sm:top-3 sm:h-9 sm:w-9 ${
             isFavorite
               ? "border-rose-300/70 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
               : "border-white/10 bg-black/40 text-white/70 hover:border-rose-300/40 hover:text-white"
@@ -2964,10 +3186,10 @@ function ProductCard({
             В избранное
           </span>
         </motion.button>
-        <div className="absolute inset-x-3 bottom-3 flex items-center gap-2 opacity-0 transition-all duration-200 group-hover:translate-y-0 group-hover:opacity-100 translate-y-2">
+        <div className="absolute inset-x-2.5 bottom-2.5 flex items-center gap-2 opacity-100 transition-all duration-200 sm:inset-x-3 sm:bottom-3 sm:opacity-0 sm:translate-y-2 sm:group-hover:translate-y-0 sm:group-hover:opacity-100">
           <button
             type="button"
-            className="w-full rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.2em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+            className="w-full rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white sm:text-[10px] sm:tracking-[0.2em]"
             onClick={(event) => {
               event.stopPropagation();
               onAddToCart();
@@ -2979,16 +3201,16 @@ function ProductCard({
       </div>
       <div className="flex items-start justify-between">
         <div className="min-w-0">
-          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#2ED1FF]/90">
+          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.26em] text-[#2ED1FF]/90 sm:text-xs sm:tracking-[0.3em]">
             {formatLabel}
           </p>
-          <h4 className="mt-3 min-h-[2.6rem] text-lg font-semibold leading-snug text-white sm:min-h-[3rem] sm:text-xl sm:leading-snug [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
+          <h4 className="mt-2 min-h-[2.4rem] text-base font-semibold leading-snug text-white sm:mt-3 sm:min-h-[3rem] sm:text-xl sm:leading-snug [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
             {product.name}
           </h4>
-          <p className="mt-2 truncate text-[13px] text-white/50 sm:text-sm">
+          <p className="mt-1.5 truncate text-[12px] text-white/50 sm:mt-2 sm:text-sm">
             {product.tech}
           </p>
-          <p className="mt-1 text-[12px] text-white/45 sm:text-[13px] [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
+          <p className="mt-1 hidden text-[12px] text-white/45 sm:block sm:text-[13px] [display:-webkit-box] [-webkit-line-clamp:2] [-webkit-box-orient:vertical] overflow-hidden">
             {materialDescription}
           </p>
         </div>
@@ -2996,11 +3218,11 @@ function ProductCard({
           <CheckCircle2 className="h-4 w-4 text-[#D4AF37] sm:h-5 sm:w-5" />
         )}
       </div>
-      <div className="mt-auto flex items-center justify-between pt-3 text-[13px] sm:pt-4 sm:text-sm">
+      <div className="mt-auto flex items-center justify-between pt-2 text-[12px] sm:pt-4 sm:text-sm">
         <span className="font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
           PRICE
         </span>
-        <span className="text-lg font-semibold text-white shadow-[0_0_14px_rgba(46,209,255,0.25)] sm:text-xl">
+        <span className="text-base font-semibold text-white shadow-[0_0_14px_rgba(46,209,255,0.25)] sm:text-xl">
           {product.price}
         </span>
       </div>
