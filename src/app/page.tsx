@@ -3316,7 +3316,7 @@ function ProductCard({
           src={product.thumbnailUrl}
           alt={product.name}
           loading="lazy"
-          className="h-32 w-full object-cover transition-transform duration-300 ease-out group-hover:scale-105 sm:h-40"
+          className="h-32 w-full object-contain p-2 transition-transform duration-300 ease-out group-hover:scale-[1.02] sm:h-40"
         />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.35)]" />
         <div className="absolute left-2.5 top-2.5 flex items-center gap-2 sm:left-3 sm:top-3">
