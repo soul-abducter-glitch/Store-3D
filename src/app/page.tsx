@@ -243,6 +243,11 @@ const MODEL_EXTENSIONS = [".glb", ".gltf", ".stl"];
 const isModelAsset = (value: string) =>
   MODEL_EXTENSIONS.some((ext) => value.toLowerCase().endsWith(ext));
 
+const isExternalUrl = (value: string) =>
+  value.startsWith("http://") || value.startsWith("https://");
+
+const isGltfAsset = (value: string) => value.toLowerCase().endsWith(".gltf");
+
 const extractFilename = (value: string) => {
   const normalized = value.split("?")[0] ?? value;
   const parts = normalized.replace(/\\/g, "/").split("/");
@@ -259,6 +264,12 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
 
   if (typeof value === "string") {
     if (isModelAsset(value)) {
+      if (isGltfAsset(value)) {
+        return value;
+      }
+      if (isExternalUrl(value)) {
+        return value;
+      }
       const filename = extractFilename(value);
       return filename ? buildProxyUrl(filename) : value;
     }
@@ -267,6 +278,12 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
 
   const filename = value.filename ?? null;
   if (filename && isModelAsset(filename)) {
+    if (isGltfAsset(filename)) {
+      if (value.url) {
+        return value.url;
+      }
+      return `/media/${filename}`;
+    }
     return buildProxyUrl(filename);
   }
 
@@ -446,21 +463,120 @@ const interiorBackgrounds = {
   work: "/backgrounds/bg_work.png",
 } as const;
 
-const pickInteriorBackground = (categories?: string[] | null) => {
-  const normalized = (categories ?? []).map((title) => title.toLowerCase());
-  const matches = (targets: string[]) =>
-    normalized.some((title) => targets.some((target) => title.includes(target)));
+const interiorThemeKeywords = {
+  lab: [
+    "sci-fi",
+    "scifi",
+    "cyber",
+    "robot",
+    "android",
+    "mech",
+    "space",
+    "future",
+    "character",
+    "персонаж",
+    "герой",
+    "кибер",
+    "робот",
+    "андроид",
+    "мех",
+    "космо",
+    "будущее",
+  ],
+  home: [
+    "home",
+    "decor",
+    "interior",
+    "furniture",
+    "architecture",
+    "архитектур",
+    "дом",
+    "декор",
+    "интерьер",
+    "мебел",
+    "светильник",
+    "ваза",
+  ],
+  work: [
+    "terrain",
+    "tabletop",
+    "wargame",
+    "tool",
+    "mechanic",
+    "industrial",
+    "vehicle",
+    "weapon",
+    "props",
+    "prototype",
+    "хобби",
+    "игруш",
+    "террейн",
+    "механ",
+    "инжен",
+    "техника",
+    "машин",
+    "танк",
+    "корабл",
+    "самолет",
+    "оруж",
+  ],
+} as const;
 
-  if (matches(["персонажи", "сай-фай"])) {
+const normalizeThemeText = (value: string) => value.toLowerCase();
+
+const collapseThemeText = (value: string) =>
+  value.toLowerCase().replace(/[^a-z0-9а-я]+/gi, "");
+
+const hasThemeMatch = (source: string, collapsed: string, keywords: string[]) =>
+  keywords.some((keyword) => {
+    const normalized = normalizeThemeText(keyword);
+    const collapsedKeyword = collapseThemeText(keyword);
+    return source.includes(normalized) || (collapsedKeyword && collapsed.includes(collapsedKeyword));
+  });
+
+const hashString = (value: string) => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash * 31 + value.charCodeAt(i)) % 2147483647;
+  }
+  return hash;
+};
+
+const pickInteriorBackground = (product?: CatalogProduct | null) => {
+  if (!product) {
     return interiorBackgrounds.lab;
   }
-  if (matches(["дом и декор", "архитектура"])) {
+
+  const tokens = [
+    product.name,
+    product.slug,
+    product.sku,
+    ...product.categoryTitles,
+    ...product.categoryKeys,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  const normalized = normalizeThemeText(tokens);
+  const collapsed = collapseThemeText(tokens);
+
+  if (hasThemeMatch(normalized, collapsed, interiorThemeKeywords.lab)) {
+    return interiorBackgrounds.lab;
+  }
+  if (hasThemeMatch(normalized, collapsed, interiorThemeKeywords.home)) {
     return interiorBackgrounds.home;
   }
-  if (matches(["хобби и игрушки", "террейн"])) {
+  if (hasThemeMatch(normalized, collapsed, interiorThemeKeywords.work)) {
     return interiorBackgrounds.work;
   }
-  return interiorBackgrounds.lab;
+
+  const keys = Object.keys(interiorBackgrounds) as Array<
+    keyof typeof interiorBackgrounds
+  >;
+  const fallbackKey =
+    keys[hashString(product.id || product.name || "lab") % keys.length] ??
+    "lab";
+  return interiorBackgrounds[fallbackKey];
 };
 
 const parseScaleMm = (value?: string | null) => {
@@ -518,6 +634,20 @@ const lightingPresets: Array<{ value: LightingMode; label: string }> = [
   { value: "cyber", label: "КИБЕРПАНК" },
 ];
 
+const finishOptions: Array<{ value: FinishMode; label: string }> = [
+  { value: "raw", label: "ОРИГИНАЛ" },
+  { value: "pro", label: "ПРО" },
+];
+
+const accentOptions: Array<{ value: string; label: string }> = [
+  { value: "#f3f4f6", label: "ICE" },
+  { value: "#2ED1FF", label: "CYAN" },
+  { value: "#22c55e", label: "EMERALD" },
+  { value: "#f59e0b", label: "AMBER" },
+  { value: "#f43f5e", label: "ROSE" },
+  { value: "#94a3b8", label: "SLATE" },
+];
+
 export default function Home() {
   const router = useRouter();
   const { toasts, showSuccess, removeToast } = useToast();
@@ -550,6 +680,7 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
+  const heroSectionRef = useRef<HTMLDivElement | null>(null);
   const controlsRef = useRef<any | null>(null);
   const previousRenderModeRef = useRef<RenderMode>("final");
   const zoomAnimationRef = useRef<number | null>(null);
@@ -1032,8 +1163,8 @@ export default function Home() {
   }, [filteredProducts, currentModelId]);
 
   const interiorBackgroundUrl = useMemo(
-    () => pickInteriorBackground(currentProduct?.categoryTitles),
-    [currentProduct?.categoryTitles]
+    () => pickInteriorBackground(currentProduct),
+    [currentProduct]
   );
 
   const activeModelUrl = useMemo(() => {
@@ -1118,6 +1249,18 @@ export default function Home() {
     setRenderMode("base");
   };
   const emptyCategoryMessage = "В этой категории пока нет моделей. Ожидайте пополнения";
+
+  const handleProductSelect = useCallback(
+    (id: string, options?: { scroll?: boolean }) => {
+      setCurrentModelId(id);
+      if (options?.scroll) {
+        window.requestAnimationFrame(() => {
+          heroSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+        });
+      }
+    },
+    []
+  );
   const showHeroStandby = productsError || dataLoading || !currentProduct;
   const heroStandbyMessage = productsError
     ? "System Standby: No Data"
@@ -1491,10 +1634,11 @@ export default function Home() {
           />
           <main className="space-y-8 lg:space-y-10">
             <motion.section
+              ref={heroSectionRef}
               variants={containerVariants}
               initial="hidden"
               animate="show"
-              className="space-y-4 sm:space-y-6"
+              className="space-y-4 scroll-mt-24 sm:space-y-6 sm:scroll-mt-28"
             >
               <motion.div
                 variants={itemVariants}
@@ -1617,17 +1761,17 @@ export default function Home() {
                         type="button"
                         aria-label="В корзину"
                         title="В корзину"
-                        className="group flex min-h-[48px] flex-1 items-center justify-center rounded-full bg-[#2ED1FF]/25 px-5 text-[10px] uppercase tracking-[0.16em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/35 sm:min-h-0 sm:flex-none sm:px-4 sm:text-[11px]"
+                        className="group flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.25)] transition hover:bg-[#2ED1FF]/35 sm:h-9 sm:w-9"
                         onClick={() => currentProduct && addToCart(currentProduct)}
                       >
                         <ShoppingCart className="h-4 w-4" />
-                        <span className="ml-2 whitespace-nowrap">В корзину</span>
+                        <span className="sr-only">В корзину</span>
                       </button>
                       <button
                         type="button"
                         aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
                         title={isCurrentFavorite ? "В избранном" : "В избранное"}
-                        className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-auto sm:px-3 sm:text-[11px] ${
+                        className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-9 ${
                           isCurrentFavorite
                             ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
                             : "border-white/15 bg-white/5 text-white/70 hover:text-white"
@@ -1640,7 +1784,7 @@ export default function Home() {
                           className="h-4 w-4"
                           fill={isCurrentFavorite ? "currentColor" : "none"}
                         />
-                        <span className="ml-2 hidden whitespace-nowrap sm:inline">
+                        <span className="sr-only">
                           {isCurrentFavorite ? "В избранном" : "В избранное"}
                         </span>
                       </button>
@@ -2009,7 +2153,7 @@ export default function Home() {
                         key={product.id}
                         product={product}
                         isSelected={product.id === currentModelId}
-                        onClick={() => setCurrentModelId(product.id)}
+                        onClick={() => handleProductSelect(product.id, { scroll: true })}
                         isFavorite={isFavorite(product.id)}
                         onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
                         onAddToCart={() => addToCart(product)}
