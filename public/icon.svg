@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-label="3D-STORE">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a" />
+      <stop offset="100%" stop-color="#020617" />
+    </linearGradient>
+    <linearGradient id="glow" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#2ED1FF" stop-opacity="0" />
+      <stop offset="50%" stop-color="#2ED1FF" stop-opacity="0.9" />
+      <stop offset="100%" stop-color="#2ED1FF" stop-opacity="0" />
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="96" fill="url(#bg)" />
+  <rect x="48" y="120" width="416" height="272" rx="56" fill="rgba(255,255,255,0.04)" />
+  <path d="M96 196h320" stroke="url(#glow)" stroke-width="6" />
+  <path d="M96 316h320" stroke="url(#glow)" stroke-width="6" />
+  <text x="256" y="286" font-family="Arial, sans-serif" font-size="120" font-weight="700" fill="#E2E8F0" text-anchor="middle">3D</text>
+</svg>

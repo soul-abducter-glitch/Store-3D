@@ -1432,10 +1432,38 @@ export default function Home() {
     : dataLoading
       ? "Loading Data..."
       : emptyCategoryMessage;
+  const seoJsonLd = useMemo(() => {
+    const siteUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ||
+      (typeof window !== "undefined" ? window.location.origin : "https://store-3d.example");
+    const items = normalizedProducts.slice(0, 24).map((product, index) => ({
+      "@type": "ListItem",
+      position: index + 1,
+      name: product.name,
+      url: `${siteUrl}/product/${product.slug || product.id}`,
+    }));
+    const organization = {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "3D-STORE",
+      url: siteUrl,
+      logo: `${siteUrl}/backgrounds/bg_lab.png`,
+    };
+    const itemList = {
+      "@context": "https://schema.org",
+      "@type": "ItemList",
+      itemListElement: items,
+    };
+    return JSON.stringify([organization, itemList]);
+  }, [normalizedProducts]);
 
   return (
     <div className="relative min-h-screen bg-[#050505] text-white font-[var(--font-inter)]">
       <ToastContainer toasts={toasts} onRemove={removeToast} position="top-right" />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: seoJsonLd }}
+      />
       {isAuthModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur">
           <div className="relative w-full max-w-lg rounded-3xl border border-white/10 bg-[#0b0b0b] p-6 shadow-2xl">
