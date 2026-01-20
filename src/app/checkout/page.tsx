@@ -367,6 +367,19 @@ const CheckoutPage = () => {
     [cartItems]
   );
 
+  const availablePaymentOptions = useMemo(() => {
+    if (hasDigital && !hasPhysical) {
+      return paymentOptions.filter((option) => option.value === "card");
+    }
+    return paymentOptions;
+  }, [hasDigital, hasPhysical]);
+
+  useEffect(() => {
+    if (hasDigital && !hasPhysical && paymentMethod !== "card") {
+      setPaymentMethod("card");
+    }
+  }, [hasDigital, hasPhysical, paymentMethod]);
+
   const totalValue = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0),
     [cartItems]
@@ -500,6 +513,7 @@ const CheckoutPage = () => {
         items,
         total: grandTotal,
         status: "paid",
+        paymentMethod,
         customer: {
           name,
           email,
@@ -779,7 +793,7 @@ const CheckoutPage = () => {
                 <div className="space-y-3 rounded-[22px] border border-white/10 bg-white/[0.03] p-5">
                   <p className="text-xs uppercase tracking-[0.3em] text-white/50">Оплата</p>
                   <div className="grid gap-2 sm:grid-cols-2">
-                    {paymentOptions.map((option) => (
+                    {availablePaymentOptions.map((option) => (
                       <label
                         key={option.value}
                         className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
@@ -798,6 +812,11 @@ const CheckoutPage = () => {
                       </label>
                     ))}
                   </div>
+                  {hasDigital && !hasPhysical && (
+                    <p className="text-xs text-white/50">
+                      Для цифровых файлов доступна только оплата картой.
+                    </p>
+                  )}
                 </div>
                 {submitError && (
                   <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">

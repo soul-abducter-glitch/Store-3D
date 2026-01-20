@@ -72,6 +72,29 @@ const normalizeOrderStatus = (value?: string) => {
   return "accepted";
 };
 
+const resolvePaymentsMode = () => {
+  const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
+  if (raw === "mock" || raw === "live") return raw;
+  return "off";
+};
+
+const normalizePaymentStatus = (value?: string) => {
+  if (!value) return "pending";
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "paid" || raw === "success") return "paid";
+  if (raw === "failed" || raw === "error") return "failed";
+  if (raw === "refunded" || raw === "refund") return "refunded";
+  return "pending";
+};
+
+const normalizePaymentMethod = (value?: string) => {
+  if (!value) return "card";
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "sbp") return "sbp";
+  if (raw === "cash" || raw === "cod") return "cash";
+  return "card";
+};
+
 const PRINT_BASE_FEE = 350;
 const PRINT_TECH_SURCHARGE: Record<string, number> = {
   "SLA Resin": 120,
@@ -140,6 +163,11 @@ export async function POST(request: NextRequest) {
             delete next.items;
             delete next.status;
             delete next.total;
+            delete next.paymentStatus;
+            delete next.paymentMethod;
+            delete next.paymentProvider;
+            delete next.paymentIntentId;
+            delete next.paidAt;
             return next;
           })()
         : {};
@@ -186,10 +214,21 @@ export async function POST(request: NextRequest) {
 
     const incomingCustomFile = normalizeRelationshipId(data?.customFile);
     const incomingSpecs = normalizePrintSpecs(data?.technicalSpecs);
+    const hasPhysical = items.some((item) => item.format === "Physical");
+    const paymentsMode = resolvePaymentsMode();
+    const requestedPaymentMethod = normalizePaymentMethod(data?.paymentMethod);
+    const paymentStatus = normalizePaymentStatus(
+      paymentsMode === "off" ? "paid" : "pending"
+    );
+    const paymentMethod = hasPhysical ? requestedPaymentMethod : "card";
+    const status =
+      paymentStatus === "paid" && !hasPhysical ? "paid" : normalizeOrderStatus("accepted");
     const orderData = {
       ...baseData,
       items,
-      status: "accepted",
+      status,
+      paymentStatus,
+      paymentMethod,
       customFile: incomingCustomFile ?? undefined,
       technicalSpecs: incomingSpecs,
     };

@@ -11,7 +11,18 @@ const parseAdminEmails = () =>
     .map((entry) => normalizeEmail(entry))
     .filter(Boolean);
 
+const isAdminPanelRequest = (req?: any) => {
+  const referer =
+    (typeof req?.headers?.referer === "string" && req.headers.referer) ||
+    (typeof req?.headers?.referrer === "string" && req.headers.referrer) ||
+    "";
+  return Boolean(referer && referer.includes("/admin"));
+};
+
 const isPrivilegedRequest = (req?: any) => {
+  if (isAdminPanelRequest(req)) {
+    return true;
+  }
   const adminEmails = parseAdminEmails();
   if (!adminEmails.length) {
     return false;
@@ -96,6 +107,29 @@ const normalizeOrderStatus = (value?: string) => {
   return "paid";
 };
 
+const resolvePaymentsMode = () => {
+  const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
+  if (raw === "mock" || raw === "live") return raw;
+  return "off";
+};
+
+const normalizePaymentStatus = (value?: string) => {
+  if (!value) return "pending";
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "paid" || raw === "success") return "paid";
+  if (raw === "failed" || raw === "error") return "failed";
+  if (raw === "refunded" || raw === "refund") return "refunded";
+  return "pending";
+};
+
+const normalizePaymentMethod = (value?: string) => {
+  if (!value) return "card";
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "sbp") return "sbp";
+  if (raw === "cash" || raw === "cod") return "cash";
+  return "card";
+};
+
 export const Orders: CollectionConfig = {
   slug: "orders",
   admin: {
@@ -116,14 +150,17 @@ export const Orders: CollectionConfig = {
         const hasStatusField = data && Object.prototype.hasOwnProperty.call(data, "status");
         const prevStatus = normalizeOrderStatus(originalDoc?.status);
         let nextStatus = normalizeOrderStatus(hasStatusField ? data?.status : originalDoc?.status);
+        const hasPaymentStatusField =
+          data && Object.prototype.hasOwnProperty.call(data, "paymentStatus");
+        const prevPaymentStatus = normalizePaymentStatus(originalDoc?.paymentStatus);
+        let nextPaymentStatus = normalizePaymentStatus(
+          hasPaymentStatusField ? data?.paymentStatus : originalDoc?.paymentStatus
+        );
+        const hasPaymentMethodField =
+          data && Object.prototype.hasOwnProperty.call(data, "paymentMethod");
+        const paymentsMode = resolvePaymentsMode();
         const privileged = isPrivilegedRequest(req);
-
-        if (hasStatusField && nextStatus === "paid" && !privileged) {
-          if (operation === "update") {
-            throw new Error("Статус оплаты может быть установлен только администратором.");
-          }
-          nextStatus = "accepted";
-        }
+        const isInternal = !req;
 
         if (hasStatusField) {
           if (
@@ -166,6 +203,31 @@ export const Orders: CollectionConfig = {
         );
 
         const hasPhysical = normalizedItems.some((item: any) => item.format === "Physical");
+        if (operation === "create" && !privileged && paymentsMode !== "off") {
+          nextPaymentStatus = "pending";
+        }
+
+        const defaultPaymentStatus = paymentsMode === "off" ? "paid" : "pending";
+        const paymentStatus = hasPaymentStatusField ? nextPaymentStatus : defaultPaymentStatus;
+        const paymentMethod = normalizePaymentMethod(
+          hasPaymentMethodField ? data?.paymentMethod : originalDoc?.paymentMethod
+        );
+
+        if (hasPaymentStatusField && operation === "update" && !privileged && !isInternal) {
+          if (nextPaymentStatus !== prevPaymentStatus) {
+            throw new Error("Статус оплаты может быть изменен только администратором.");
+          }
+        }
+
+        if (hasStatusField && nextStatus === "paid" && !privileged) {
+          const allowPaidOnCreate = operation === "create" && !hasPhysical;
+          if (!allowPaidOnCreate) {
+            if (operation === "update") {
+              throw new Error("Статус оплаты может быть установлен только администратором.");
+            }
+            nextStatus = "accepted";
+          }
+        }
         if (hasPhysical) {
           const city = data?.shipping?.city;
           const address = data?.shipping?.address;
@@ -185,6 +247,8 @@ export const Orders: CollectionConfig = {
         return {
           ...data,
           status: nextStatus,
+          paymentStatus,
+          paymentMethod: hasPhysical ? paymentMethod : "card",
           items: normalizedItems,
           total,
           ...(resolvedUser ? { user: resolvedUser } : {}),
@@ -192,7 +256,7 @@ export const Orders: CollectionConfig = {
       },
     ],
     afterChange: [
-      async ({ doc, payload, req }) => {
+      async ({ doc, payload, req, operation }) => {
         if (!doc) return doc;
         const payloadInstance = payload ?? req?.payload;
         if (!payloadInstance) return doc;
@@ -219,7 +283,18 @@ export const Orders: CollectionConfig = {
           }
         }
 
-        if (userId && doc.status === "paid") {
+        const normalizedStatus = normalizeOrderStatus(doc.status);
+        const normalizedPaymentStatus = normalizePaymentStatus(
+          doc.paymentStatus ??
+            (normalizedStatus === "paid" || normalizedStatus === "completed" ? "paid" : "pending")
+        );
+        const allowInstantDigital = resolvePaymentsMode() === "off";
+        const shouldGrantDigital =
+          normalizedPaymentStatus === "paid" ||
+          normalizedStatus === "completed" ||
+          (allowInstantDigital && operation === "create");
+
+        if (userId && shouldGrantDigital) {
           const digitalProductIds = collectDigitalProductIds(doc.items || [])
             .map(normalizeRelationshipId)
             .filter((id): id is string | number => id !== null);
@@ -427,6 +502,54 @@ export const Orders: CollectionConfig = {
       type: "number",
       required: true,
       min: 0,
+    },
+    {
+      name: "paymentStatus",
+      type: "select",
+      required: true,
+      defaultValue: resolvePaymentsMode() === "off" ? "paid" : "pending",
+      options: [
+        { label: "Ожидает оплаты", value: "pending" },
+        { label: "Оплачено", value: "paid" },
+        { label: "Ошибка оплаты", value: "failed" },
+        { label: "Возврат", value: "refunded" },
+      ],
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "paymentMethod",
+      type: "select",
+      options: [
+        { label: "Карта", value: "card" },
+        { label: "СБП", value: "sbp" },
+        { label: "Наличные", value: "cash" },
+      ],
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "paymentProvider",
+      type: "text",
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "paymentIntentId",
+      type: "text",
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "paidAt",
+      type: "date",
+      admin: {
+        position: "sidebar",
+      },
     },
     {
       name: "status",

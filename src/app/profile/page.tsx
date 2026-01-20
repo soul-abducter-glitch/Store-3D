@@ -384,6 +384,20 @@ export default function ProfilePage() {
     return getOrderFormatLabel(items[0]?.format);
   };
 
+  const getOrderPrintInfo = (order: any) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const printItem =
+      items.find((item) => item?.printSpecs || item?.customerUpload) ??
+      (items.length > 0 ? items[0] : null);
+    const upload = printItem?.customerUpload ?? order?.customFile ?? null;
+    const filename = typeof upload?.filename === "string" ? upload.filename : null;
+    const technology =
+      typeof printItem?.printSpecs?.technology === "string"
+        ? printItem.printSpecs.technology
+        : null;
+    return { filename, technology };
+  };
+
   const getOrderStatusClass = (status?: string) => getOrderStatusTone(status);
 
   const canCancelOrder = (status?: string | null) => {
@@ -442,7 +456,10 @@ export default function ProfilePage() {
         if (!product) return null;
         const rawModel = (product as any)?.rawModel;
         const paintedModel = (product as any)?.paintedModel;
-        const downloadUrl = resolveMediaUrl(rawModel) || resolveMediaUrl(paintedModel);
+        const targetId = String(
+          product.slug || product.id || (product as any)?.value || (product as any)?._id || product.name || ""
+        );
+        const downloadUrl = targetId ? `/api/download/${encodeURIComponent(targetId)}` : null;
         const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
         const fileSize =
           typeof rawModel?.filesize === "number"
@@ -714,6 +731,7 @@ export default function ProfilePage() {
                   const statusKey = normalizeOrderStatus(order.status);
                   const canCancel = canCancelOrder(statusKey);
                   const orderId = String(order.id);
+                  const printInfo = getOrderPrintInfo(order);
                   return (
                     <div
                       key={order.id}
@@ -730,6 +748,14 @@ export default function ProfilePage() {
                           <p className="mt-1 text-sm text-white/60">
                             {getOrderPrimaryFormat(order)}
                           </p>
+                          {printInfo.filename && (
+                            <p className="mt-2 text-xs text-white/50">Файл: {printInfo.filename}</p>
+                          )}
+                          {printInfo.technology && (
+                            <p className="text-xs text-white/50">
+                              Технология: {printInfo.technology}
+                            </p>
+                          )}
                         </div>
                         <div className="text-right">
                           <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">

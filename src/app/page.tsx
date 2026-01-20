@@ -122,6 +122,13 @@ type CatalogProduct = {
   categoryKeys: string[];
 };
 
+type SearchSuggestion = {
+  id: string;
+  label: string;
+  type: "product" | "category" | "sku" | "recent";
+  slug?: string;
+};
+
 type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
@@ -648,6 +655,10 @@ const accentOptions: Array<{ value: string; label: string }> = [
   { value: "#94a3b8", label: "SLATE" },
 ];
 
+const CATALOG_CACHE_KEY = "store3d_catalog_cache";
+const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const SEARCH_RECENTS_KEY = "store3d_search_recent";
+
 export default function Home() {
   const router = useRouter();
   const { toasts, showSuccess, removeToast } = useToast();
@@ -663,6 +674,7 @@ export default function Home() {
   const [useGlobalCatalog, setUseGlobalCatalog] = useState(false);
   const [activeCategory, setActiveCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [hasUnreadStatus, setHasUnreadStatus] = useState(false);
@@ -681,6 +693,9 @@ export default function Home() {
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const heroSectionRef = useRef<HTMLDivElement | null>(null);
+  const [heroVisible, setHeroVisible] = useState(false);
+  const [heroInView, setHeroInView] = useState(false);
+  const [isPageVisible, setIsPageVisible] = useState(true);
   const controlsRef = useRef<any | null>(null);
   const previousRenderModeRef = useRef<RenderMode>("final");
   const zoomAnimationRef = useRef<number | null>(null);
@@ -700,6 +715,38 @@ export default function Home() {
         setUserProfile(null);
       });
   }, [apiBase]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(SEARCH_RECENTS_KEY);
+    if (!stored) return;
+    try {
+      const parsed = JSON.parse(stored);
+      if (Array.isArray(parsed)) {
+        setRecentSearches(
+          parsed.filter((value) => typeof value === "string" && value.trim()).slice(0, 6)
+        );
+      }
+    } catch {
+      // Ignore malformed local storage
+    }
+  }, []);
+
+  const commitSearch = useCallback((value: string) => {
+    const term = value.trim();
+    if (!term) return;
+    setRecentSearches((prev) => {
+      const normalized = term.toLowerCase();
+      const next = [
+        term,
+        ...prev.filter((entry) => entry.toLowerCase() !== normalized),
+      ].slice(0, 6);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(SEARCH_RECENTS_KEY, JSON.stringify(next));
+      }
+      return next;
+    });
+  }, []);
 
   const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     if (!source || typeof source !== "object") {
@@ -836,49 +883,95 @@ export default function Home() {
     const controller = new AbortController();
     let isMounted = true;
     const buildApiUrl = (path: string) => `${apiBase}${path}`;
-    const fetchCollection = async (path: string, logRaw = false) => {
-      const response = await fetch(buildApiUrl(path), {
+    const readCatalogCache = () => {
+      if (typeof window === "undefined") {
+        return null;
+      }
+      try {
+        const raw = window.localStorage.getItem(CATALOG_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as {
+          ts?: number;
+          products?: ProductDoc[];
+          categories?: CategoryDoc[];
+        };
+        if (!parsed?.ts || Date.now() - parsed.ts > CATALOG_CACHE_TTL_MS) {
+          return null;
+        }
+        return {
+          products: Array.isArray(parsed.products) ? parsed.products : [],
+          categories: Array.isArray(parsed.categories) ? parsed.categories : [],
+        };
+      } catch {
+        return null;
+      }
+    };
+    const writeCatalogCache = (products: ProductDoc[], categories: CategoryDoc[]) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      try {
+        window.localStorage.setItem(
+          CATALOG_CACHE_KEY,
+          JSON.stringify({ ts: Date.now(), products, categories })
+        );
+      } catch {
+        // ignore cache write errors
+      }
+    };
+    const fetchCatalog = async () => {
+      const response = await fetch(buildApiUrl("/api/catalog"), {
         signal: controller.signal,
         cache: "no-store",
       });
       if (!response.ok) {
         throw response;
       }
-      const data = await response.json();
-      if (logRaw) {
-        console.log("RAW_API_DATA:", (data as { docs?: unknown })?.docs);
-      }
-      return Array.isArray(data) ? data : data?.docs ?? [];
+      return response.json() as Promise<{
+        products?: ProductDoc[];
+        categories?: CategoryDoc[];
+      }>;
     };
 
     const fetchData = async () => {
-      setDataLoading(true);
+      const cached = readCatalogCache();
+      const hasCache = Boolean(cached);
+      if (cached) {
+        setCategoriesData(cached.categories);
+        setProducts(cached.products);
+        setDataLoading(false);
+        setCategoriesError(false);
+        setProductsError(false);
+      } else {
+        setDataLoading(true);
+      }
       setProductsError(false);
       setCategoriesError(false);
 
-      const [categoriesResult, productsResult] = await Promise.allSettled([
-        fetchCollection("/api/categories?depth=1&limit=200"),
-        fetchCollection("/api/products?depth=2&limit=200", true),
-      ]);
+      const [catalogResult] = await Promise.allSettled([fetchCatalog()]);
 
       if (!isMounted) {
         return;
       }
 
-      if (categoriesResult.status === "fulfilled") {
-        setCategoriesData(categoriesResult.value ?? []);
+      if (catalogResult.status === "fulfilled") {
+        const nextCategories = Array.isArray(catalogResult.value?.categories)
+          ? catalogResult.value.categories
+          : [];
+        const nextProducts = Array.isArray(catalogResult.value?.products)
+          ? catalogResult.value.products
+          : [];
+        setCategoriesData(nextCategories);
+        setProducts(nextProducts);
+        writeCatalogCache(nextProducts, nextCategories);
       } else {
-        setCategoriesData([]);
+        if (!hasCache) {
+          setCategoriesData([]);
+          setProducts([]);
+        }
         setCategoriesError(true);
-      }
-
-      if (productsResult.status === "fulfilled") {
-        setProducts(productsResult.value ?? []);
-      } else {
-        setProducts([]);
         setProductsError(true);
       }
-
       setDataLoading(false);
     };
 
@@ -979,6 +1072,41 @@ export default function Home() {
   }, [products, categoriesById, categoryKeyById]);
 
   const normalizedQuery = searchQuery.trim().toLowerCase();
+
+  const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
+    const suggestions: SearchSuggestion[] = [];
+    const seen = new Set<string>();
+
+    const addSuggestion = (label: string, type: SearchSuggestion["type"], slug?: string) => {
+      const key = `${type}:${label.toLowerCase()}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      suggestions.push({ id: key, label, type, slug });
+    };
+
+    if (normalizedQuery.length < 2) {
+      recentSearches.forEach((entry) => {
+        addSuggestion(entry, "recent");
+      });
+      return suggestions.slice(0, 6);
+    }
+
+    normalizedProducts.forEach((product) => {
+      if (product.name && matchesQuery(product.name, normalizedQuery)) {
+        addSuggestion(product.name, "product", product.slug);
+      }
+      if (product.sku && matchesQuery(product.sku, normalizedQuery)) {
+        addSuggestion(product.sku, "sku", product.slug);
+      }
+      product.categoryTitles.forEach((title) => {
+        if (title && matchesQuery(title, normalizedQuery)) {
+          addSuggestion(title, "category");
+        }
+      });
+    });
+
+    return suggestions.slice(0, 8);
+  }, [normalizedProducts, normalizedQuery, recentSearches]);
 
   const filteredProducts = useMemo(() => {
     return normalizedProducts.filter((product) => {
@@ -1236,6 +1364,57 @@ export default function Home() {
     }
   }, [currentProduct, finish, isSlaProduct, renderMode]);
 
+  useEffect(() => {
+    if (heroVisible || typeof window === "undefined") {
+      return;
+    }
+    const target = heroSectionRef.current;
+    if (!target || !("IntersectionObserver" in window)) {
+      setHeroVisible(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setHeroVisible(true);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [heroVisible]);
+
+  useEffect(() => {
+    if (typeof document === "undefined") {
+      return;
+    }
+    const updateVisibility = () => setIsPageVisible(!document.hidden);
+    updateVisibility();
+    document.addEventListener("visibilitychange", updateVisibility);
+    return () => document.removeEventListener("visibilitychange", updateVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const target = heroSectionRef.current;
+    if (!target || !("IntersectionObserver" in window)) {
+      setHeroInView(true);
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        setHeroInView(entries.some((entry) => entry.isIntersecting));
+      },
+      { threshold: 0.2 }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, []);
+
   const handleWorkshopPaint = () => {
     setRenderMode("final");
     if (hasPaintedModel) {
@@ -1433,9 +1612,10 @@ export default function Home() {
       ? "Loading Data..."
       : emptyCategoryMessage;
   const seoJsonLd = useMemo(() => {
-    const siteUrl =
-      process.env.NEXT_PUBLIC_SITE_URL ||
-      (typeof window !== "undefined" ? window.location.origin : "https://store-3d.example");
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(
+      /\/$/,
+      ""
+    );
     const items = normalizedProducts.slice(0, 24).map((product, index) => ({
       "@type": "ListItem",
       position: index + 1,
@@ -1495,6 +1675,12 @@ export default function Home() {
       <Header
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        searchSuggestions={searchSuggestions}
+        onSearchCommit={commitSearch}
+        onSearchPick={(value) => {
+          setSearchQuery(value);
+          commitSearch(value);
+        }}
         isSidebarOpen={isSidebarOpen}
         onToggleSidebar={handleToggleSidebar}
         cartCount={cartCount}
@@ -1607,6 +1793,8 @@ export default function Home() {
                         <img
                           src={item.thumbnailUrl}
                           alt={item.name}
+                          loading="lazy"
+                          decoding="async"
                           className="h-14 w-14 rounded-xl object-cover"
                         />
                         <div className="flex-1">
@@ -1710,12 +1898,14 @@ export default function Home() {
                   <div className="relative z-10 h-full w-full">
                     {showHeroStandby ? (
                       <SystemStandbyPanel message={heroStandbyMessage} className="h-full" />
+                    ) : !heroVisible ? (
+                      <SystemStandbyPanel message="3D ПРОСМОТР ГОТОВИТСЯ" className="h-full" />
                     ) : (
                       <ErrorBoundary
                         fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
                       >
                         <Experience
-                          autoRotate={autoRotate}
+                          autoRotate={autoRotate && heroInView && isPageVisible}
                           renderMode={renderMode}
                           finish={finish}
                           preview={preview}
@@ -2168,6 +2358,102 @@ export default function Home() {
                 </div>
               </motion.div>
 
+              <motion.div variants={itemVariants} className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${
+                    !useGlobalCatalog && format === "digital"
+                      ? "border-[#2ED1FF]/70 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.3)]"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setUseGlobalCatalog(false);
+                    setFormat("digital");
+                  }}
+                >
+                  DIGITAL STL
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${
+                    !useGlobalCatalog && format === "physical"
+                      ? "border-[#2ED1FF]/70 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.3)]"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setUseGlobalCatalog(false);
+                    setFormat("physical");
+                  }}
+                >
+                  PHYSICAL
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${
+                    !useGlobalCatalog && technology === "SLA Resin"
+                      ? "border-white/60 bg-white/15 text-white shadow-[0_0_12px_rgba(255,255,255,0.15)]"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setUseGlobalCatalog(false);
+                    setTechnology("SLA Resin");
+                  }}
+                >
+                  SLA
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${
+                    !useGlobalCatalog && technology === "FDM Plastic"
+                      ? "border-white/60 bg-white/15 text-white shadow-[0_0_12px_rgba(255,255,255,0.15)]"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setUseGlobalCatalog(false);
+                    setTechnology("FDM Plastic");
+                  }}
+                >
+                  FDM
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${
+                    !useGlobalCatalog && verified
+                      ? "border-[#D4AF37]/80 bg-[#3b2f12] text-[#D4AF37] shadow-[0_0_12px_rgba(212,175,55,0.25)]"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                  onClick={() => {
+                    setUseGlobalCatalog(false);
+                    setVerified((prev) => !prev);
+                  }}
+                >
+                  VERIFIED
+                </button>
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${
+                    useGlobalCatalog
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.3)]"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                  onClick={() => setUseGlobalCatalog((prev) => !prev)}
+                >
+                  GLOBAL
+                </button>
+                <button
+                  type="button"
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white"
+                  onClick={() => {
+                    setUseGlobalCatalog(false);
+                    setVerified(false);
+                    setActiveCategory("");
+                    setSearchQuery("");
+                  }}
+                >
+                  СБРОС
+                </button>
+              </motion.div>
+
               <ErrorBoundary fallback={<SystemStandbyPanel message="System Standby: No Data" />}>
                 {showSystemStandby ? (
                   <SystemStandbyPanel message={standbyMessage} className="min-h-[200px] sm:min-h-[240px]" />
@@ -2201,6 +2487,9 @@ export default function Home() {
 type HeaderProps = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
+  searchSuggestions: SearchSuggestion[];
+  onSearchCommit: (value: string) => void;
+  onSearchPick: (value: string) => void;
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
   cartCount: number;
@@ -2212,9 +2501,56 @@ type HeaderProps = {
   hasUnreadStatus: boolean;
 };
 
+const suggestionTypeLabel: Record<SearchSuggestion["type"], string> = {
+  product: "модель",
+  category: "категория",
+  sku: "sku",
+  recent: "история",
+};
+
+type SearchSuggestionsProps = {
+  suggestions: SearchSuggestion[];
+  onPick: (value: string) => void;
+  className?: string;
+};
+
+function SearchSuggestions({ suggestions, onPick, className }: SearchSuggestionsProps) {
+  if (!suggestions.length) return null;
+
+  return (
+    <div
+      className={`rounded-2xl border border-white/10 bg-[#0b0f12]/95 p-2 text-xs text-white/80 shadow-[0_12px_32px_rgba(0,0,0,0.4)] backdrop-blur-xl ${
+        className ?? ""
+      }`}
+    >
+      <p className="px-2 py-1 text-[9px] uppercase tracking-[0.35em] text-white/40">
+        Быстрый поиск
+      </p>
+      <div className="space-y-1">
+        {suggestions.map((suggestion) => (
+          <button
+            key={suggestion.id}
+            type="button"
+            className="flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left transition hover:bg-white/5 hover:text-white"
+            onClick={() => onPick(suggestion.label)}
+          >
+            <span className="truncate">{suggestion.label}</span>
+            <span className="text-[9px] uppercase tracking-[0.3em] text-white/40">
+              {suggestionTypeLabel[suggestion.type]}
+            </span>
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function Header({
   searchQuery,
   onSearchChange,
+  searchSuggestions,
+  onSearchCommit,
+  onSearchPick,
   isSidebarOpen,
   onToggleSidebar,
   cartCount,
@@ -2253,6 +2589,9 @@ function Header({
   };
 
   const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") {
+      onSearchCommit(event.currentTarget.value);
+    }
     if (event.key === "Escape") {
       onSearchChange("");
       setIsSearchOpen(false);
@@ -2333,7 +2672,7 @@ function Header({
             {isSearchOpen ? <X className="h-5 w-5" /> : <Search className="h-5 w-5" />}
           </button>
           {isSearchOpen && (
-            <div className="hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 md:flex">
+            <div className="relative hidden items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 md:flex">
               <input
                 ref={inputRef}
                 type="search"
@@ -2342,6 +2681,11 @@ function Header({
                 onKeyDown={handleSearchKeyDown}
                 placeholder="Поиск: название, категория, артикул"
                 className="w-52 bg-transparent text-xs uppercase tracking-[0.2em] text-white/80 placeholder:text-white/40 focus:outline-none"
+              />
+              <SearchSuggestions
+                suggestions={searchSuggestions}
+                onPick={onSearchPick}
+                className="absolute left-0 right-0 top-full z-40 mt-3"
               />
             </div>
           )}
@@ -2451,7 +2795,7 @@ function Header({
         {isSearchOpen && (
           <motion.div
             variants={itemVariants}
-            className="order-last flex w-full items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/70 md:hidden"
+            className="relative order-last flex w-full items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-2 text-xs uppercase tracking-[0.2em] text-white/70 md:hidden"
           >
             <Search className="h-4 w-4 text-white/50" />
             <input
@@ -2471,6 +2815,11 @@ function Header({
             >
               <X className="h-4 w-4" />
             </button>
+            <SearchSuggestions
+              suggestions={searchSuggestions}
+              onPick={onSearchPick}
+              className="absolute left-0 right-0 top-full z-40 mt-2"
+            />
           </motion.div>
         )}
       </motion.div>
@@ -3266,8 +3615,11 @@ function ProductCard({
   onToggleFavorite,
   onAddToCart,
 }: ProductCardProps) {
+  const router = useRouter();
   const [favoritePulse, setFavoritePulse] = useState(false);
   const favoritePulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const prefetchDoneRef = useRef(false);
+  const cardRef = useRef<HTMLDivElement | null>(null);
   const formatLabel =
     product.formatKey === "digital"
       ? "DIGITAL STL"
@@ -3282,6 +3634,18 @@ function ProductCard({
         ? "border-[#2ED1FF]/50 bg-[#2ED1FF]/15 text-[#BFF4FF]"
         : "border-emerald-400/40 bg-emerald-400/15 text-emerald-200";
   const materialDescription = buildMaterialDescription(product);
+  const productLink = product.slug
+    ? `/product/${encodeURIComponent(product.slug)}`
+    : product.id
+      ? `/product/${encodeURIComponent(String(product.id))}`
+      : "";
+  const prefetchProduct = useCallback(() => {
+    if (!productLink || prefetchDoneRef.current) {
+      return;
+    }
+    prefetchDoneRef.current = true;
+    router.prefetch(productLink);
+  }, [productLink, router]);
   const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
@@ -3297,13 +3661,38 @@ function ProductCard({
     };
   }, []);
 
+  useEffect(() => {
+    if (!productLink || prefetchDoneRef.current || typeof window === "undefined") {
+      return;
+    }
+    const target = cardRef.current;
+    if (!target || !("IntersectionObserver" in window)) {
+      prefetchProduct();
+      return;
+    }
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          prefetchProduct();
+          observer.disconnect();
+        }
+      },
+      { rootMargin: "200px" }
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [prefetchProduct, productLink]);
+
   return (
     <motion.article
       variants={itemVariants}
+      ref={cardRef}
       role="button"
       tabIndex={0}
       aria-pressed={isSelected}
       onKeyDown={handleKeyDown}
+      onPointerEnter={prefetchProduct}
+      onFocus={prefetchProduct}
       onClick={onClick}
       className={`group flex h-full w-full flex-col rounded-3xl bg-white/5 px-3.5 pt-3.5 pb-3 text-left backdrop-blur-xl light-sweep transition-all sm:px-6 sm:pt-6 sm:pb-4 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(0,0,0,0.35)] ${
         isSelected
@@ -3316,6 +3705,7 @@ function ProductCard({
           src={product.thumbnailUrl}
           alt={product.name}
           loading="lazy"
+          decoding="async"
           className="h-32 w-full object-contain p-2 transition-transform duration-300 ease-out group-hover:scale-[1.02] sm:h-40"
         />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.35)]" />

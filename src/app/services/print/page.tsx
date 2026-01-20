@@ -40,6 +40,9 @@ const PRESIGN_TIMEOUT_MS = 30_000;
 const COMPLETE_TIMEOUT_MS = 120_000;
 const PROGRESS_SEGMENTS = 10;
 const STALLED_TIMEOUT_MS = 15_000;
+const UPLOAD_MAX_RETRIES = 2;
+const UPLOAD_RETRY_BASE_MS = 2000;
+const UPLOAD_RETRY_MAX_MS = 10_000;
 const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
@@ -382,6 +385,8 @@ export default function PrintServicePage() {
   const [uploadElapsedMs, setUploadElapsedMs] = useState(0);
   const [uploadEtaMs, setUploadEtaMs] = useState<number | null>(null);
   const [uploadStalled, setUploadStalled] = useState(false);
+  const [uploadAttempt, setUploadAttempt] = useState(1);
+  const [uploadRetryInMs, setUploadRetryInMs] = useState<number | null>(null);
   const [uploadDebug, setUploadDebug] = useState<string[]>([]);
   const [uploadDebugEnabled, setUploadDebugEnabled] = useState(DEFAULT_UPLOAD_DEBUG_ENABLED);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -389,6 +394,7 @@ export default function PrintServicePage() {
   const lastProgressRef = useRef<{ time: number; loaded: number } | null>(null);
   const lastLoggedPercentRef = useRef<number>(-1);
   const lastStallLoggedRef = useRef(false);
+  const retryTimerRef = useRef<number | null>(null);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
     url?: string;
@@ -552,6 +558,8 @@ export default function PrintServicePage() {
       setUploadedMedia(null);
       setMetrics(null);
       setModelObject(null);
+      clearRetryTimer();
+      setUploadAttempt(1);
       setPendingFile(null);
       setUploadSpeedBps(0);
       setUploadElapsedMs(0);
@@ -628,7 +636,7 @@ export default function PrintServicePage() {
       setPendingFile(file);
       setUploadStatus("pending");
     },
-    [previewMaterials, previewMode]
+    [previewMaterials, previewMode, clearRetryTimer]
   );
 
   const pushUploadLog = useCallback((message: string, data?: Record<string, unknown>) => {
@@ -646,6 +654,37 @@ export default function PrintServicePage() {
     console.info("[upload]", message);
   }, [uploadDebugEnabled]);
 
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      window.clearInterval(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    setUploadRetryInMs(null);
+  }, []);
+
+  const waitForRetryDelay = useCallback((delayMs: number) => {
+    if (delayMs <= 0) {
+      setUploadRetryInMs(null);
+      return Promise.resolve();
+    }
+    clearRetryTimer();
+    setUploadRetryInMs(delayMs);
+    return new Promise<void>((resolve) => {
+      const startedAt = Date.now();
+      retryTimerRef.current = window.setInterval(() => {
+        const remaining = Math.max(0, delayMs - (Date.now() - startedAt));
+        setUploadRetryInMs(remaining);
+        if (remaining <= 0) {
+          if (retryTimerRef.current) {
+            window.clearInterval(retryTimerRef.current);
+            retryTimerRef.current = null;
+          }
+          resolve();
+        }
+      }, 250);
+    });
+  }, [clearRetryTimer]);
+
   const startUpload = useCallback(async () => {
     if (!pendingFile || isUploadBusy) return;
     const file = pendingFile;
@@ -656,6 +695,8 @@ export default function PrintServicePage() {
     setUploadEtaMs(null);
     setUploadStalled(false);
     setUploadDebug([]);
+    clearRetryTimer();
+    setUploadAttempt(1);
     uploadStartRef.current = Date.now();
     lastProgressRef.current = { time: uploadStartRef.current, loaded: 0 };
     lastLoggedPercentRef.current = -1;
@@ -682,259 +723,321 @@ export default function PrintServicePage() {
       return;
     }
 
-    setUploadStatus("uploading");
-    const uploadStartedAt = Date.now();
-    const uploadMeta = { name: file.name, type: file.type, size: file.size };
-    let phase: "upload" | "finalize" = "upload";
-    console.log("Uploading file via presigned URL:", uploadMeta);
-    pushUploadLog("presign-request");
+    const maxAttempts = UPLOAD_MAX_RETRIES + 1;
+    const isRetryableError = (error: any) =>
+      ["UPLOAD_TIMEOUT", "UPLOAD_NETWORK", "UPLOAD_ABORT"].includes(error?.code);
 
-    try {
-      const presignController = new AbortController();
-      const presignTimeout = window.setTimeout(
-        () => presignController.abort(),
-        PRESIGN_TIMEOUT_MS
-      );
-      let presignResponse: Response;
-      try {
-        presignResponse = await fetch("/api/customer-upload/presign", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename: file.name,
-            contentType: file.type || "application/octet-stream",
-            size: file.size,
-          }),
-          signal: presignController.signal,
-        });
-      } finally {
-        window.clearTimeout(presignTimeout);
+    for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      setUploadAttempt(attempt);
+      setUploadStatus("uploading");
+      setUploadProgress(0);
+      setUploadSpeedBps(0);
+      setUploadElapsedMs(0);
+      setUploadEtaMs(null);
+      setUploadStalled(false);
+      uploadStartRef.current = Date.now();
+      lastProgressRef.current = { time: uploadStartRef.current, loaded: 0 };
+      lastLoggedPercentRef.current = -1;
+      lastStallLoggedRef.current = false;
+
+      const uploadStartedAt = Date.now();
+      const uploadMeta = { name: file.name, type: file.type, size: file.size };
+      let phase: "upload" | "finalize" = "upload";
+
+      if (attempt > 1) {
+        pushUploadLog("upload-retry", { attempt, maxAttempts });
       }
-      console.log("Presign response status:", presignResponse.status);
-      pushUploadLog("presign-response", { status: presignResponse.status });
 
-      if (!presignResponse.ok) {
-        let errorMessage = "Failed to start upload";
+      try {
+        console.log("Uploading file via presigned URL:", uploadMeta);
+        pushUploadLog("presign-request");
+
+        const presignController = new AbortController();
+        const presignTimeout = window.setTimeout(
+          () => presignController.abort(),
+          PRESIGN_TIMEOUT_MS
+        );
+        let presignResponse: Response;
         try {
-          const errorData = await presignResponse.json();
-          errorMessage = errorData?.error || errorData?.message || errorMessage;
-          console.warn("Presign error response:", errorData);
-        } catch {
-          const fallbackText = await presignResponse.text().catch(() => "");
-          if (fallbackText) {
-            errorMessage = fallbackText;
-          }
-          console.warn("Presign error response (text):", fallbackText);
+          presignResponse = await fetch("/api/customer-upload/presign", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              filename: file.name,
+              contentType: file.type || "application/octet-stream",
+              size: file.size,
+            }),
+            signal: presignController.signal,
+          });
+        } finally {
+          window.clearTimeout(presignTimeout);
         }
-        throw new Error(errorMessage);
-      }
+        console.log("Presign response status:", presignResponse.status);
+        pushUploadLog("presign-response", { status: presignResponse.status });
 
-      const presignData = await presignResponse.json();
-      if (!presignData?.uploadUrl || !presignData?.key) {
-        throw new Error("Presign response missing upload data");
-      }
-      try {
-        const parsed = new URL(presignData.uploadUrl);
-        pushUploadLog("upload-target", { host: parsed.host, path: parsed.pathname });
-      } catch {
-        pushUploadLog("upload-target", { host: "unknown" });
-      }
+        if (!presignResponse.ok) {
+          let errorMessage = "Failed to start upload";
+          try {
+            const errorData = await presignResponse.json();
+            errorMessage = errorData?.error || errorData?.message || errorMessage;
+            console.warn("Presign error response:", errorData);
+          } catch {
+            const fallbackText = await presignResponse.text().catch(() => "");
+            if (fallbackText) {
+              errorMessage = fallbackText;
+            }
+            console.warn("Presign error response (text):", fallbackText);
+          }
+          throw new Error(errorMessage);
+        }
 
-      await new Promise<void>((resolve, reject) => {
-        const xhr = new XMLHttpRequest();
-        uploadXhrRef.current = xhr;
-        const buildXhrError = (label: string, code?: string) => {
-          const responseText =
-            typeof xhr.responseText === "string" ? xhr.responseText.slice(0, 800) : "";
-          const error = new Error(`${label} (status ${xhr.status || 0})`);
-          (error as any).code = code;
-          (error as any).details = {
-            status: xhr.status,
-            statusText: xhr.statusText,
-            readyState: xhr.readyState,
-            responseText,
+        const presignData = await presignResponse.json();
+        if (!presignData?.uploadUrl || !presignData?.key) {
+          throw new Error("Presign response missing upload data");
+        }
+        try {
+          const parsed = new URL(presignData.uploadUrl);
+          pushUploadLog("upload-target", { host: parsed.host, path: parsed.pathname });
+        } catch {
+          pushUploadLog("upload-target", { host: "unknown" });
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          uploadXhrRef.current = xhr;
+          const buildXhrError = (label: string, code?: string) => {
+            const responseText =
+              typeof xhr.responseText === "string" ? xhr.responseText.slice(0, 800) : "";
+            const error = new Error(`${label} (status ${xhr.status || 0})`);
+            (error as any).code = code;
+            (error as any).details = {
+              status: xhr.status,
+              statusText: xhr.statusText,
+              readyState: xhr.readyState,
+              responseText,
+            };
+            return error;
           };
-          return error;
-        };
 
-        xhr.open("PUT", presignData.uploadUrl, true);
-        xhr.timeout = UPLOAD_TIMEOUT_MS;
-        xhr.setRequestHeader(
-          "Content-Type",
-          presignData.contentType || "application/octet-stream"
-        );
-        xhr.upload.onprogress = (event) => {
-          if (event.lengthComputable) {
-            const percent = Math.round((event.loaded / event.total) * 100);
-            const now = Date.now();
-            const elapsedMs = uploadStartRef.current ? now - uploadStartRef.current : 0;
-            const speedBps = elapsedMs > 0 ? event.loaded / (elapsedMs / 1000) : 0;
-            const etaMs =
-              speedBps > 0 && file.size > event.loaded
-                ? ((file.size - event.loaded) / speedBps) * 1000
-                : null;
-            setUploadProgress(percent);
-            setUploadSpeedBps(speedBps);
-            setUploadElapsedMs(elapsedMs);
-            setUploadEtaMs(etaMs);
-            lastProgressRef.current = { time: now, loaded: event.loaded };
-            if (percent >= lastLoggedPercentRef.current + 10 || percent === 100) {
-              lastLoggedPercentRef.current = percent;
-              pushUploadLog("upload-progress", {
-                percent,
-                loaded: event.loaded,
-                total: event.total,
-              });
+          xhr.open("PUT", presignData.uploadUrl, true);
+          xhr.timeout = UPLOAD_TIMEOUT_MS;
+          xhr.setRequestHeader(
+            "Content-Type",
+            presignData.contentType || "application/octet-stream"
+          );
+          xhr.upload.onprogress = (event) => {
+            if (event.lengthComputable) {
+              const percent = Math.round((event.loaded / event.total) * 100);
+              const now = Date.now();
+              const elapsedMs = uploadStartRef.current ? now - uploadStartRef.current : 0;
+              const speedBps = elapsedMs > 0 ? event.loaded / (elapsedMs / 1000) : 0;
+              const etaMs =
+                speedBps > 0 && file.size > event.loaded
+                  ? ((file.size - event.loaded) / speedBps) * 1000
+                  : null;
+              setUploadProgress(percent);
+              setUploadSpeedBps(speedBps);
+              setUploadElapsedMs(elapsedMs);
+              setUploadEtaMs(etaMs);
+              lastProgressRef.current = { time: now, loaded: event.loaded };
+              if (percent >= lastLoggedPercentRef.current + 10 || percent === 100) {
+                lastLoggedPercentRef.current = percent;
+                pushUploadLog("upload-progress", {
+                  percent,
+                  loaded: event.loaded,
+                  total: event.total,
+                });
+              }
             }
-          }
-        };
-        xhr.onload = () => {
-          if (xhr.status >= 200 && xhr.status < 300) {
-            setUploadProgress(100);
-            setUploadEtaMs(0);
-            pushUploadLog("upload-complete", { status: xhr.status });
-            resolve();
-          } else {
-            pushUploadLog("upload-failed", { status: xhr.status, statusText: xhr.statusText });
-            reject(buildXhrError("Upload failed", "UPLOAD_FAILED"));
-          }
-        };
-        xhr.onerror = () => {
-          pushUploadLog("upload-network-error", { status: xhr.status, statusText: xhr.statusText });
-          reject(buildXhrError("Upload network error", "UPLOAD_NETWORK"));
-        };
-        xhr.ontimeout = () => {
-          pushUploadLog("upload-timeout", { status: xhr.status });
-          reject(buildXhrError("Upload timed out", "UPLOAD_TIMEOUT"));
-        };
-        xhr.send(file);
-      });
-
-      setUploadStatus("finalizing");
-      phase = "finalize";
-      pushUploadLog("complete-request");
-
-      const completeController = new AbortController();
-      const completeTimeout = window.setTimeout(
-        () => completeController.abort(),
-        COMPLETE_TIMEOUT_MS
-      );
-      let completeResponse: Response;
-      try {
-        completeResponse = await fetch("/api/customer-upload/complete", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            key: presignData.key,
-            fileUrl: presignData.fileUrl,
-            filename: file.name,
-            contentType: file.type || "application/octet-stream",
-            size: file.size,
-          }),
-          signal: completeController.signal,
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              setUploadProgress(100);
+              setUploadEtaMs(0);
+              pushUploadLog("upload-complete", { status: xhr.status });
+              resolve();
+            } else {
+              pushUploadLog("upload-failed", { status: xhr.status, statusText: xhr.statusText });
+              reject(buildXhrError("Upload failed", "UPLOAD_FAILED"));
+            }
+          };
+          xhr.onerror = () => {
+            pushUploadLog("upload-network-error", { status: xhr.status, statusText: xhr.statusText });
+            reject(buildXhrError("Upload network error", "UPLOAD_NETWORK"));
+          };
+          xhr.ontimeout = () => {
+            pushUploadLog("upload-timeout", { status: xhr.status });
+            reject(buildXhrError("Upload timed out", "UPLOAD_TIMEOUT"));
+          };
+          xhr.send(file);
         });
-      } finally {
-        window.clearTimeout(completeTimeout);
-      }
 
-      if (!completeResponse.ok) {
-        let errorMessage = "Failed to finalize upload";
+        setUploadStatus("finalizing");
+        phase = "finalize";
+        pushUploadLog("complete-request");
+
+        const completeController = new AbortController();
+        const completeTimeout = window.setTimeout(
+          () => completeController.abort(),
+          COMPLETE_TIMEOUT_MS
+        );
+        let completeResponse: Response;
         try {
-          const errorData = await completeResponse.json();
-          errorMessage = errorData?.error || errorData?.message || errorMessage;
-          console.warn("Complete error response:", errorData);
-        } catch {
-          const fallbackText = await completeResponse.text().catch(() => "");
-          if (fallbackText) {
-            errorMessage = fallbackText;
-          }
-          console.warn("Complete error response (text):", fallbackText);
+          completeResponse = await fetch("/api/customer-upload/complete", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              key: presignData.key,
+              fileUrl: presignData.fileUrl,
+              filename: file.name,
+              contentType: file.type || "application/octet-stream",
+              size: file.size,
+            }),
+            signal: completeController.signal,
+          });
+        } finally {
+          window.clearTimeout(completeTimeout);
         }
-        throw new Error(errorMessage);
-      }
 
-      const completeData = await completeResponse.json();
-      pushUploadLog("complete-response", { status: completeResponse.status, id: completeData?.doc?.id });
-      console.log("Upload success payload:", completeData, {
-        ms: Date.now() - uploadStartedAt,
-      });
-      if (!completeData?.doc?.id) {
-        throw new Error("Upload failed");
-      }
-
-      setUploadedMedia({
-        id: String(completeData.doc.id),
-        url: completeData.doc.url,
-        filename: completeData.doc.filename,
-      });
-      setUploadStatus("ready");
-      setPendingFile(null);
-      uploadXhrRef.current = null;
-      pushUploadLog("upload-done", { ms: Date.now() - uploadStartedAt });
-    } catch (error) {
-      uploadXhrRef.current = null;
-        if ((error as any)?.name === "AbortError") {
-        console.warn("Upload aborted (timeout)", {
-          ...uploadMeta,
-          ms: Date.now() - uploadStartedAt,
-          phase,
-        });
-        if (phase === "finalize") {
-          const existing = await resolveExistingUpload(file);
-          if (existing?.id) {
-            setUploadedMedia({
-              id: String(existing.id),
-              url: existing.url,
-              filename: existing.filename,
-            });
-            setUploadStatus("ready");
-            setPendingFile(null);
-            return;
-          }
-        }
-        setUploadError(
-          phase === "finalize"
-            ? "Сохранение в базе заняло слишком много времени. Попробуйте обновить страницу."
-            : "Загрузка заняла слишком много времени. Попробуйте снова."
-        );
-        setUploadStatus("pending");
-        return;
-      }
-      const errorCode = (error as any)?.code;
-      if (errorCode === "UPLOAD_TIMEOUT") {
-        setUploadError("Загрузка заняла слишком много времени. Попробуйте снова.");
-        setUploadProgress(0);
-        setUploadStatus("pending");
-        return;
-      }
-      if (errorCode === "UPLOAD_NETWORK") {
-        setUploadError("Проблема с сетью при загрузке. Проверьте подключение и попробуйте снова.");
-        setUploadProgress(0);
-      setUploadStatus("pending");
-      return;
-    }
-    const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Не удалось загрузить файл в систему.";
-      const errorInfo =
-        error instanceof Error
-          ? {
-              name: error.name,
-              message: error.message,
-              stack: error.stack,
-              details: (error as any)?.details,
+        if (!completeResponse.ok) {
+          let errorMessage = "Failed to finalize upload";
+          try {
+            const errorData = await completeResponse.json();
+            errorMessage = errorData?.error || errorData?.message || errorMessage;
+            console.warn("Complete error response:", errorData);
+          } catch {
+            const fallbackText = await completeResponse.text().catch(() => "");
+            if (fallbackText) {
+              errorMessage = fallbackText;
             }
-          : { error };
-      console.error("Upload failed", {
-        ...uploadMeta,
-        ms: Date.now() - uploadStartedAt,
-        ...errorInfo,
-      });
-      setUploadError(message);
-      setUploadStatus("pending");
+            console.warn("Complete error response (text):", fallbackText);
+          }
+          throw new Error(errorMessage);
+        }
+
+        const completeData = await completeResponse.json();
+        pushUploadLog("complete-response", {
+          status: completeResponse.status,
+          id: completeData?.doc?.id,
+        });
+        console.log("Upload success payload:", completeData, {
+          ms: Date.now() - uploadStartedAt,
+        });
+        if (!completeData?.doc?.id) {
+          throw new Error("Upload failed");
+        }
+
+        setUploadedMedia({
+          id: String(completeData.doc.id),
+          url: completeData.doc.url,
+          filename: completeData.doc.filename,
+        });
+        setUploadStatus("ready");
+        setPendingFile(null);
+        clearRetryTimer();
+        pushUploadLog("upload-done", { ms: Date.now() - uploadStartedAt });
+        return;
+      } catch (error) {
+        uploadXhrRef.current = null;
+        let errorCode = (error as any)?.code;
+        if ((error as any)?.name === "AbortError") {
+          console.warn("Upload aborted (timeout)", {
+            ...uploadMeta,
+            ms: Date.now() - uploadStartedAt,
+            phase,
+          });
+          if (phase === "finalize") {
+            const existing = await resolveExistingUpload(file);
+            if (existing?.id) {
+              setUploadedMedia({
+                id: String(existing.id),
+                url: existing.url,
+                filename: existing.filename,
+              });
+              setUploadStatus("ready");
+              setPendingFile(null);
+              clearRetryTimer();
+              return;
+            }
+          }
+          errorCode = "UPLOAD_ABORT";
+        }
+
+        const isRetryable = isRetryableError({ code: errorCode });
+        const isLastAttempt = attempt >= maxAttempts;
+
+        if (isRetryable && !isLastAttempt) {
+          const delayMs = Math.min(
+            UPLOAD_RETRY_MAX_MS,
+            UPLOAD_RETRY_BASE_MS * Math.pow(2, attempt - 1)
+          );
+          pushUploadLog("upload-retry-wait", { attempt, delayMs });
+          lastProgressRef.current = null;
+          setUploadStalled(false);
+          await waitForRetryDelay(delayMs);
+          continue;
+        }
+
+        clearRetryTimer();
+        if (errorCode === "UPLOAD_ABORT") {
+          setUploadError(
+            phase === "finalize"
+              ? "Сохранение в базе заняло слишком много времени. Попробуйте обновить страницу."
+              : "Загрузка заняла слишком много времени. Попробуйте снова."
+          );
+          setUploadStatus("pending");
+          return;
+        }
+        if (errorCode === "UPLOAD_TIMEOUT") {
+          setUploadError("Загрузка заняла слишком много времени. Попробуйте снова.");
+          setUploadProgress(0);
+          setUploadStatus("pending");
+          return;
+        }
+        if (errorCode === "UPLOAD_NETWORK") {
+          setUploadError(
+            "Проблема с сетью при загрузке. Проверьте подключение и попробуйте снова."
+          );
+          setUploadProgress(0);
+          setUploadStatus("pending");
+          return;
+        }
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Не удалось загрузить файл в систему.";
+        const errorInfo =
+          error instanceof Error
+            ? {
+                name: error.name,
+                message: error.message,
+                stack: error.stack,
+                details: (error as any)?.details,
+              }
+            : { error };
+        console.error("Upload failed", {
+          name: file.name,
+          size: file.size,
+          type: file.type,
+          ms: Date.now() - uploadStartedAt,
+          ...errorInfo,
+        });
+        setUploadError(message);
+        setUploadStatus("pending");
+        return;
+      } finally {
+        uploadXhrRef.current = null;
+      }
     }
-  }, [pendingFile, isUploadBusy, resolveExistingUpload, showSuccess]);
+  }, [
+    pendingFile,
+    isUploadBusy,
+    resolveExistingUpload,
+    showSuccess,
+    clearRetryTimer,
+    waitForRetryDelay,
+    pushUploadLog,
+  ]);
 
   useEffect(() => {
     if (!modelObject) {
@@ -955,6 +1058,7 @@ export default function PrintServicePage() {
   useEffect(() => {
     if (uploadStatus !== "uploading") {
       setUploadStalled(false);
+      clearRetryTimer();
       return;
     }
     const interval = window.setInterval(() => {
@@ -979,7 +1083,7 @@ export default function PrintServicePage() {
       }
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [uploadStatus]);
+  }, [uploadStatus, uploadDebugEnabled, clearRetryTimer]);
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
@@ -1284,8 +1388,13 @@ export default function PrintServicePage() {
                   <div className="flex flex-col">
                     <span>ЗАГРУЗКА В ХРАНИЛИЩЕ... {buildProgressBar(uploadProgress)}</span>
                     <span className="mt-1 text-[9px] tracking-[0.25em] text-white/40">
-                      {formatSpeed(uploadSpeedBps)} / {formatDuration(uploadElapsedMs)}
-                      {uploadEtaMs && uploadEtaMs > 0 ? ` / ETA ${formatDuration(uploadEtaMs)}` : ""}
+                      {uploadRetryInMs && uploadRetryInMs > 0
+                        ? `ПОВТОР ЧЕРЕЗ ${formatDuration(uploadRetryInMs)}`
+                        : `${formatSpeed(uploadSpeedBps)} / ${formatDuration(uploadElapsedMs)}`}
+                      {!uploadRetryInMs && uploadEtaMs && uploadEtaMs > 0
+                        ? ` / ETA ${formatDuration(uploadEtaMs)}`
+                        : ""}
+                      {uploadAttempt > 1 ? ` / ПОПЫТКА ${uploadAttempt}/${UPLOAD_MAX_RETRIES + 1}` : ""}
                       {uploadStalled ? " / НЕТ ПРОГРЕССА" : ""}
                     </span>
                   </div>
