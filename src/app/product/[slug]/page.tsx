@@ -297,7 +297,7 @@ export default async function ProductPage({ params }: { params: { slug: string }
                         <p className="text-[11px] text-white/50">{relatedMeta}</p>
                       )}
                       {relatedPrice && (
-                        <p className="text-sm font-semibold text-[#2ED1FF]">{`˘'?${relatedPrice}`}</p>
+                        <p className="text-sm font-semibold text-[#2ED1FF]">{`₽${relatedPrice}`}</p>
                       )}
                     </div>
                   </a>
