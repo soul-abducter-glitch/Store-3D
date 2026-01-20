@@ -1,6 +1,14 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type FormEvent,
+} from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
@@ -22,7 +30,7 @@ type CartItem = {
   customPrint?: CustomPrintMeta | null;
 };
 
-type CheckoutStep = "form" | "processing";
+type CheckoutStep = "form" | "processing" | "payment";
 
 type CustomPrintMeta = {
   uploadId: string;
@@ -211,7 +219,13 @@ const CheckoutPage = () => {
   const [step, setStep] = useState<CheckoutStep>("form");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("card");
+  const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [paymentStageError, setPaymentStageError] = useState<string | null>(null);
+  const [paymentLoading, setPaymentLoading] = useState(false);
   const [submitLock, setSubmitLock] = useState(false);
+  const isPaymentsMock =
+    (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "").toLowerCase() === "mock";
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -224,6 +238,8 @@ const CheckoutPage = () => {
   
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";
+  const paymentsIntentUrl = "/api/payments/create-intent";
+  const paymentsWebhookUrl = "/api/payments/webhook";
   const isProcessing = step === "processing";
 
   useEffect(() => {
@@ -390,6 +406,7 @@ const CheckoutPage = () => {
     [hasPhysical, form.shippingMethod]
   );
   const grandTotal = useMemo(() => totalValue + deliveryCost, [totalValue, deliveryCost]);
+  const isPaymentStep = step === "payment";
   const stepperSteps = useMemo(
     () => [
       {
@@ -397,17 +414,17 @@ const CheckoutPage = () => {
         title: "Доставка",
         description: "Выберите службу",
         completed: !hasPhysical || Boolean(form.shippingMethod),
-        current: hasPhysical,
+        current: hasPhysical && !isPaymentStep,
       },
       {
         id: 2,
         title: "Оплата",
         description: "Метод оплаты",
-        completed: Boolean(paymentMethod),
-        current: !hasPhysical || Boolean(paymentMethod),
+        completed: Boolean(paymentMethod) || isPaymentStep,
+        current: !hasPhysical || isPaymentStep || Boolean(paymentMethod),
       },
     ],
-    [hasPhysical, form.shippingMethod, paymentMethod]
+    [hasPhysical, form.shippingMethod, paymentMethod, isPaymentStep]
   );
 
   const handleInputChange = (field: keyof typeof form) => (
@@ -415,6 +432,91 @@ const CheckoutPage = () => {
   ) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
   };
+
+  const requestPaymentIntent = useCallback(
+    async (orderId: string) => {
+      const response = await fetch(paymentsIntentUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ orderId }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new Error(errorText || "Не удалось создать платеж.");
+      }
+      return response.json();
+    },
+    [paymentsIntentUrl]
+  );
+
+  const handlePaymentSimulation = useCallback(
+    async (status: "paid" | "failed") => {
+      if (!pendingOrderId) return;
+      setPaymentLoading(true);
+      setPaymentStageError(null);
+      try {
+        const response = await fetch(paymentsWebhookUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({ orderId: pendingOrderId, status }),
+        });
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          throw new Error(errorText || "Не удалось обновить статус оплаты.");
+        }
+        if (status === "paid") {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("orders-updated"));
+          }
+          router.push(`/checkout/success?orderId=${encodeURIComponent(pendingOrderId)}`);
+        } else {
+          setPaymentStageError("Оплата отклонена. Попробуйте снова.");
+        }
+      } catch (error) {
+        setPaymentStageError(
+          error instanceof Error ? error.message : "Не удалось обновить статус оплаты."
+        );
+      } finally {
+        setPaymentLoading(false);
+      }
+    },
+    [pendingOrderId, paymentsWebhookUrl, router]
+  );
+
+  const handleRefreshPaymentIntent = useCallback(async () => {
+    if (!pendingOrderId) return;
+    setPaymentLoading(true);
+    setPaymentStageError(null);
+    try {
+      const paymentData = await requestPaymentIntent(pendingOrderId);
+      const nextStatus = String(paymentData?.paymentStatus || "pending");
+      const nextIntent =
+        typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
+      setPaymentIntentId(nextIntent);
+      if (nextStatus === "paid") {
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("orders-updated"));
+        }
+        router.push(`/checkout/success?orderId=${encodeURIComponent(pendingOrderId)}`);
+        return;
+      }
+      if (nextStatus === "failed") {
+        setPaymentStageError("Оплата отклонена. Попробуйте снова.");
+      }
+    } catch (error) {
+      setPaymentStageError(
+        error instanceof Error ? error.message : "Не удалось обновить платеж."
+      );
+    } finally {
+      setPaymentLoading(false);
+    }
+  }, [pendingOrderId, requestPaymentIntent, router]);
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -581,6 +683,21 @@ const CheckoutPage = () => {
       // Parse successful response
       const responseData = await response.json();
       const createdOrderId = responseData?.doc?.id || responseData?.id || null;
+      let paymentStatus = "paid";
+      let nextIntentId: string | null = null;
+      let paymentIntentError: string | null = null;
+      if (createdOrderId) {
+        try {
+          const paymentData = await requestPaymentIntent(createdOrderId);
+          paymentStatus = String(paymentData?.paymentStatus || paymentStatus);
+          nextIntentId =
+            typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
+        } catch (error) {
+          paymentIntentError =
+            error instanceof Error ? error.message : "Не удалось создать платеж.";
+          paymentStatus = "pending";
+        }
+      }
       
       if (typeof window !== "undefined") {
         window.localStorage.removeItem("store3d_cart");
@@ -589,6 +706,15 @@ const CheckoutPage = () => {
       }
       setCartItems([]);
       
+      if (paymentStatus === "pending" && createdOrderId) {
+        setPendingOrderId(createdOrderId);
+        setPaymentIntentId(nextIntentId);
+        setPaymentStageError(paymentIntentError);
+        setStep("payment");
+        setSubmitLock(false);
+        return;
+      }
+
       // Redirect to success page with order ID
       const successUrl = createdOrderId 
         ? `/checkout/success?orderId=${encodeURIComponent(createdOrderId)}`
@@ -852,6 +978,82 @@ const CheckoutPage = () => {
                 )}
               </div>
             </motion.form>
+          ) : step === "payment" ? (
+            <motion.div
+              key="checkout-payment"
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -12 }}
+              transition={{ duration: 0.35 }}
+              className="mt-12 space-y-6"
+            >
+              <CheckoutStepper steps={stepperSteps} />
+              <div className="rounded-[32px] border border-white/10 bg-white/[0.04] px-6 py-10 text-center backdrop-blur-xl">
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
+                  <ShieldCheck className="h-6 w-6" />
+                </div>
+                <h2 className="mt-5 text-2xl font-semibold text-white">Ожидаем оплату</h2>
+                <p className="mt-2 text-sm text-white/60">
+                  Заказ создан. Проведите оплату, чтобы получить доступ к файлам.
+                </p>
+                {isPaymentsMock && (
+                  <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
+                    Тестовый режим оплаты
+                  </p>
+                )}
+                <div className="mt-6 space-y-2 text-xs text-white/60">
+                  {pendingOrderId && (
+                    <p>{`Номер заказа: ${pendingOrderId}`}</p>
+                  )}
+                  {paymentIntentId && (
+                    <p>{`Платеж: ${paymentIntentId}`}</p>
+                  )}
+                </div>
+                {paymentStageError && (
+                  <div className="mt-4 rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                    {paymentStageError}
+                  </div>
+                )}
+                <div className="mt-6 flex flex-wrap justify-center gap-3">
+                  {isPaymentsMock && (
+                    <button
+                      type="button"
+                      className="rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF]"
+                      onClick={() => handlePaymentSimulation("paid")}
+                      disabled={paymentLoading}
+                    >
+                      Симулировать оплату
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="rounded-full border border-white/20 bg-white/5 px-5 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white"
+                    onClick={handleRefreshPaymentIntent}
+                    disabled={paymentLoading}
+                  >
+                    Проверить статус
+                  </button>
+                  {isPaymentsMock && (
+                    <button
+                      type="button"
+                      className="rounded-full border border-white/10 bg-white/5 px-5 py-2 text-xs uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white"
+                      onClick={() => handlePaymentSimulation("failed")}
+                      disabled={paymentLoading}
+                    >
+                      Симулировать отказ
+                    </button>
+                  )}
+                </div>
+                <div className="mt-6">
+                  <Link
+                    href="/profile"
+                    className="text-xs uppercase tracking-[0.3em] text-white/60 underline underline-offset-4 transition hover:text-white"
+                  >
+                    Перейти в профиль
+                  </Link>
+                </div>
+              </div>
+            </motion.div>
           ) : (
             <motion.div
               key="checkout-processing"
