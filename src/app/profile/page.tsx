@@ -622,7 +622,7 @@ export default function ProfilePage() {
                 return (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3"
+                    className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3 sm:justify-between"
                   >
                     <div className="flex-1">
                       <p className="text-sm font-semibold text-white">{item.name}</p>
@@ -657,10 +657,10 @@ export default function ProfilePage() {
           )}
         </div>
 
-        <div className="mt-8 flex gap-3 border-b border-white/10">
+        <div className="mt-8 flex gap-2 overflow-x-auto border-b border-white/10 pb-1 sm:gap-3">
           <button
             onClick={() => setActiveTab("orders")}
-            className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition sm:px-4 sm:py-3 sm:text-sm ${
               activeTab === "orders" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
             }`}
           >
@@ -675,7 +675,7 @@ export default function ProfilePage() {
           </button>
           <button
             onClick={() => setActiveTab("downloads")}
-            className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition sm:px-4 sm:py-3 sm:text-sm ${
               activeTab === "downloads" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
             }`}
           >
@@ -690,7 +690,7 @@ export default function ProfilePage() {
           </button>
           <button
             onClick={() => setActiveTab("settings")}
-            className={`relative flex items-center gap-2 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] transition ${
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition sm:px-4 sm:py-3 sm:text-sm ${
               activeTab === "settings" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
             }`}
           >
@@ -737,7 +737,7 @@ export default function ProfilePage() {
                       key={order.id}
                       className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                     >
-                      <div className="flex flex-wrap items-center justify-between gap-4">
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div>
                           <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                             {order.id}
@@ -757,7 +757,7 @@ export default function ProfilePage() {
                             </p>
                           )}
                         </div>
-                        <div className="text-right">
+                        <div className="w-full text-left sm:w-auto sm:text-right">
                           <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                             {formatDate(order.createdAt || order.updatedAt)}
                           </p>
@@ -765,7 +765,7 @@ export default function ProfilePage() {
                             {getOrderStatusLabel(order.status)}
                           </p>
                           <div className="mt-3">
-                            <div className="flex items-center justify-between text-[10px] uppercase tracking-[0.2em] text-white/40">
+                            <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] text-white/40 sm:text-[10px]">
                               {ORDER_PROGRESS_STEPS.map((step, index) => (
                                 <span
                                   key={step}
@@ -775,7 +775,7 @@ export default function ProfilePage() {
                                 </span>
                               ))}
                             </div>
-                            <div className="mt-2 grid grid-cols-3 gap-2">
+                            <div className="mt-2 grid grid-cols-3 gap-1.5 sm:gap-2">
                               {ORDER_PROGRESS_STEPS.map((step, index) => (
                                 <div
                                   key={`${step}-bar`}
@@ -833,15 +833,15 @@ export default function ProfilePage() {
                     key={download.id}
                     className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                   >
-                    <div className="flex flex-wrap items-center justify-between gap-4">
-                      <div className="flex items-center gap-3">
-                        {download.previewUrl ? (
-                          <img
-                            src={download.previewUrl}
-                            alt={download.product}
-                            className="h-12 w-12 rounded-xl object-cover"
-                          />
-                        ) : (
+                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex items-center gap-3">
+                          {download.previewUrl ? (
+                            <img
+                              src={download.previewUrl}
+                              alt={download.product}
+                              className="h-12 w-12 rounded-xl object-cover"
+                            />
+                          ) : (
                           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-white/50">
                             <Download className="h-5 w-5" />
                           </div>
@@ -857,13 +857,13 @@ export default function ProfilePage() {
                           target="_blank"
                           rel="noreferrer"
                           download
-                          className="flex items-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30"
+                          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:w-auto"
                         >
                           <Download className="h-4 w-4" />
                           Скачать .STL
                         </a>
                       ) : (
-                        <span className="flex items-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40">
+                        <span className="flex w-full items-center justify-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40 sm:w-auto">
                           <Download className="h-4 w-4" />
                           Готовится
                         </span>

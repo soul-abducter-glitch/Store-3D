@@ -717,6 +717,17 @@ export default function Home() {
   }, [apiBase]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const prefersReduced = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches;
+    const isNarrow = window.matchMedia?.("(max-width: 768px)")?.matches;
+    if (prefersReduced || isNarrow) {
+      setAutoRotate(false);
+    }
+  }, []);
+
+  useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem(SEARCH_RECENTS_KEY);
     if (!stored) return;
@@ -3724,7 +3735,7 @@ function ProductCard({
           aria-label={isFavorite ? "Удалить из избранного" : "Добавить в избранное"}
           animate={favoritePulse ? { scale: [1, 1.12, 1] } : { scale: 1 }}
           transition={{ duration: 0.35 }}
-          className={`group/fav absolute right-2.5 top-2.5 flex h-10 w-10 items-center justify-center rounded-full border text-white transition sm:right-3 sm:top-3 sm:h-9 sm:w-9 ${
+          className={`group/fav absolute right-2.5 top-2.5 flex h-9 w-9 items-center justify-center rounded-full border text-white transition sm:right-3 sm:top-3 sm:h-10 sm:w-10 ${
             isFavorite
               ? "border-rose-300/70 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
               : "border-white/10 bg-black/40 text-white/70 hover:border-rose-300/40 hover:text-white"
@@ -3744,7 +3755,7 @@ function ProductCard({
           }}
         >
           <Heart className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} />
-          <span className="pointer-events-none absolute -bottom-6 right-0 whitespace-nowrap rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-white/70 opacity-0 transition group-hover/fav:opacity-100">
+          <span className="pointer-events-none absolute -bottom-6 right-0 hidden whitespace-nowrap rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-white/70 opacity-0 transition group-hover/fav:opacity-100 sm:block">
             В избранное
           </span>
         </motion.button>

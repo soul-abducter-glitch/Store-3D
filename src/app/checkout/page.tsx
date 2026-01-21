@@ -988,7 +988,7 @@ const CheckoutPage = () => {
               className="mt-12 space-y-6"
             >
               <CheckoutStepper steps={stepperSteps} />
-              <div className="rounded-[32px] border border-white/10 bg-white/[0.04] px-6 py-10 text-center backdrop-blur-xl">
+              <div className="rounded-[32px] border border-white/10 bg-white/[0.04] px-4 py-8 text-center backdrop-blur-xl sm:px-6 sm:py-10">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                   <ShieldCheck className="h-6 w-6" />
                 </div>
@@ -1018,7 +1018,7 @@ const CheckoutPage = () => {
                   {isPaymentsMock && (
                     <button
                       type="button"
-                      className="rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF]"
+                      className="w-full rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] sm:w-auto sm:text-xs"
                       onClick={() => handlePaymentSimulation("paid")}
                       disabled={paymentLoading}
                     >
@@ -1027,7 +1027,7 @@ const CheckoutPage = () => {
                   )}
                   <button
                     type="button"
-                    className="rounded-full border border-white/20 bg-white/5 px-5 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white"
+                    className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"
                     onClick={handleRefreshPaymentIntent}
                     disabled={paymentLoading}
                   >
@@ -1036,7 +1036,7 @@ const CheckoutPage = () => {
                   {isPaymentsMock && (
                     <button
                       type="button"
-                      className="rounded-full border border-white/10 bg-white/5 px-5 py-2 text-xs uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white"
+                      className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white sm:w-auto sm:text-xs"
                       onClick={() => handlePaymentSimulation("failed")}
                       disabled={paymentLoading}
                     >
