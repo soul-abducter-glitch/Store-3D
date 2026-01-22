@@ -15,11 +15,6 @@ const baseConfig = {
     },
     middlewareClientMaxBodySize: "200mb",
   },
-  api: {
-    bodyParser: {
-      sizeLimit: "200mb",
-    },
-  },
 };
 
 module.exports = isAdminMode ? withPayload(baseConfig) : baseConfig;

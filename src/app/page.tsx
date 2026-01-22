@@ -662,6 +662,7 @@ const SEARCH_RECENTS_KEY = "store3d_search_recent";
 export default function Home() {
   const router = useRouter();
   const { toasts, showSuccess, removeToast } = useToast();
+  const [isMounted, setIsMounted] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
   const [renderMode, setRenderMode] = useState<RenderMode>("final");
   const [finish, setFinish] = useState<FinishMode>("raw");
@@ -699,7 +700,11 @@ export default function Home() {
   const controlsRef = useRef<any | null>(null);
   const previousRenderModeRef = useRef<RenderMode>("final");
   const zoomAnimationRef = useRef<number | null>(null);
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const apiBase = "";
+
+  useEffect(() => {
+    setIsMounted(true);
+  }, []);
 
   const formatLabelForKey = (formatKey: FormatMode) =>
     formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
@@ -938,10 +943,11 @@ export default function Home() {
       if (!response.ok) {
         throw response;
       }
-      return response.json() as Promise<{
-        products?: ProductDoc[];
-        categories?: CategoryDoc[];
-      }>;
+      const data = await response.json();
+      return {
+        products: Array.isArray(data?.products) ? data.products : data?.docs ?? [],
+        categories: Array.isArray(data?.categories) ? data.categories : [],
+      };
     };
 
     const fetchData = async () => {
@@ -1647,6 +1653,14 @@ export default function Home() {
     };
     return JSON.stringify([organization, itemList]);
   }, [normalizedProducts]);
+
+  if (!isMounted) {
+    return (
+      <div className="relative min-h-screen bg-[#050505] text-white">
+        <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
+      </div>
+    );
+  }
 
   return (
     <div className="relative min-h-screen bg-[#050505] text-white font-[var(--font-inter)]">

@@ -65,9 +65,6 @@ export async function GET(
     const headers = new Headers();
     headers.set("Content-Type", result.ContentType || guessContentType(safeName));
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
-    if (typeof result.ContentLength === "number") {
-      headers.set("Content-Length", result.ContentLength.toString());
-    }
 
     const body = toWebStream(result.Body);
     return new Response(body, { headers });

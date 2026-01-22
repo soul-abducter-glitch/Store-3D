@@ -410,7 +410,7 @@ export default function PrintServicePage() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const apiBase = "";
   const isUploadBusy =
     uploadStatus === "uploading" || uploadStatus === "analyzing" || uploadStatus === "finalizing";
   const canStartUpload = Boolean(pendingFile) && uploadStatus === "pending";

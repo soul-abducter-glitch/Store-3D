@@ -162,7 +162,7 @@ export default function ProfilePage() {
   const [cartItemCount, setCartItemCount] = useState(0);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+  const apiBase = "";
 
   useEffect(() => {
     if (typeof window === "undefined") {

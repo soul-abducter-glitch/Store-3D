@@ -234,7 +234,7 @@ const CheckoutPage = () => {
     shippingMethod: shippingMethodOptions[0].value,
     zipCode: "",
   });
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const apiBase = "";
   
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";

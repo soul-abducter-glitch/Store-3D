@@ -22,7 +22,7 @@ export default function AuthForm({
   const [name, setName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
-  const apiBase = process.env.NEXT_PUBLIC_API_URL || "";
+  const apiBase = "";
   const searchParams = useSearchParams();
 
   const resolveRedirect = () => {

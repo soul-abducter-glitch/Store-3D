@@ -47,7 +47,7 @@ const writeUnreadCount = (count: number) => {
 export default function OrderStatusNotifier() {
   const initializedRef = useRef(false);
   const pollingRef = useRef<number | null>(null);
-  const apiBase = (process.env.NEXT_PUBLIC_API_URL || "").replace(/\/$/, "");
+  const apiBase = "";
 
   useEffect(() => {
     let isMounted = true;
