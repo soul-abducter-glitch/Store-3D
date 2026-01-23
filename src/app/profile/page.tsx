@@ -400,8 +400,16 @@ export default function ProfilePage() {
 
   const getOrderStatusClass = (status?: string) => getOrderStatusTone(status);
 
-  const canCancelOrder = (status?: string | null) => {
-    const key = normalizeOrderStatus(status);
+  const isDigitalOrder = (order: any) => {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    return items.some((item) => item?.format === "Digital");
+  };
+
+  const canCancelOrder = (order: any) => {
+    if (isDigitalOrder(order)) {
+      return false;
+    }
+    const key = normalizeOrderStatus(order?.status);
     return key !== "ready" && key !== "completed" && key !== "cancelled";
   };
 
@@ -729,9 +737,14 @@ export default function ProfilePage() {
                   const totalLabel = typeof order.total === "number" ? formatPrice(order.total) : null;
                   const progressStage = getOrderProgressStage(order.status);
                   const statusKey = normalizeOrderStatus(order.status);
-                  const canCancel = canCancelOrder(statusKey);
+                  const isDigital = isDigitalOrder(order);
+                  const canCancel = canCancelOrder(order);
                   const orderId = String(order.id);
                   const printInfo = getOrderPrintInfo(order);
+                  const statusLabel =
+                    isDigital && (statusKey === "paid" || statusKey === "completed")
+                      ? "Оплачено"
+                      : getOrderStatusLabel(order.status);
                   return (
                     <div
                       key={order.id}
@@ -762,32 +775,36 @@ export default function ProfilePage() {
                             {formatDate(order.createdAt || order.updatedAt)}
                           </p>
                           <p className={`mt-2 text-sm font-semibold ${getOrderStatusClass(order.status)}`}>
-                            {getOrderStatusLabel(order.status)}
+                            {statusLabel}
                           </p>
-                          <div className="mt-3">
-                            <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] text-white/40 sm:text-[10px]">
-                              {ORDER_PROGRESS_STEPS.map((step, index) => (
-                                <span
-                                  key={step}
-                                  className={index <= progressStage ? "text-[#2ED1FF]" : "text-white/30"}
-                                >
-                                  {step}
-                                </span>
-                              ))}
+                          {!isDigital && (
+                            <div className="mt-3">
+                              <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] text-white/40 sm:text-[10px]">
+                                {ORDER_PROGRESS_STEPS.map((step, index) => (
+                                  <span
+                                    key={step}
+                                    className={
+                                      index <= progressStage ? "text-[#2ED1FF]" : "text-white/30"
+                                    }
+                                  >
+                                    {step}
+                                  </span>
+                                ))}
+                              </div>
+                              <div className="mt-2 grid grid-cols-3 gap-1.5 sm:gap-2">
+                                {ORDER_PROGRESS_STEPS.map((step, index) => (
+                                  <div
+                                    key={`${step}-bar`}
+                                    className={`h-1.5 rounded-full ${
+                                      index <= progressStage
+                                        ? "bg-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.6)]"
+                                        : "bg-white/10"
+                                    }`}
+                                  />
+                                ))}
+                              </div>
                             </div>
-                            <div className="mt-2 grid grid-cols-3 gap-1.5 sm:gap-2">
-                              {ORDER_PROGRESS_STEPS.map((step, index) => (
-                                <div
-                                  key={`${step}-bar`}
-                                  className={`h-1.5 rounded-full ${
-                                    index <= progressStage
-                                      ? "bg-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.6)]"
-                                      : "bg-white/10"
-                                  }`}
-                                />
-                              ))}
-                            </div>
-                          </div>
+                          )}
                           {totalLabel && (
                             <p className="mt-1 text-sm text-white/70">Итого: {totalLabel} ₽</p>
                           )}
@@ -910,7 +927,8 @@ export default function ProfilePage() {
                   </label>
                   <input
                     type="password"
-                    placeholder="\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"
+                    placeholder="Введите новый пароль"
+                    autoComplete="new-password"
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>

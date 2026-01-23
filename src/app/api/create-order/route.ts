@@ -151,6 +151,16 @@ const resolvePrintPrice = (printSpecs?: {
   return Math.max(0, Math.round(PRINT_BASE_FEE + techFee + materialFee + qualityFee));
 };
 
+const collectDigitalProductIds = (items: Array<{ format?: string; product?: unknown }>) => {
+  if (!Array.isArray(items)) return [];
+  const ids = items
+    .filter((item) => String(item?.format || "").toLowerCase().includes("digital"))
+    .map((item) => normalizeRelationshipId(item?.product))
+    .filter((id): id is string | number => id !== null)
+    .map((id) => String(id));
+  return Array.from(new Set(ids));
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayload();
@@ -364,6 +374,49 @@ export async function POST(request: NextRequest) {
       data: orderData,
       overrideAccess: false, // Use normal access control
     });
+
+    try {
+      const customerEmail = normalizeEmail(orderData?.customer?.email);
+      const isPaid =
+        orderData?.paymentStatus === "paid" || orderData?.status === "paid";
+      const digitalProductIds = collectDigitalProductIds(orderData.items || []);
+
+      if (customerEmail && isPaid && digitalProductIds.length > 0) {
+        const userResult = await payload.find({
+          collection: "users",
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          where: {
+            email: {
+              equals: customerEmail,
+            },
+          },
+        });
+        const userDoc = userResult?.docs?.[0];
+        if (userDoc?.id) {
+          const existingRaw = Array.isArray((userDoc as any)?.purchasedProducts)
+            ? (userDoc as any).purchasedProducts
+            : [];
+          const existing = existingRaw
+            .map((id: any) => normalizeRelationshipId(id))
+            .filter((id): id is string | number => id !== null)
+            .map((id) => String(id));
+          const merged = Array.from(new Set([...existing, ...digitalProductIds]));
+
+          if (merged.length !== existing.length) {
+            await payload.update({
+              collection: "users",
+              id: userDoc.id,
+              data: { purchasedProducts: merged },
+              overrideAccess: true,
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.warn("Failed to update purchasedProducts from create-order", error);
+    }
 
     console.log("Order created successfully:", result.id);
 

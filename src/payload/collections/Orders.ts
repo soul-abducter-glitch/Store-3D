@@ -75,10 +75,20 @@ const getProductId = (product: any): string | null => {
   return null;
 };
 
+const isDigitalFormat = (value: unknown) => {
+  if (!value) return false;
+  const raw = String(value).trim().toLowerCase();
+  return raw.includes("digital") || raw.includes("цифров");
+};
+
 const collectDigitalProductIds = (items: any[]): string[] => {
   if (!Array.isArray(items)) return [];
   const ids = items
-    .filter((item) => item?.format === "Digital")
+    .filter((item) =>
+      isDigitalFormat(
+        item?.format ?? item?.formatKey ?? item?.type ?? item?.formatLabel
+      )
+    )
     .map((item) => getProductId(item?.product))
     .filter((id): id is string => Boolean(id));
   return Array.from(new Set(ids));
@@ -291,6 +301,7 @@ export const Orders: CollectionConfig = {
         const allowInstantDigital = resolvePaymentsMode() === "off";
         const shouldGrantDigital =
           normalizedPaymentStatus === "paid" ||
+          normalizedStatus === "paid" ||
           normalizedStatus === "completed" ||
           (allowInstantDigital && operation === "create");
 

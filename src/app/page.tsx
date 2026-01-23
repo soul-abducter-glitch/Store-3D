@@ -2383,7 +2383,10 @@ export default function Home() {
                 </div>
               </motion.div>
 
-              <motion.div variants={itemVariants} className="flex flex-wrap gap-2">
+              <motion.div
+                variants={itemVariants}
+                className="flex flex-wrap gap-2 md:hidden"
+              >
                 <button
                   type="button"
                   className={`rounded-full border px-3 py-1.5 text-[10px] uppercase tracking-[0.3em] transition ${

@@ -74,9 +74,19 @@ const getProductId = (product: unknown): string | number | null => {
   return null;
 };
 
+const isDigitalFormat = (value: unknown) => {
+  if (!value) return false;
+  const raw = String(value).trim().toLowerCase();
+  return raw.includes("digital") || raw.includes("цифров");
+};
+
 const collectDigitalProductIds = (items: OrderItem[] = []) => {
   const ids = items
-    .filter((item) => item?.format === "Digital")
+    .filter((item) =>
+      isDigitalFormat(
+        item?.format ?? (item as any)?.formatKey ?? (item as any)?.type ?? (item as any)?.formatLabel
+      )
+    )
     .map((item) => getProductId(item?.product))
     .filter((id): id is string | number => id !== null);
   return Array.from(new Set(ids));
