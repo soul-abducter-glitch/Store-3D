@@ -20,6 +20,10 @@ type ModelViewProps = {
     boxSize: [number, number, number];
     radius: number;
   }) => void;
+  onStats?: (stats: {
+    polyCount: number;
+    meshCount: number;
+  }) => void;
 };
 
 const FALLBACK_MODEL = "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
@@ -31,6 +35,7 @@ export default function ModelView({
   renderMode,
   accentColor,
   onBounds,
+  onStats,
 }: ModelViewProps) {
   const activeUrl = useMemo(() => {
     if (finish === "Painted" && paintedModelUrl) {
@@ -171,6 +176,24 @@ export default function ModelView({
         boxSize: [size.x, size.y, size.z],
         radius: sphere.radius,
       });
+    }
+
+    let polyCount = 0;
+    let meshCount = 0;
+    gltf.scene.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      const geometry = child.geometry;
+      if (!geometry) return;
+      meshCount += 1;
+      const indexCount = geometry.index?.count ?? 0;
+      const positionCount = geometry.attributes?.position?.count ?? 0;
+      const triangles = indexCount > 0 ? indexCount / 3 : positionCount / 3;
+      if (Number.isFinite(triangles)) {
+        polyCount += Math.max(0, Math.floor(triangles));
+      }
+    });
+    if (polyCount > 0 || meshCount > 0) {
+      onStats?.({ polyCount, meshCount });
     }
     
     const storeMaterialState = (material: Material) => {

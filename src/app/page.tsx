@@ -49,6 +49,67 @@ type ModelBounds = {
   radius: number;
 };
 
+const estimatePrintTime = (
+  bounds: ModelBounds | null,
+  tech: TechMode | null,
+  polyCount?: number | null,
+  scaleLabel?: string | null,
+  modelScale?: number | null
+) => {
+  if (!bounds) return null;
+  const [width, height, depth] = bounds.boxSize;
+  if (![width, height, depth].every((v) => Number.isFinite(v) && v > 0)) {
+    return null;
+  }
+
+  const maxSide = Math.max(width, height, depth);
+  const fromScale = parseScaleMm(scaleLabel ?? null);
+  const mmPerUnit =
+    fromScale && maxSide > 0
+      ? fromScale / maxSide
+      : typeof modelScale === "number" && modelScale > 0
+        ? 100 * modelScale
+        : 100;
+
+  const widthMm = width * mmPerUnit;
+  const heightMm = height * mmPerUnit;
+  const depthMm = depth * mmPerUnit;
+  const volumeMm3 = widthMm * heightMm * depthMm;
+  const polyFactor =
+    typeof polyCount === "number" && polyCount > 0
+      ? Math.min(2.2, Math.max(0.7, Math.log10(polyCount / 100000 + 1)))
+      : 1;
+
+  const volumeCm3 = volumeMm3 / 1000;
+  const maxHeightMm = Math.max(widthMm, heightMm, depthMm);
+  let minutes = 0;
+  let profileLabel = "Профиль";
+
+  if (tech === "SLA Resin") {
+    const layerHeightMm = 0.05;
+    const secondsPerLayer = 3.6;
+    const layers = Math.max(1, Math.round(maxHeightMm / layerHeightMm));
+    minutes = (layers * secondsPerLayer) / 60 + 8;
+    minutes *= polyFactor * 0.9;
+    profileLabel = "Elegoo 4";
+  } else {
+    const minutesPerCm3 = tech === "FDM Plastic" ? 0.6 : 1.2;
+    minutes = volumeCm3 * minutesPerCm3 * polyFactor + 12;
+    profileLabel = tech === "FDM Plastic" ? "BambuLab" : "FDM";
+  }
+
+  minutes = Math.max(20, minutes);
+  if (!Number.isFinite(minutes)) return null;
+
+  const roundedMinutes = Math.round(minutes);
+  const hours = Math.floor(roundedMinutes / 60);
+  const mins = roundedMinutes % 60;
+  if (hours <= 0) {
+    return `${mins}m • ${profileLabel}`;
+  }
+  return `${hours}h ${mins}m • ${profileLabel}`;
+};
+
 type SidebarCategory = {
   id: string;
   title: string;
@@ -693,6 +754,7 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
+  const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
   const heroSectionRef = useRef<HTMLDivElement | null>(null);
   const [heroVisible, setHeroVisible] = useState(false);
   const [heroInView, setHeroInView] = useState(false);
@@ -1334,6 +1396,7 @@ export default function Home() {
 
   useEffect(() => {
     setHeroBounds(null);
+    setHeroPolyCountComputed(null);
   }, [currentModelId]);
 
   const isFavorite = useCallback((id: string) => favoriteIds.has(id), [favoriteIds]);
@@ -1356,9 +1419,20 @@ export default function Home() {
   const heroName = currentProduct?.name ?? "Нет модели";
   const heroSku = currentProduct?.sku || currentProduct?.slug || "-";
   const heroPriceLabel = formatCurrency(currentProduct?.priceValue ?? null);
-  const heroPolyCount = currentProduct?.polyCount ?? null;
+  const heroPolyCount = currentProduct?.polyCount ?? heroPolyCountComputed ?? null;
   const heroPrintTime = currentProduct?.printTime ?? null;
   const heroScale = currentProduct?.scale ?? null;
+  const heroEstimatedPrintTime = useMemo(
+    () =>
+      estimatePrintTime(
+        heroBounds,
+        currentProduct?.techKey ?? null,
+        heroPolyCount,
+        currentProduct?.scale ?? null,
+        currentProduct?.modelScale ?? null
+      ),
+    [heroBounds, currentProduct?.techKey, heroPolyCount, currentProduct?.scale, currentProduct?.modelScale]
+  );
   const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
   const isInterior = preview === "interior";
   const heroDimensions =
@@ -1885,12 +1959,12 @@ export default function Home() {
                 variants={itemVariants}
                 className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-4 sm:p-6 rim-light"
               >
-                <HUD
-                  polyCount={heroPolyCount}
-                  printTime={heroPrintTime}
-                  scale={heroScale}
-                  dimensions={heroDimensions}
-                />
+                  <HUD
+                    polyCount={heroPolyCount}
+                    printTime={heroPrintTime ?? (heroEstimatedPrintTime ? `≈ ${heroEstimatedPrintTime}` : null)}
+                    scale={heroScale}
+                    dimensions={heroDimensions}
+                  />
                 <div className="relative z-10 h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
                   <AnimatePresence initial={false}>
                     {isInterior && interiorBackgroundUrl ? (
@@ -1937,11 +2011,14 @@ export default function Home() {
                           lightingMode={lightingMode}
                           accentColor={activeColor}
                           rawModelUrl={currentProduct?.rawModelUrl ?? null}
-                          paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
-                          modelScale={currentProduct?.modelScale ?? null}
-                          controlsRef={controlsRef}
-                          onBounds={setHeroBounds}
-                        />
+                            paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
+                            modelScale={currentProduct?.modelScale ?? null}
+                            controlsRef={controlsRef}
+                            onBounds={setHeroBounds}
+                            onStats={(stats) => {
+                              setHeroPolyCountComputed(stats.polyCount);
+                            }}
+                          />
                       </ErrorBoundary>
                     )}
                     <AnimatePresence>
@@ -3185,19 +3262,20 @@ function Sidebar({
   );
 }
 
-type ExperienceProps = {
-  autoRotate: boolean;
-  renderMode: RenderMode;
-  finish: FinishMode;
-  preview: PreviewMode;
-  lightingMode: LightingMode;
-  accentColor: string;
-  rawModelUrl?: string | null;
-  paintedModelUrl?: string | null;
-  modelScale?: number | null;
-  controlsRef: MutableRefObject<any | null>;
-  onBounds?: (bounds: ModelBounds) => void;
-};
+  type ExperienceProps = {
+    autoRotate: boolean;
+    renderMode: RenderMode;
+    finish: FinishMode;
+    preview: PreviewMode;
+    lightingMode: LightingMode;
+    accentColor: string;
+    rawModelUrl?: string | null;
+    paintedModelUrl?: string | null;
+    modelScale?: number | null;
+    controlsRef: MutableRefObject<any | null>;
+    onBounds?: (bounds: ModelBounds) => void;
+    onStats?: (stats: { polyCount: number; meshCount: number }) => void;
+  };
 
 type CameraFitterProps = {
   bounds: ModelBounds | null;
@@ -3237,18 +3315,19 @@ function CameraFitter({
 }
 
 function Experience({
-  autoRotate,
-  renderMode,
-  finish,
-  preview,
-  lightingMode,
-  accentColor,
-  rawModelUrl,
-  paintedModelUrl,
-  modelScale: _modelScale,
-  controlsRef,
-  onBounds,
-}: ExperienceProps) {
+    autoRotate,
+    renderMode,
+    finish,
+    preview,
+    lightingMode,
+    accentColor,
+    rawModelUrl,
+    paintedModelUrl,
+    modelScale: _modelScale,
+    controlsRef,
+    onBounds,
+    onStats,
+  }: ExperienceProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [modelBounds, setModelBounds] = useState<ModelBounds | null>(null);
   const [lockedScale, setLockedScale] = useState<number | null>(null);
@@ -3341,14 +3420,15 @@ function Experience({
         center={{ disable: true }}
       >
         <group scale={finalScale}>
-          <ModelView
-            rawModelUrl={modelUrl}
-            paintedModelUrl={paintedModelUrl}
-            finish={modelFinish}
-            renderMode={renderMode}
-            accentColor={accentColor}
-            onBounds={handleBounds}
-          />
+            <ModelView
+              rawModelUrl={modelUrl}
+              paintedModelUrl={paintedModelUrl}
+              finish={modelFinish}
+              renderMode={renderMode}
+              accentColor={accentColor}
+              onBounds={handleBounds}
+              onStats={onStats}
+            />
         </group>
       </Stage>
       <ContactShadows
@@ -3403,10 +3483,10 @@ type HUDProps = {
 
 function HUD({ polyCount, printTime, scale, dimensions }: HUDProps) {
   const [isHudExpanded, setHudExpanded] = useState(true);
-  const polyLabel = formatCount(polyCount) ?? "2,452,900";
+  const polyLabel = formatCount(polyCount) ?? "—";
   const printLabel = printTime || "14h 22m";
   const scaleLabel = scale || "1:1 REAL";
-  const dimensionsLabel = dimensions || "-";
+  const dimensionsLabel = dimensions || "—";
   const hudItems = [
     { label: "ПОЛИГОНЫ", compactLabel: "ПОЛИГ.", value: polyLabel, accent: true },
     { label: "ВРЕМЯ_ПЕЧАТИ", compactLabel: "ВРЕМЯ", value: printLabel },
