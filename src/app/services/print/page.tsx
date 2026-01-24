@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Canvas } from "@react-three/fiber";
 import { Grid, OrbitControls } from "@react-three/drei";
 import {
@@ -371,7 +372,9 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
 
 export default function PrintServicePage() {
   const { toasts, showSuccess, showError, removeToast } = useToast();
+  const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const prefillRef = useRef(false);
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -419,6 +422,14 @@ export default function PrintServicePage() {
     Boolean(metrics) &&
     Boolean(serviceProductId) &&
     uploadStatus === "ready";
+
+  const clearRetryTimer = useCallback(() => {
+    if (retryTimerRef.current) {
+      window.clearInterval(retryTimerRef.current);
+      retryTimerRef.current = null;
+    }
+    setUploadRetryInMs(null);
+  }, []);
 
   const resolveExistingUpload = async (file: File) => {
     if (!apiBase) return null;
@@ -639,6 +650,62 @@ export default function PrintServicePage() {
     [previewMaterials, previewMode, clearRetryTimer]
   );
 
+  useEffect(() => {
+    if (prefillRef.current) return;
+    const modelParam = searchParams.get("model");
+    if (!modelParam || typeof window === "undefined") return;
+    prefillRef.current = true;
+
+    const nameParam = searchParams.get("name");
+    const resolvedUrl =
+      modelParam.startsWith("http://") ||
+      modelParam.startsWith("https://") ||
+      modelParam.startsWith("blob:") ||
+      modelParam.startsWith("data:")
+        ? modelParam
+        : `${window.location.origin}${modelParam.startsWith("/") ? modelParam : `/${modelParam}`}`;
+
+    const sanitize = (value: string) =>
+      value
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, "_")
+        .replace(/\s+/g, "_")
+        .slice(0, 80);
+
+    const deriveFilename = (url: string, fallback: string) => {
+      try {
+        const parsed = new URL(url, window.location.origin);
+        const base = decodeURIComponent(parsed.pathname.split("/").pop() || fallback);
+        return base || fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const loadPreset = async () => {
+      try {
+        const response = await fetch(resolvedUrl);
+        if (!response.ok) {
+          throw new Error(`Failed to fetch ${response.status}`);
+        }
+        const blob = await response.blob();
+        const fallbackName = nameParam ? `${sanitize(nameParam)}.glb` : "model.glb";
+        const rawName = deriveFilename(resolvedUrl, fallbackName);
+        const hasExtension = /\.[a-z0-9]+$/i.test(rawName);
+        const filename = hasExtension ? rawName : `${rawName}.glb`;
+        const fileType = blob.type || "model/gltf-binary";
+        const file = new File([blob], filename, { type: fileType });
+        await handleFile(file);
+        showSuccess("Модель подставлена для печати.");
+      } catch (error) {
+        prefillRef.current = false;
+        showError("Не удалось загрузить модель для печати.");
+      }
+    };
+
+    void loadPreset();
+  }, [handleFile, searchParams, showError, showSuccess]);
+
   const pushUploadLog = useCallback((message: string, data?: Record<string, unknown>) => {
     if (!uploadDebugEnabled) {
       return;
@@ -653,14 +720,6 @@ export default function PrintServicePage() {
     }
     console.info("[upload]", message);
   }, [uploadDebugEnabled]);
-
-  const clearRetryTimer = useCallback(() => {
-    if (retryTimerRef.current) {
-      window.clearInterval(retryTimerRef.current);
-      retryTimerRef.current = null;
-    }
-    setUploadRetryInMs(null);
-  }, []);
 
   const waitForRetryDelay = useCallback((delayMs: number) => {
     if (delayMs <= 0) {

@@ -24,6 +24,7 @@ import {
   Layers,
   Menu,
   Palette,
+  Printer,
   RotateCw,
   Scan,
   Search,
@@ -722,7 +723,7 @@ const SEARCH_RECENTS_KEY = "store3d_search_recent";
 
 export default function Home() {
   const router = useRouter();
-  const { toasts, showSuccess, removeToast } = useToast();
+  const { toasts, showSuccess, showError, removeToast } = useToast();
   const [isMounted, setIsMounted] = useState(false);
   const [autoRotate, setAutoRotate] = useState(true);
   const [renderMode, setRenderMode] = useState<RenderMode>("final");
@@ -1433,6 +1434,29 @@ export default function Home() {
       ),
     [heroBounds, currentProduct?.techKey, heroPolyCount, currentProduct?.scale, currentProduct?.modelScale]
   );
+  const isCurrentDigital = currentProduct?.formatKey === "digital";
+
+  const buildPrintUrl = useCallback((product: CatalogProduct) => {
+    const modelUrl = product.rawModelUrl ?? product.paintedModelUrl ?? null;
+    if (!modelUrl) return null;
+    const params = new URLSearchParams();
+    params.set("model", modelUrl);
+    params.set("name", product.name ?? "model");
+    params.set("source", "digital");
+    return `/services/print?${params.toString()}`;
+  }, []);
+
+  const handleOrderPrint = useCallback(
+    (product: CatalogProduct) => {
+      const url = buildPrintUrl(product);
+      if (!url) {
+        showError("У этой модели нет файла для печати.");
+        return;
+      }
+      router.push(url);
+    },
+    [buildPrintUrl, router, showError]
+  );
   const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
   const isInterior = preview === "interior";
   const heroDimensions =
@@ -2076,22 +2100,34 @@ export default function Home() {
                     <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
                       {heroPriceLabel}
                     </span>
-                    <div className="flex w-full items-center gap-2 sm:w-auto">
-                      <button
-                        type="button"
-                        aria-label="В корзину"
-                        title="В корзину"
-                        className="group flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.25)] transition hover:bg-[#2ED1FF]/35 sm:h-9 sm:w-9"
-                        onClick={() => currentProduct && addToCart(currentProduct)}
-                      >
-                        <ShoppingCart className="h-4 w-4" />
-                        <span className="sr-only">В корзину</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
-                        title={isCurrentFavorite ? "В избранном" : "В избранное"}
-                        className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-9 ${
+                      <div className="flex w-full items-center gap-2 sm:w-auto">
+                        <button
+                          type="button"
+                          aria-label="В корзину"
+                          title="В корзину"
+                          className="group flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.25)] transition hover:bg-[#2ED1FF]/35 sm:h-9 sm:w-9"
+                          onClick={() => currentProduct && addToCart(currentProduct)}
+                        >
+                          <ShoppingCart className="h-4 w-4" />
+                          <span className="sr-only">В корзину</span>
+                        </button>
+                        {isCurrentDigital && currentProduct?.rawModelUrl && (
+                          <button
+                            type="button"
+                            aria-label="Заказать печать"
+                            title="Заказать печать"
+                            className="group flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:h-9 sm:w-9"
+                            onClick={() => currentProduct && handleOrderPrint(currentProduct)}
+                          >
+                            <Printer className="h-4 w-4" />
+                            <span className="sr-only">Заказать печать</span>
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
+                          title={isCurrentFavorite ? "В избранном" : "В избранное"}
+                          className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-9 ${
                           isCurrentFavorite
                             ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
                             : "border-white/15 bg-white/5 text-white/70 hover:text-white"
@@ -2571,12 +2607,13 @@ export default function Home() {
                       <ProductCard
                         key={product.id}
                         product={product}
-                        isSelected={product.id === currentModelId}
-                        onClick={() => handleProductSelect(product.id, { scroll: true })}
-                        isFavorite={isFavorite(product.id)}
-                        onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
-                        onAddToCart={() => addToCart(product)}
-                      />
+                          isSelected={product.id === currentModelId}
+                          onClick={() => handleProductSelect(product.id, { scroll: true })}
+                          isFavorite={isFavorite(product.id)}
+                          onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
+                          onAddToCart={() => addToCart(product)}
+                          onOrderPrint={() => handleOrderPrint(product)}
+                        />
                     ))}
                   </motion.div>
                 )}
@@ -3654,14 +3691,15 @@ function SystemStandbyPanel({ message, className }: SystemStandbyPanelProps) {
   );
 }
 
-type ProductCardProps = {
-  product: CatalogProduct;
-  isSelected: boolean;
-  onClick: () => void;
-  isFavorite: boolean;
-  onToggleFavorite: () => void;
-  onAddToCart: () => void;
-};
+  type ProductCardProps = {
+    product: CatalogProduct;
+    isSelected: boolean;
+    onClick: () => void;
+    isFavorite: boolean;
+    onToggleFavorite: () => void;
+    onAddToCart: () => void;
+    onOrderPrint?: () => void;
+  };
 
 const buildMaterialDescription = (product: CatalogProduct) => {
   const keys = product.categoryKeys ?? [];
@@ -3722,6 +3760,7 @@ function ProductCard({
   isFavorite,
   onToggleFavorite,
   onAddToCart,
+  onOrderPrint,
 }: ProductCardProps) {
   const router = useRouter();
   const [favoritePulse, setFavoritePulse] = useState(false);
@@ -3827,48 +3866,70 @@ function ProductCard({
             {statusTag}
           </span>
         </div>
-        <motion.button
-          type="button"
-          aria-label={isFavorite ? "Удалить из избранного" : "Добавить в избранное"}
-          animate={favoritePulse ? { scale: [1, 1.12, 1] } : { scale: 1 }}
-          transition={{ duration: 0.35 }}
-          className={`group/fav absolute right-2.5 top-2.5 flex h-9 w-9 items-center justify-center rounded-full border text-white transition sm:right-3 sm:top-3 sm:h-10 sm:w-10 ${
-            isFavorite
-              ? "border-rose-300/70 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
-              : "border-white/10 bg-black/40 text-white/70 hover:border-rose-300/40 hover:text-white"
-          }`}
-          onClick={(event) => {
-            event.stopPropagation();
-            onToggleFavorite();
-            if (!isFavorite) {
-              setFavoritePulse(true);
-              if (favoritePulseTimeoutRef.current) {
-                clearTimeout(favoritePulseTimeoutRef.current);
-              }
-              favoritePulseTimeoutRef.current = setTimeout(() => {
-                setFavoritePulse(false);
-              }, 350);
-            }
-          }}
-        >
-          <Heart className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} />
-          <span className="pointer-events-none absolute -bottom-6 right-0 hidden whitespace-nowrap rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-white/70 opacity-0 transition group-hover/fav:opacity-100 sm:block">
-            В избранное
-          </span>
-        </motion.button>
-        <div className="absolute inset-x-2.5 bottom-2.5 flex items-center gap-2 opacity-100 transition-all duration-200 sm:inset-x-3 sm:bottom-3 sm:opacity-0 sm:translate-y-2 sm:group-hover:translate-y-0 sm:group-hover:opacity-100">
-          <button
-            type="button"
-            className="w-full rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] px-3 py-2 text-[9px] font-semibold uppercase tracking-[0.18em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white sm:text-[10px] sm:tracking-[0.2em]"
-            onClick={(event) => {
-              event.stopPropagation();
-              onAddToCart();
-            }}
-          >
-            В корзину
-          </button>
+          <div className="absolute right-2.5 top-2.5 flex flex-col items-end gap-2 sm:right-3 sm:top-3">
+            <motion.button
+              type="button"
+              aria-label={isFavorite ? "Удалить из избранного" : "Добавить в избранное"}
+              animate={favoritePulse ? { scale: [1, 1.12, 1] } : { scale: 1 }}
+              transition={{ duration: 0.35 }}
+              className={`group/fav flex h-9 w-9 items-center justify-center rounded-full border text-white transition sm:h-10 sm:w-10 ${
+                isFavorite
+                  ? "border-rose-300/70 bg-rose-500/20 text-rose-200 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
+                  : "border-white/10 bg-black/40 text-white/70 hover:border-rose-300/40 hover:text-white"
+              }`}
+              onClick={(event) => {
+                event.stopPropagation();
+                onToggleFavorite();
+                if (!isFavorite) {
+                  setFavoritePulse(true);
+                  if (favoritePulseTimeoutRef.current) {
+                    clearTimeout(favoritePulseTimeoutRef.current);
+                  }
+                  favoritePulseTimeoutRef.current = setTimeout(() => {
+                    setFavoritePulse(false);
+                  }, 350);
+                }
+              }}
+            >
+              <Heart className="h-4 w-4" fill={isFavorite ? "currentColor" : "none"} />
+              <span className="pointer-events-none absolute -bottom-6 right-0 hidden whitespace-nowrap rounded-full border border-white/10 bg-black/70 px-2 py-1 text-[9px] uppercase tracking-[0.2em] text-white/70 opacity-0 transition group-hover/fav:opacity-100 sm:block">
+                В избранное
+              </span>
+            </motion.button>
+            <div className="flex flex-col items-center gap-2 opacity-100 transition-all duration-200 sm:opacity-0 sm:translate-y-2 sm:group-hover:translate-y-0 sm:group-hover:opacity-100">
+              <button
+                type="button"
+                aria-label="В корзину"
+                title="В корзину"
+                className="group flex h-9 w-9 items-center justify-center rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onAddToCart();
+                }}
+              >
+                <ShoppingCart className="h-4 w-4" />
+                <span className="sr-only">В корзину</span>
+              </button>
+              {product.formatKey === "digital" &&
+                (product.rawModelUrl || product.paintedModelUrl) &&
+                onOrderPrint && (
+                <button
+                  type="button"
+                  aria-label="Заказать печать"
+                  title="Заказать печать"
+                  className="group flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onOrderPrint();
+                  }}
+                >
+                  <Printer className="h-4 w-4" />
+                  <span className="sr-only">Заказать печать</span>
+                </button>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
       <div className="flex items-start justify-between">
         <div className="min-w-0">
           <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.26em] text-[#2ED1FF]/90 sm:text-xs sm:tracking-[0.3em]">
