@@ -8,6 +8,14 @@ export const resolveAssetUrl = (url?: string | null) => {
     return null;
   }
 
+  if (
+    url.startsWith("blob:") ||
+    url.startsWith("data:") ||
+    url.startsWith("file:")
+  ) {
+    return url;
+  }
+
   if (url.startsWith("http://") || url.startsWith("https://")) {
     return url;
   }

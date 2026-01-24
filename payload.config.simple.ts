@@ -31,6 +31,10 @@ const baseCategories = [
     title: "Хобби",
     children: ["Косплей", "Игрушки", "Аксессуары"],
   },
+  {
+    title: "Аниме",
+    children: ["Аниме девушки"],
+  },
 ];
 
 const isCorruptTitle = (title?: string) => {

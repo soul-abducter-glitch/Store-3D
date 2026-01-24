@@ -14,6 +14,16 @@ import { ToastContainer, useToast } from "@/components/Toast";
 
 type SynthesisMode = "image" | "text";
 
+type GeneratedAsset = {
+  id: string;
+  name: string;
+  createdAt: number;
+  previewImage?: string | null;
+  modelUrl?: string | null;
+  format: "glb" | "gltf" | "image";
+  localOnly?: boolean;
+};
+
 const statusStages = [
   "GENETIC_MAPPING",
   "TOPOLOGY_SYNTH",
@@ -31,6 +41,22 @@ const logLines = [
 ];
 
 const SYNTH_DURATION_MS = 3600;
+const TOKEN_COST = 10;
+const DEFAULT_TOKENS = 120;
+const GALLERY_LIMIT = 12;
+const GALLERY_STORAGE_KEY = "aiLabGallery";
+const TOKENS_STORAGE_KEY = "aiLabTokens";
+const SAMPLE_MODELS = [
+  "https://modelviewer.dev/shared-assets/models/Astronaut.glb",
+  "https://threejs.org/examples/models/gltf/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
+];
+
+const createId = () => {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+};
 
 const normalizePreview = (value: string | null) => {
   if (!value) return null;
@@ -173,22 +199,96 @@ export default function AiLabPage() {
   const [mode, setMode] = useState<SynthesisMode>("image");
   const [prompt, setPrompt] = useState("");
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [localPreviewModel, setLocalPreviewModel] = useState<string | null>(null);
+  const [localPreviewLabel, setLocalPreviewLabel] = useState<string | null>(null);
+  const [uploadedModelName, setUploadedModelName] = useState<string | null>(null);
+  const [generatedPreviewModel, setGeneratedPreviewModel] = useState<string | null>(null);
+  const [generatedPreviewLabel, setGeneratedPreviewLabel] = useState<string | null>(null);
+  const [tokens, setTokens] = useState(DEFAULT_TOKENS);
+  const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
+  const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
+  const [showResult, setShowResult] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusLine, setStatusLine] = useState(statusStages[0]);
   const [isSynthRunning, setIsSynthRunning] = useState(false);
-  const [showAccessDenied, setShowAccessDenied] = useState(false);
-  const [showThankYou, setShowThankYou] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
 
   const { toasts, showError, removeToast } = useToast();
 
   useEffect(() => {
     if (!uploadPreview) return;
+    if (!uploadPreview.startsWith("blob:")) return;
     return () => {
       URL.revokeObjectURL(uploadPreview);
     };
   }, [uploadPreview]);
+
+  useEffect(() => {
+    if (!localPreviewModel) return;
+    return () => {
+      URL.revokeObjectURL(localPreviewModel);
+    };
+  }, [localPreviewModel]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const storedTokens = window.localStorage.getItem(TOKENS_STORAGE_KEY);
+    if (storedTokens) {
+      const parsed = Number(storedTokens);
+      if (!Number.isNaN(parsed) && parsed >= 0) {
+        setTokens(parsed);
+      }
+    }
+    const storedGallery = window.localStorage.getItem(GALLERY_STORAGE_KEY);
+    if (storedGallery) {
+      try {
+        const parsed = JSON.parse(storedGallery) as GeneratedAsset[];
+        if (Array.isArray(parsed)) {
+          setGallery(parsed);
+        }
+      } catch {
+        // ignore invalid cache
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(TOKENS_STORAGE_KEY, String(tokens));
+  }, [tokens]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const safeGallery = gallery.map((item) => {
+      let next = item;
+      if (next.modelUrl && next.modelUrl.startsWith("blob:")) {
+        next = { ...next, modelUrl: null, localOnly: true };
+      }
+      if (next.previewImage && next.previewImage.startsWith("data:")) {
+        next = { ...next, previewImage: null };
+      }
+      return next;
+    });
+    try {
+      window.localStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(safeGallery));
+    } catch {
+      const minimalGallery = safeGallery.map((item) => ({
+        id: item.id,
+        name: item.name,
+        createdAt: item.createdAt,
+        format: item.format,
+        modelUrl: item.modelUrl && item.modelUrl.startsWith("blob:") ? null : item.modelUrl ?? null,
+        previewImage: null,
+        localOnly: item.localOnly ?? false,
+      }));
+      try {
+        window.localStorage.setItem(GALLERY_STORAGE_KEY, JSON.stringify(minimalGallery));
+      } catch {
+        // ignore quota errors
+      }
+    }
+  }, [gallery]);
 
   useEffect(() => {
     if (!isSynthRunning) return;
@@ -209,22 +309,77 @@ export default function AiLabPage() {
     const stopTimer = setTimeout(() => {
       setProgress(100);
       setIsSynthRunning(false);
-      setShowAccessDenied(true);
+      const sampleUrl = SAMPLE_MODELS[(gallery.length + 1) % SAMPLE_MODELS.length];
+      const createdAt = Date.now();
+      const nameSource =
+        prompt.trim() ||
+        uploadedModelName ||
+        localPreviewLabel ||
+        "AI Model";
+      const name = nameSource.toString().trim().slice(0, 48) || "AI Model";
+      const modelUrl = localPreviewModel ?? sampleUrl ?? null;
+      const format = modelUrl?.toLowerCase().endsWith(".gltf") ? "gltf" : modelUrl ? "glb" : "image";
+      const asset: GeneratedAsset = {
+        id: createId(),
+        name,
+        createdAt,
+        previewImage: uploadPreview,
+        modelUrl,
+        format,
+        localOnly: modelUrl ? modelUrl.startsWith("blob:") : false,
+      };
+      setGallery((prev) => [asset, ...prev].slice(0, GALLERY_LIMIT));
+      setResultAsset(asset);
+      setShowResult(true);
+      if (modelUrl) {
+        setGeneratedPreviewModel(modelUrl);
+        setGeneratedPreviewLabel(name);
+      }
     }, SYNTH_DURATION_MS);
     return () => {
       clearInterval(timer);
       clearTimeout(stopTimer);
     };
-  }, [isSynthRunning]);
+  }, [
+    isSynthRunning,
+    gallery.length,
+    prompt,
+    uploadedModelName,
+    localPreviewLabel,
+    localPreviewModel,
+    uploadPreview,
+  ]);
 
   const handleFile = (file?: File | null) => {
     if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      showError("ACCESS RESTRICTED: INVALID INPUT FORMAT");
+    const lowerName = file.name.toLowerCase();
+    const isModelFile = /\.(glb|gltf)$/.test(lowerName);
+    const isImageFile =
+      file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/.test(lowerName);
+
+    if (isModelFile) {
+      const nextPreview = URL.createObjectURL(file);
+      setLocalPreviewModel(nextPreview);
+      setLocalPreviewLabel(file.name);
+      setUploadedModelName(file.name);
+      setUploadPreview(null);
       return;
     }
-    const nextPreview = URL.createObjectURL(file);
-    setUploadPreview(nextPreview);
+
+    if (isImageFile) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === "string" ? reader.result : null;
+        setUploadPreview(result);
+      };
+      reader.readAsDataURL(file);
+      setLocalPreviewModel(null);
+      setLocalPreviewLabel(null);
+      setUploadedModelName(null);
+      return;
+    }
+
+    showError("Неподдерживаемый формат. Разрешены изображения и .glb/.gltf");
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -240,22 +395,54 @@ export default function AiLabPage() {
 
   const handleSynthesis = () => {
     if (isSynthRunning) return;
-    setShowAccessDenied(false);
-    setShowThankYou(false);
+    if (tokens < TOKEN_COST) {
+      showError(`Недостаточно токенов. Нужно ${TOKEN_COST}.`);
+      return;
+    }
+    setTokens((prev) => Math.max(0, prev - TOKEN_COST));
+    setShowResult(false);
+    setResultAsset(null);
     setIsSynthRunning(true);
   };
 
-  const handleApplyForTest = () => {
-    setShowThankYou(true);
-    setTimeout(() => {
-      setShowAccessDenied(false);
-      setShowThankYou(false);
-    }, 2400);
+  const handleSelectAsset = (asset: GeneratedAsset) => {
+    if (!asset.modelUrl) {
+      showError("Файл модели недоступен. Загрузите модель заново.");
+      return;
+    }
+    setGeneratedPreviewModel(asset.modelUrl);
+    setGeneratedPreviewLabel(asset.name);
+  };
+
+  const handleDownload = (asset: GeneratedAsset) => {
+    if (typeof window === "undefined") return;
+    if (asset.modelUrl) {
+      const link = document.createElement("a");
+      link.href = asset.modelUrl;
+      const extension = asset.format === "gltf" ? "gltf" : "glb";
+      link.download = `${asset.name}.${extension}`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+    if (asset.previewImage) {
+      const link = document.createElement("a");
+      link.href = asset.previewImage;
+      link.download = `${asset.name}.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      return;
+    }
+    showError("Нет файла для скачивания.");
   };
 
   const currentStatus = isSynthRunning ? statusLine : "STANDBY";
   const displayProgress = isSynthRunning ? progress : 0;
   const displayStage = isSynthRunning ? statusLine : statusStages[0];
+  const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
+  const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#030304] text-white">
@@ -323,9 +510,9 @@ export default function AiLabPage() {
                 position={[0, -1.2, 0]}
               />
               <Suspense fallback={null}>
-                {previewModel ? (
+                {activePreviewModel ? (
                   <ModelView
-                    rawModelUrl={previewModel}
+                    rawModelUrl={activePreviewModel}
                     paintedModelUrl={null}
                     finish="Raw"
                     renderMode="final"
@@ -370,7 +557,7 @@ export default function AiLabPage() {
               RESOURCES: RESTRICTED
             </div>
             <div className="absolute right-6 bottom-6 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/60">
-              {previewLabel ? `PREVIEW: ${previewLabel}` : "NEURAL_CORE: ACTIVE"}
+              {activePreviewLabel ? `PREVIEW: ${activePreviewLabel}` : "NEURAL_CORE: ACTIVE"}
             </div>
           </div>
         </section>
@@ -380,7 +567,15 @@ export default function AiLabPage() {
             <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/50">
               AI 3D GENERATION SUITE
             </p>
-            <h2 className="text-2xl font-semibold text-white">Лаборатория синтеза</h2>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="text-2xl font-semibold text-white">Лаборатория синтеза</h2>
+              <div className="rounded-full border border-[#2ED1FF]/30 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.25)]">
+                TOKENS: {tokens}
+              </div>
+            </div>
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-amber-200">
+              В разработке
+            </div>
             <p className="text-sm text-white/55">
               Высокоточный протокол сборки цифровых материалов. Используйте тестовый
               `.glb` через параметр `preview`.
@@ -413,6 +608,10 @@ export default function AiLabPage() {
               </button>
             </div>
           </div>
+          <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+            <span>Списание за запуск</span>
+            <span className="text-[#BFF4FF]">- {TOKEN_COST} TOKENS</span>
+          </div>
 
           <div
             className={`relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
@@ -442,7 +641,7 @@ export default function AiLabPage() {
             <input
               ref={uploadInputRef}
               type="file"
-              accept="image/*"
+              accept="image/*,.glb,.gltf"
               className="hidden"
               onChange={(event) => handleFile(event.target.files?.[0])}
             />
@@ -455,6 +654,16 @@ export default function AiLabPage() {
                   <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.7)]" />
                   SCANNING
                 </div>
+              </div>
+            ) : uploadedModelName ? (
+              <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-6 text-center">
+                <div className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF]">
+                  MODEL LOADED
+                </div>
+                <p className="text-sm font-semibold text-white">{uploadedModelName}</p>
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/40">
+                  ready for synthesis
+                </p>
               </div>
             ) : (
               <>
@@ -488,7 +697,7 @@ export default function AiLabPage() {
             className="group flex items-center justify-center gap-3 rounded-2xl border border-[#2ED1FF]/70 bg-[#0b1014] px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_20px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
           >
             <Zap className="h-4 w-4 text-[#2ED1FF] transition group-hover:text-white" />
-            ЗАПУСТИТЬ СИНТЕЗ
+            {isSynthRunning ? "СИНТЕЗ В ПРОЦЕССЕ" : "ЗАПУСТИТЬ СИНТЕЗ"}
           </button>
 
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -510,33 +719,102 @@ export default function AiLabPage() {
               />
             </div>
           </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+              <span>AI ВИТРИНА</span>
+              <span className="text-white/30">{gallery.length} / {GALLERY_LIMIT}</span>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3">
+              {gallery.length === 0 ? (
+                <div className="col-span-2 rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-center text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/40">
+                  ПОКА НЕТ РЕЗУЛЬТАТОВ
+                </div>
+              ) : (
+                gallery.map((asset) => (
+                  <div
+                    key={asset.id}
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handleSelectAsset(asset)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleSelectAsset(asset);
+                      }
+                    }}
+                    className="group flex flex-col items-start gap-2 rounded-xl border border-white/10 bg-white/5 p-2 text-left transition hover:border-[#2ED1FF]/60"
+                  >
+                  <div className="relative h-20 w-full overflow-hidden rounded-lg border border-white/10 bg-gradient-to-br from-[#0b1014] via-[#090c0f] to-black">
+                    <span className="absolute left-2 top-2 rounded-full border border-amber-400/40 bg-amber-400/15 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-amber-200">
+                      DEMO
+                    </span>
+                    {asset.previewImage ? (
+                        <img
+                          src={asset.previewImage}
+                          alt={asset.name}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/30">
+                          MODEL
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex w-full items-center justify-between gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
+                      <span className="truncate">{asset.name}</span>
+                      <span className="text-white/30">{asset.format.toUpperCase()}</span>
+                    </div>
+                    <div className="flex w-full items-center gap-2">
+                      <span className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                        {asset.localOnly ? "LOCAL" : "CLOUD"}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleDownload(asset);
+                        }}
+                        className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                      >
+                        SAVE
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </aside>
       </motion.main>
 
-      {showAccessDenied && (
+      {showResult && resultAsset && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
           <div className="w-full max-w-[560px] rounded-[28px] border border-[#2ED1FF]/40 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
             <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-[#BFF4FF]">
-              <span className="h-2 w-2 rounded-full bg-rose-400 shadow-[0_0_12px_rgba(248,113,113,0.7)]" />
-              [ ACCESS_DENIED ]
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
+              [ GENERATION COMPLETE ]
             </div>
             <p className="mt-4 text-sm text-white/75">
-              Для активации нейронного синтеза Tripo_V3 требуется API-ключ уровня
-              "Master" или участие в Beta-тестировании.
+              Модель готова к просмотру и сохранению. Файлы сохраняются в стандартных
+              форматах (.glb/.gltf) или как превью.
             </p>
-            {showThankYou ? (
-              <p className="mt-4 text-sm text-emerald-200">
-                Заявка получена. Мы свяжемся с вами после верификации доступа.
-              </p>
-            ) : (
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
-                onClick={handleApplyForTest}
-                className="mt-6 w-full rounded-2xl border border-[#2ED1FF]/60 bg-[#0b1014] px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+                onClick={() => handleDownload(resultAsset)}
+                className="flex-1 rounded-2xl border border-[#2ED1FF]/60 bg-[#0b1014] px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
               >
-                ПОДАТЬ ЗАЯВКУ НА ТЕСТ
+                Сохранить результат
               </button>
-            )}
+              <button
+                type="button"
+                onClick={() => setShowResult(false)}
+                className="flex-1 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white"
+              >
+                Закрыть
+              </button>
+            </div>
           </div>
         </div>
       )}
