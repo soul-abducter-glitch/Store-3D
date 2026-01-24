@@ -695,12 +695,12 @@ const formatDimensions = (
 type FinishMode = "raw" | "pro";
 type PreviewMode = "default" | "interior" | "ar";
 type FormatMode = "digital" | "physical";
-type LightingMode = "lab" | "warm" | "cyber";
+type LightingMode = "sun" | "side" | "golden";
 
 const lightingPresets: Array<{ value: LightingMode; label: string }> = [
-  { value: "lab", label: "ЛАБОРАТОРИЯ" },
-  { value: "warm", label: "ТЕПЛЫЙ" },
-  { value: "cyber", label: "КИБЕРПАНК" },
+  { value: "sun", label: "СОЛНЕЧНЫЙ (СВЕРХУ)" },
+  { value: "side", label: "БОКОВОЙ" },
+  { value: "golden", label: "ЗОЛОТОЙ ЧАС" },
 ];
 
 const finishOptions: Array<{ value: FinishMode; label: string }> = [
@@ -729,7 +729,7 @@ export default function Home() {
   const [renderMode, setRenderMode] = useState<RenderMode>("final");
   const [finish, setFinish] = useState<FinishMode>("raw");
   const [preview, setPreview] = useState<PreviewMode>("default");
-  const [lightingMode, setLightingMode] = useState<LightingMode>("lab");
+  const [lightingMode, setLightingMode] = useState<LightingMode>("sun");
   const [activeColor, setActiveColor] = useState("#f3f4f6");
   const [format, setFormat] = useState<FormatMode>("digital");
   const [technology, setTechnology] = useState<TechMode>("SLA Resin");
@@ -2035,9 +2035,9 @@ export default function Home() {
                           lightingMode={lightingMode}
                           accentColor={activeColor}
                           rawModelUrl={currentProduct?.rawModelUrl ?? null}
-                            paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
-                            modelScale={currentProduct?.modelScale ?? null}
-                            controlsRef={controlsRef}
+                          paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
+                          modelScale={currentProduct?.modelScale ?? null}
+                          controlsRef={controlsRef}
                             onBounds={setHeroBounds}
                             onStats={(stats) => {
                               setHeroPolyCountComputed(stats.polyCount);
@@ -2215,26 +2215,26 @@ export default function Home() {
                               <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
                                 ОСВЕЩЕНИЕ
                               </p>
-                              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
-                                {lightingPresets.map((option) => {
-                                  const isActive = lightingMode === option.value;
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      type="button"
-                                      className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
-                                        isActive
-                                          ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
-                                          : "text-white/50 hover:text-white"
-                                      } ${option.value === "lab" ? "col-span-2" : ""}`}
-                                      onClick={() => setLightingMode(option.value)}
-                                    >
-                                      {option.label}
-                                    </button>
-                                  );
-                                })}
+                                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
+                                  {lightingPresets.map((option) => {
+                                    const isActive = lightingMode === option.value;
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                          isActive
+                                            ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                            : "text-white/50 hover:text-white"
+                                          }`}
+                                        onClick={() => setLightingMode(option.value)}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </div>
                             <div className="space-y-2">
                               <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
                                 ВИД
@@ -2369,26 +2369,26 @@ export default function Home() {
                               <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
                                 ОСВЕЩЕНИЕ
                               </p>
-                              <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
-                                {lightingPresets.map((option) => {
-                                  const isActive = lightingMode === option.value;
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      type="button"
-                                      className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
-                                        isActive
-                                          ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
-                                          : "text-white/50 hover:text-white"
-                                      } ${option.value === "lab" ? "col-span-2" : ""}`}
-                                      onClick={() => setLightingMode(option.value)}
-                                    >
-                                      {option.label}
-                                    </button>
-                                  );
-                                })}
+                                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
+                                  {lightingPresets.map((option) => {
+                                    const isActive = lightingMode === option.value;
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                          isActive
+                                            ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                            : "text-white/50 hover:text-white"
+                                          }`}
+                                        onClick={() => setLightingMode(option.value)}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
                               </div>
-                            </div>
                             <div className="space-y-2">
                               <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
                                 ВИД
@@ -3382,16 +3382,17 @@ function Experience({
   const boxSize = modelBounds?.boxSize ?? [1, 1, 1];
   const shadowScale = Math.max(boxSize[0], boxSize[2]) * finalScale * 1.2;
   const shadowY = 0;
-  const lightingConfig = useMemo(() => {
-    switch (lightingMode) {
-      case "warm":
-        return { preset: "sunset" as const, intensity: 1.6 };
-      case "cyber":
-        return { preset: "night" as const, intensity: 2.2 };
-      default:
-        return { preset: "city" as const, intensity: 2 };
-    }
-  }, [lightingMode]);
+    const lightingConfig = useMemo(() => {
+      switch (lightingMode) {
+        case "side":
+          return { preset: "city" as const, intensity: 1.4 };
+        case "golden":
+          return { preset: "sunset" as const, intensity: 1.2 };
+        case "sun":
+        default:
+          return { preset: "studio" as const, intensity: 1.6 };
+      }
+    }, [lightingMode]);
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -3449,6 +3450,27 @@ function Experience({
         controlsRef={controlsRef}
         cameraFitRef={cameraFitRef}
       />
+        {lightingMode === "sun" && (
+          <>
+            <ambientLight intensity={0.25} />
+            <directionalLight position={[3, 6, 2]} intensity={1.2} color="#fff7e8" />
+            <directionalLight position={[-3, 1.5, -2]} intensity={0.3} color="#dbe8ff" />
+          </>
+        )}
+        {lightingMode === "side" && (
+          <>
+            <ambientLight intensity={0.2} />
+            <directionalLight position={[6, 3, 0]} intensity={1.3} color="#f0f6ff" />
+            <directionalLight position={[-2, 1.5, 4]} intensity={0.35} color="#e8f0ff" />
+          </>
+        )}
+        {lightingMode === "golden" && (
+          <>
+            <ambientLight intensity={0.15} />
+            <directionalLight position={[5, 2.2, 3.5]} intensity={1.1} color="#ffcc8a" />
+            <directionalLight position={[-3, 1.5, -2]} intensity={0.25} color="#cfe0ff" />
+          </>
+        )}
       <Stage
         environment={null}
         intensity={1}
