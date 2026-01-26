@@ -61,6 +61,239 @@
   .light-sweep:hover::after {
     left: 120%;
   }
+
+  .hero-vignette {
+    background: radial-gradient(
+      ellipse at center,
+      rgba(0, 0, 0, 0) 0%,
+      rgba(0, 0, 0, 0.35) 45%,
+      rgba(0, 0, 0, 0.8) 100%
+    );
+  }
+
+  .hero-particles span {
+    position: absolute;
+    bottom: -10%;
+    border-radius: 999px;
+    background: rgba(46, 209, 255, 0.9);
+    box-shadow: 0 0 12px rgba(46, 209, 255, 0.65);
+    animation-name: hero-float;
+    animation-timing-function: linear;
+    animation-iteration-count: infinite;
+  }
+
+  .hero-sphere-pulse {
+    left: 50%;
+    top: 52%;
+    width: min(52vw, 520px);
+    height: min(52vw, 520px);
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(46, 209, 255, 0.25) 0%, rgba(46, 209, 255, 0) 70%);
+    filter: blur(2px);
+    mix-blend-mode: screen;
+    animation: hero-pulse 6s ease-in-out infinite;
+  }
+
+  .hero-portal-rotor {
+    left: 50%;
+    top: 52%;
+    width: min(52vw, 520px);
+    height: min(52vw, 520px);
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background:
+      conic-gradient(
+        from 0deg,
+        rgba(46, 209, 255, 0) 0deg,
+        rgba(46, 209, 255, 0.35) 60deg,
+        rgba(46, 209, 255, 0) 120deg,
+        rgba(46, 209, 255, 0.25) 200deg,
+        rgba(46, 209, 255, 0) 260deg,
+        rgba(46, 209, 255, 0.35) 320deg,
+        rgba(46, 209, 255, 0) 360deg
+      );
+    mask: radial-gradient(circle, transparent 58%, black 60%);
+    -webkit-mask: radial-gradient(circle, transparent 58%, black 60%);
+    mix-blend-mode: screen;
+    opacity: 0.6;
+    animation: hero-rotate 18s linear infinite;
+  }
+
+  .hero-portal-mask {
+    background: radial-gradient(circle, rgba(46, 209, 255, 0.65) 0%, rgba(46, 209, 255, 0.05) 70%);
+    mask-size: cover;
+    mask-position: center;
+    mask-repeat: no-repeat;
+    -webkit-mask-size: cover;
+    -webkit-mask-position: center;
+    -webkit-mask-repeat: no-repeat;
+    mix-blend-mode: screen;
+    opacity: 0.8;
+    filter: drop-shadow(0 0 24px rgba(46, 209, 255, 0.65));
+    animation: hero-mask-pulse 5.5s ease-in-out infinite;
+  }
+
+  .hero-portal-sweep {
+    left: 50%;
+    top: 52%;
+    width: min(60vw, 620px);
+    height: min(60vw, 620px);
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: radial-gradient(circle, rgba(46, 209, 255, 0.18), transparent 65%);
+    mix-blend-mode: screen;
+    opacity: 0.7;
+    animation: hero-sweep 8s ease-in-out infinite;
+  }
+
+  .hero-portal-rays {
+    left: 50%;
+    top: 52%;
+    width: min(70vw, 720px);
+    height: min(70vw, 720px);
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background:
+      conic-gradient(
+        from 0deg,
+        rgba(46, 209, 255, 0) 0deg,
+        rgba(46, 209, 255, 0.4) 14deg,
+        rgba(46, 209, 255, 0) 40deg,
+        rgba(46, 209, 255, 0.32) 98deg,
+        rgba(46, 209, 255, 0) 150deg,
+        rgba(46, 209, 255, 0.36) 210deg,
+        rgba(46, 209, 255, 0) 255deg,
+        rgba(46, 209, 255, 0.38) 315deg,
+        rgba(46, 209, 255, 0) 360deg
+      );
+    filter: blur(1px) drop-shadow(0 0 22px rgba(46, 209, 255, 0.5));
+    mix-blend-mode: screen;
+    opacity: 0.6;
+    animation: hero-rays 16s linear infinite;
+  }
+
+  .hero-portal-glitch {
+    left: 50%;
+    top: 52%;
+    width: min(52vw, 520px);
+    height: min(52vw, 520px);
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background: repeating-linear-gradient(
+      120deg,
+      rgba(46, 209, 255, 0.12) 0px,
+      rgba(46, 209, 255, 0.12) 1px,
+      transparent 4px,
+      transparent 12px
+    );
+    mask: radial-gradient(circle, transparent 60%, black 62%);
+    -webkit-mask: radial-gradient(circle, transparent 60%, black 62%);
+    opacity: 0.25;
+    mix-blend-mode: screen;
+    animation: hero-glitch 6s steps(5, end) infinite;
+  }
+
+  .hero-fog {
+    height: 35vh;
+    background: linear-gradient(
+      90deg,
+      rgba(5, 14, 20, 0.8) 0%,
+      rgba(12, 24, 32, 0.35) 50%,
+      rgba(5, 14, 20, 0.8) 100%
+    );
+    filter: blur(18px);
+    animation: hero-fog-drift 30s linear infinite;
+  }
+}
+
+@keyframes hero-rotate {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+  }
+}
+
+@keyframes hero-mask-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    filter: drop-shadow(0 0 16px rgba(46, 209, 255, 0.45));
+  }
+  50% {
+    opacity: 0.9;
+    filter: drop-shadow(0 0 32px rgba(46, 209, 255, 0.8));
+  }
+}
+
+@keyframes hero-sweep {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: translate(-50%, -50%) scale(0.96);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translate(-50%, -50%) scale(1.03);
+  }
+}
+
+@keyframes hero-rays {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(-360deg);
+  }
+}
+
+@keyframes hero-glitch {
+  0%,
+  100% {
+    opacity: 0.15;
+    transform: translate(-50%, -50%) scale(1);
+  }
+  50% {
+    opacity: 0.4;
+    transform: translate(-50%, -50%) scale(1.02);
+  }
+}
+
+@keyframes hero-float {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  15% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-120vh);
+    opacity: 0;
+  }
+}
+
+@keyframes hero-pulse {
+  0%,
+  100% {
+    transform: translate(-50%, -50%) scale(0.96);
+    opacity: 0.6;
+  }
+  50% {
+    transform: translate(-50%, -50%) scale(1.02);
+    opacity: 0.9;
+  }
+}
+
+@keyframes hero-fog-drift {
+  0% {
+    transform: translateX(-8%);
+  }
+  100% {
+    transform: translateX(8%);
+  }
 }
 
 @keyframes float {
