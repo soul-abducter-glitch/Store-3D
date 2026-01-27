@@ -742,7 +742,7 @@ export default function Home() {
   const [renderMode, setRenderMode] = useState<RenderMode>("final");
   const [finish, setFinish] = useState<FinishMode>("raw");
   const [preview, setPreview] = useState<PreviewMode>("default");
-  const [lightingMode, setLightingMode] = useState<LightingMode>("sun");
+  const [lightingMode, setLightingMode] = useState<LightingMode>("side");
   const [activeColor, setActiveColor] = useState("#f3f4f6");
   const [format, setFormat] = useState<FormatMode>("digital");
   const [technology, setTechnology] = useState<TechMode>("SLA Resin");
@@ -2849,10 +2849,12 @@ function Header({
   onLogout,
   hasUnreadStatus,
 }: HeaderProps) {
+  const router = useRouter();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const [cartPopKey, setCartPopKey] = useState(0);
   const prevCartCountRef = useRef(cartCount);
+  const logoReturnArmedRef = useRef(false);
 
   useEffect(() => {
     if (isSearchOpen) {
@@ -2866,6 +2868,30 @@ function Header({
     }
     prevCartCountRef.current = cartCount;
   }, [cartCount]);
+
+  useEffect(() => {
+    const handleScroll = () => {
+      if (window.scrollY > 32) {
+        logoReturnArmedRef.current = false;
+      }
+    };
+    window.addEventListener("scroll", handleScroll, { passive: true });
+    return () => window.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  const handleLogoClick = () => {
+    if (typeof window === "undefined") {
+      router.push("/");
+      return;
+    }
+    if (window.scrollY > 32) {
+      logoReturnArmedRef.current = true;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    logoReturnArmedRef.current = false;
+    router.push("/");
+  };
 
   const toggleSearch = () => {
     setIsSearchOpen((prev) => {
@@ -2897,11 +2923,16 @@ function Header({
       >
         <motion.div variants={itemVariants} className="flex items-center gap-3 sm:gap-4">
           <div>
-            <a href="/" className="block transition hover:opacity-80">
+            <button
+              type="button"
+              onClick={handleLogoClick}
+              className="block text-left transition hover:opacity-80"
+              aria-label="На портал"
+            >
               <h1 className="text-xl font-bold tracking-[0.2em] text-white sm:text-3xl">
                 3D-STORE
               </h1>
-            </a>
+            </button>
             <div className="mt-1 hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50 sm:text-xs md:flex">
               <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.6)]" />
               <span>СИСТЕМА: ONLINE</span>

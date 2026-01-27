@@ -194,6 +194,147 @@
     animation: hero-glitch 6s steps(5, end) infinite;
   }
 
+  .hero-holo-arcs {
+    left: 50%;
+    top: 52%;
+    width: min(64vw, 680px);
+    height: min(64vw, 680px);
+    transform: translate(-50%, -50%);
+    border-radius: 999px;
+    background:
+      conic-gradient(
+        from 20deg,
+        rgba(46, 209, 255, 0) 0deg,
+        rgba(46, 209, 255, 0.5) 16deg,
+        rgba(46, 209, 255, 0) 34deg,
+        rgba(46, 209, 255, 0.4) 78deg,
+        rgba(46, 209, 255, 0) 118deg,
+        rgba(46, 209, 255, 0.35) 164deg,
+        rgba(46, 209, 255, 0) 210deg,
+        rgba(46, 209, 255, 0.45) 260deg,
+        rgba(46, 209, 255, 0) 300deg,
+        rgba(46, 209, 255, 0.4) 340deg,
+        rgba(46, 209, 255, 0) 360deg
+      );
+    mask: radial-gradient(circle, transparent 58%, black 60%, black 82%, transparent 84%);
+    -webkit-mask: radial-gradient(circle, transparent 58%, black 60%, black 82%, transparent 84%);
+    mix-blend-mode: screen;
+    opacity: 0.8;
+    filter: blur(0.3px) drop-shadow(0 0 18px rgba(46, 209, 255, 0.65));
+    animation: hero-holo-arcs 22s linear infinite;
+  }
+
+  .hero-warm-accent {
+    background:
+      radial-gradient(38% 38% at 78% 68%, rgba(255, 176, 96, 0.18), rgba(255, 176, 96, 0) 62%),
+      radial-gradient(26% 26% at 18% 32%, rgba(255, 140, 72, 0.14), rgba(255, 140, 72, 0) 58%),
+      radial-gradient(18% 18% at 82% 18%, rgba(255, 210, 150, 0.12), rgba(255, 210, 150, 0) 55%);
+    mix-blend-mode: screen;
+    opacity: 0.65;
+  }
+
+  .hero-bracket {
+    position: absolute;
+    width: 28px;
+    height: 28px;
+    border-color: rgba(46, 209, 255, 0.45);
+  }
+
+  .hero-bracket--tl {
+    top: 0;
+    left: 0;
+    border-top: 1px solid;
+    border-left: 1px solid;
+  }
+
+  .hero-bracket--tr {
+    top: 0;
+    right: 0;
+    border-top: 1px solid;
+    border-right: 1px solid;
+  }
+
+  .hero-bracket--bl {
+    bottom: 0;
+    left: 0;
+    border-bottom: 1px solid;
+    border-left: 1px solid;
+  }
+
+  .hero-bracket--br {
+    bottom: 0;
+    right: 0;
+    border-bottom: 1px solid;
+    border-right: 1px solid;
+  }
+
+  .hero-scanline {
+    background: linear-gradient(
+      to bottom,
+      transparent 0%,
+      rgba(255, 255, 255, 0.08) 48%,
+      transparent 100%
+    );
+    opacity: 0.18;
+    animation: hero-scanline 12s linear infinite;
+  }
+
+  .hero-data-tags span {
+    position: absolute;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(255, 255, 255, 0.55);
+  }
+
+  .hero-cta-pulse {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .hero-cta-pulse::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border-radius: 999px;
+    border: 1px solid rgba(46, 209, 255, 0.4);
+    animation: hero-cta-ring 2.8s ease-in-out infinite;
+    pointer-events: none;
+  }
+
+  .hero-tooltip {
+    position: absolute;
+    bottom: -34px;
+    left: 50%;
+    transform: translateX(-50%) translateY(4px);
+    opacity: 0;
+    pointer-events: none;
+    white-space: nowrap;
+    font-family: var(--font-jetbrains-mono);
+    font-size: 10px;
+    letter-spacing: 0.28em;
+    text-transform: uppercase;
+    color: rgba(46, 209, 255, 0.85);
+    background: rgba(4, 10, 14, 0.85);
+    border: 1px solid rgba(46, 209, 255, 0.25);
+    border-radius: 999px;
+    padding: 4px 10px;
+    box-shadow: 0 0 12px rgba(46, 209, 255, 0.2);
+    transition: opacity 0.2s ease, transform 0.2s ease;
+  }
+
+  .group:hover .hero-tooltip {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+
+  @media (max-width: 768px) {
+    .hero-tooltip {
+      display: none;
+    }
+  }
+
   .hero-fog {
     height: 35vh;
     background: linear-gradient(
@@ -258,6 +399,44 @@
   50% {
     opacity: 0.4;
     transform: translate(-50%, -50%) scale(1.02);
+  }
+}
+
+@keyframes hero-holo-arcs {
+  0% {
+    transform: translate(-50%, -50%) rotate(0deg);
+    opacity: 0.45;
+  }
+  50% {
+    opacity: 0.7;
+  }
+  100% {
+    transform: translate(-50%, -50%) rotate(360deg);
+    opacity: 0.45;
+  }
+}
+
+@keyframes hero-scanline {
+  0% {
+    transform: translateY(-120%);
+  }
+  100% {
+    transform: translateY(120%);
+  }
+}
+
+@keyframes hero-cta-ring {
+  0% {
+    opacity: 0.35;
+    transform: scale(1);
+  }
+  70% {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.35);
   }
 }
 
