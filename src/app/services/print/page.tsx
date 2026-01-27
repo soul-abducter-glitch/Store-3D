@@ -45,6 +45,7 @@ const UPLOAD_MAX_RETRIES = 2;
 const UPLOAD_RETRY_BASE_MS = 2000;
 const UPLOAD_RETRY_MAX_MS = 10_000;
 const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
+const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
 const ACCEPTED_TYPES = [
@@ -1290,6 +1291,14 @@ export default function PrintServicePage() {
 
   return (
     <div className="min-h-screen bg-[#050505] text-white">
+      <div
+        className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center page-bg-fade"
+        style={{
+          backgroundImage: `url(${PRINT_BG_IMAGE})`,
+          filter: "blur(8px) brightness(0.5) saturate(1.05)",
+          transform: "scale(1.05)",
+        }}
+      />
       <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute -left-40 top-[-20%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(46,209,255,0.22),transparent_70%)] blur-2xl" />

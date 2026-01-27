@@ -1839,7 +1839,7 @@ export default function Home() {
           </div>
         </div>
       )}
-      <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
+      <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40 page-bg-fade" />
       <div className="pointer-events-none fixed inset-0">
         <div className="absolute -left-40 top-[-20%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(46,209,255,0.2),transparent_70%)] blur-2xl" />
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />

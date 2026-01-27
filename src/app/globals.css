@@ -346,6 +346,11 @@
     filter: blur(18px);
     animation: hero-fog-drift 30s linear infinite;
   }
+
+  .page-bg-fade {
+    opacity: 0;
+    animation: page-bg-fade 0.5s ease forwards;
+  }
 }
 
 @keyframes hero-rotate {
@@ -472,6 +477,15 @@
   }
   100% {
     transform: translateX(8%);
+  }
+}
+
+@keyframes page-bg-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 

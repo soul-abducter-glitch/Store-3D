@@ -1,13 +1,21 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { DragEvent } from "react";
 import { useSearchParams } from "next/navigation";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { motion } from "framer-motion";
 import { Cpu, ShieldCheck, UploadCloud, Zap } from "lucide-react";
-import { Color, type Group, type Mesh, type MeshBasicMaterial, type MeshStandardMaterial, type PointLight } from "three";
+import {
+  AdditiveBlending,
+  Color,
+  type Group,
+  type Mesh,
+  type MeshBasicMaterial,
+  type MeshStandardMaterial,
+  type PointLight,
+} from "three";
 
 import ModelView from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
@@ -50,6 +58,9 @@ const SAMPLE_MODELS = [
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb",
   "https://threejs.org/examples/models/gltf/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
 ];
+const AI_LAB_BG = "/backgrounds/pedestal.png";
+const MODEL_STAGE_OFFSET = -0.95;
+const MODEL_STAGE_TARGET_SIZE = 2.2;
 
 const createId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -182,6 +193,66 @@ function ReactorLights({ active }: { active: boolean }) {
       <pointLight ref={keyLightRef} position={[6, 6, 6]} intensity={1.35} color="#7FE7FF" />
       <pointLight ref={fillLightRef} position={[-6, -2, -4]} intensity={0.5} color="#0ea5e9" />
     </>
+  );
+}
+
+function FloorPulse({ active }: { active: boolean }) {
+  const ringRef = useRef<Mesh | null>(null);
+  const ringMaterialRef = useRef<MeshStandardMaterial | null>(null);
+  const glowRef = useRef<Mesh | null>(null);
+  const glowMaterialRef = useRef<MeshBasicMaterial | null>(null);
+  const cool = useRef(new Color("#2ED1FF"));
+  const hot = useRef(new Color("#8CF3FF"));
+  const temp = useRef(new Color());
+
+  useFrame(({ clock }) => {
+    const t = clock.getElapsedTime();
+    const basePulse = (Math.sin(t * 1.6) + 1) / 2;
+    const charge = active ? (Math.sin(t * 7.5) + 1) / 2 : 0;
+    const pulse = active ? 0.6 + basePulse * 0.4 + charge * 0.4 : 0.35 + basePulse * 0.25;
+
+    if (ringRef.current) {
+      const scale = 1 + basePulse * 0.04 + (active ? charge * 0.03 : 0);
+      ringRef.current.scale.setScalar(scale);
+    }
+    if (glowRef.current) {
+      const scale = 1.02 + basePulse * 0.03 + (active ? charge * 0.04 : 0);
+      glowRef.current.scale.setScalar(scale);
+    }
+    if (ringMaterialRef.current) {
+      temp.current.copy(cool.current).lerp(hot.current, active ? charge : 0.15);
+      ringMaterialRef.current.emissive.copy(temp.current);
+      ringMaterialRef.current.emissiveIntensity = 0.9 + pulse * 1.6;
+    }
+    if (glowMaterialRef.current) {
+      glowMaterialRef.current.opacity = 0.06 + pulse * 0.14;
+    }
+  });
+
+  return (
+    <group position={[0, -1.12, 0]}>
+      <mesh ref={ringRef} rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.12, 1.22, 128]} />
+        <meshStandardMaterial
+          ref={ringMaterialRef}
+          color="#0c1f2a"
+          emissive="#2ED1FF"
+          emissiveIntensity={1.2}
+          roughness={0.35}
+          metalness={0.6}
+        />
+      </mesh>
+      <mesh ref={glowRef} rotation={[Math.PI / 2, 0, 0]}>
+        <ringGeometry args={[1.0, 1.36, 96]} />
+        <meshBasicMaterial
+          ref={glowMaterialRef}
+          color="#2ED1FF"
+          transparent
+          opacity={0.14}
+          blending={AdditiveBlending}
+        />
+      </mesh>
+    </group>
   );
 }
 
@@ -443,13 +514,29 @@ export default function AiLabPage() {
   const displayStage = isSynthRunning ? statusLine : statusStages[0];
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
+  const [modelScale, setModelScale] = useState(1);
+
+  useEffect(() => {
+    setModelScale(1);
+  }, [activePreviewModel]);
+
+  const handleBounds = useCallback((bounds: { size: number }) => {
+    if (!bounds?.size || !Number.isFinite(bounds.size)) return;
+    const nextScale = Math.min(1.25, Math.max(0.6, MODEL_STAGE_TARGET_SIZE / bounds.size));
+    setModelScale(nextScale);
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#030304] text-white">
-      <div className="absolute inset-0 cad-grid-pattern opacity-[0.22]" />
-      <div className="absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.08),_transparent_50%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.07),_transparent_45%)]" />
+      <div
+        className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center page-bg-fade"
+        style={{ backgroundImage: `url(${AI_LAB_BG})`, backgroundPosition: "center 70%", filter: "brightness(0.75)" }}
+      />
+      <div className="pointer-events-none fixed inset-0 z-10 bg-black/35" />
+      <div className="pointer-events-none fixed inset-0 z-20 cad-grid-pattern opacity-[0.22]" />
+      <div className="pointer-events-none fixed inset-0 z-20 bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.08),_transparent_50%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.07),_transparent_45%)]" />
 
-      <header className="relative z-20 border-b border-white/10 bg-obsidian/70 backdrop-blur-xl">
+      <header className="relative z-30 border-b border-white/10 bg-obsidian/70 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-4">
             <a href="/" className="text-xl font-bold tracking-[0.25em] text-white">
@@ -481,9 +568,9 @@ export default function AiLabPage() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className="relative z-10 mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pb-20 pt-10 sm:px-6 lg:grid lg:grid-cols-[1.6fr_0.9fr]"
+        className="relative z-30 mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pb-20 pt-10 sm:px-6 lg:grid lg:grid-cols-[1.6fr_0.9fr]"
       >
-        <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] border border-white/10 bg-gradient-to-b from-white/5 via-transparent to-black/40 shadow-[0_30px_60px_rgba(0,0,0,0.45)]">
+        <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] bg-transparent">
           <div className="absolute left-6 top-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/70">
             <Cpu className="h-3.5 w-3.5 text-[#2ED1FF]" />
             REACTOR_VIEW
@@ -494,13 +581,17 @@ export default function AiLabPage() {
 
           <div className="relative h-[520px] w-full sm:h-[600px] lg:h-full">
             <Canvas
+              gl={{ alpha: true, antialias: true }}
+              onCreated={({ gl }) => {
+                gl.setClearColor(0x000000, 0);
+              }}
               dpr={[1, 1.6]}
               camera={{ position: [3.6, 2.6, 4.6], fov: 40 }}
               className="h-full w-full"
             >
-              <color attach="background" args={["#040405"]} />
               <ambientLight intensity={0.65} />
               <ReactorLights active={isSynthRunning} />
+              <FloorPulse active={isSynthRunning} />
               <Grid
                 infiniteGrid
                 sectionColor="#152b36"
@@ -511,23 +602,25 @@ export default function AiLabPage() {
               />
               <Suspense fallback={null}>
                 {activePreviewModel ? (
-                  <ModelView
-                    rawModelUrl={activePreviewModel}
-                    paintedModelUrl={null}
-                    finish="Raw"
-                    renderMode="final"
-                    accentColor="#2ED1FF"
-                  />
-                ) : (
-                  <NeuralCore active={isSynthRunning} />
-                )}
+                  <group position={[0, MODEL_STAGE_OFFSET, 0]} scale={modelScale}>
+                    <ModelView
+                      rawModelUrl={activePreviewModel}
+                      paintedModelUrl={null}
+                      finish="Raw"
+                      renderMode="final"
+                      accentColor="#2ED1FF"
+                      onBounds={handleBounds}
+                    />
+                  </group>
+                ) : isSynthRunning ? (
+                  <NeuralCore active />
+                ) : null}
               </Suspense>
               <OrbitControls
                 enablePan={false}
                 enableZoom
                 enableDamping
-                autoRotate={!previewModel}
-                autoRotateSpeed={0.7}
+                autoRotate={false}
               />
               <Environment preset="city" />
             </Canvas>
