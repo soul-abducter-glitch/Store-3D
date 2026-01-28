@@ -244,7 +244,10 @@ export async function POST(request: NextRequest) {
     };
 
     if (!orderData.customFile || !orderData.technicalSpecs) {
-      const firstPrintItem = items.find((item) => item.customerUpload || item.printSpecs);
+      const firstPrintItem = items.find(
+        (item: { customerUpload?: unknown; printSpecs?: unknown }) =>
+          item.customerUpload || item.printSpecs
+      );
       if (firstPrintItem) {
         if (!orderData.customFile && firstPrintItem.customerUpload) {
           orderData.customFile = firstPrintItem.customerUpload;
