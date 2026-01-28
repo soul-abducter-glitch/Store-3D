@@ -265,10 +265,12 @@ export async function POST(request: NextRequest) {
     }
 
     const rawCustomerEmail =
-      typeof orderData?.customer?.email === "string" ? orderData.customer.email : "";
+      typeof (baseData as any)?.customer?.email === "string"
+        ? (baseData as any).customer.email
+        : "";
     const customerEmail = normalizeEmail(rawCustomerEmail);
-    if (orderData?.customer && customerEmail) {
-      orderData.customer.email = customerEmail;
+    if ((baseData as any)?.customer && customerEmail) {
+      (baseData as any).customer.email = customerEmail;
     }
 
     const productCache = new Map<string, any>();
@@ -353,13 +355,22 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const normalizedItems = items.map((item) => {
+    const normalizedItems = items.map(
+      (item: {
+        product: unknown;
+        quantity?: number;
+        unitPrice?: number;
+        customerUpload?: unknown;
+        printSpecs?: unknown;
+      }) => {
       const productDoc = productCache.get(String(item.product));
       const productPrice =
         typeof productDoc?.price === "number" && productDoc.price >= 0
           ? productDoc.price
           : 0;
-      const printPrice = resolvePrintPrice(item.printSpecs);
+      const printPrice = resolvePrintPrice(
+        item.printSpecs as { technology?: string; material?: string; quality?: string } | undefined
+      );
       const unitPrice =
         item.customerUpload || item.printSpecs
           ? Math.max(productPrice, printPrice ?? productPrice)
@@ -381,7 +392,7 @@ export async function POST(request: NextRequest) {
     });
 
     try {
-      const customerEmail = normalizeEmail(orderData?.customer?.email);
+      const customerEmail = normalizeEmail((baseData as any)?.customer?.email);
       const isPaid =
         orderData?.paymentStatus === "paid" || orderData?.status === "paid";
       const digitalProductIds = collectDigitalProductIds(orderData.items || []);
@@ -405,8 +416,8 @@ export async function POST(request: NextRequest) {
             : [];
           const existing = existingRaw
             .map((id: any) => normalizeRelationshipId(id))
-            .filter((id): id is string | number => id !== null)
-            .map((id) => String(id));
+            .filter((id: string | number | null): id is string | number => id !== null)
+            .map((id: string | number) => String(id));
           const merged = Array.from(new Set([...existing, ...digitalProductIds]));
 
           if (merged.length !== existing.length) {

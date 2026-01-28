@@ -178,7 +178,7 @@ export async function generateMetadata({
       title,
       description,
       url: `${siteUrl}${canonical}`,
-      type: "product",
+      type: "website",
       images: [{ url: imageUrl }],
     },
     twitter: {
