@@ -4,11 +4,11 @@ import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import { buildConfig } from "payload";
 
-import { Categories } from "./src/payload/collections/Categories.ts";
-import { Media } from "./src/payload/collections/Media.ts";
-import { Orders } from "./src/payload/collections/Orders.ts";
-import { Products } from "./src/payload/collections/Products.ts";
-import { Users } from "./src/payload/collections/Users.ts";
+import { Categories } from "./src/payload/collections/Categories";
+import { Media } from "./src/payload/collections/Media";
+import { Orders } from "./src/payload/collections/Orders";
+import { Products } from "./src/payload/collections/Products";
+import { Users } from "./src/payload/collections/Users";
 
 const serverURL = (process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000").trim();
 const payloadSecret = process.env.PAYLOAD_SECRET;
