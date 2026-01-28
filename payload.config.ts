@@ -18,6 +18,25 @@ const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID;
 const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
 const s3Bucket = process.env.S3_BUCKET;
 const s3Endpoint = process.env.S3_ENDPOINT;
+const normalizeOrigin = (value?: string | null) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/$/, "");
+};
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      process.env.NEXT_PUBLIC_SITE_URL,
+      process.env.NEXT_PUBLIC_SERVER_URL,
+      process.env.NEXT_PUBLIC_CORS_URL,
+    ]
+      .map((origin) => normalizeOrigin(origin))
+      .filter((origin): origin is string => Boolean(origin))
+  )
+);
 
 const baseCategories = [
   {
@@ -253,14 +272,8 @@ export default buildConfig({
       baseDir: path.resolve(process.cwd(), "src"),
     },
   },
-  cors: [
-    "http://localhost:3000",
-    "http://localhost:3001",
-  ],
-  csrf: [
-    "http://localhost:3000",
-    "http://localhost:3001",
-  ],
+  cors: allowedOrigins,
+  csrf: allowedOrigins,
   upload: {
     limits: {
       fileSize: 200 * 1024 * 1024, // 200MB

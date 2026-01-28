@@ -13,6 +13,25 @@ import { Users } from "./src/payload/collections/Users";
 const serverURL = (process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000").trim();
 const payloadSecret = process.env.PAYLOAD_SECRET;
 const databaseURL = process.env.DATABASE_URL;
+const normalizeOrigin = (value?: string | null) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/$/, "");
+};
+const allowedOrigins = Array.from(
+  new Set(
+    [
+      "http://localhost:3000",
+      "http://localhost:3001",
+      process.env.NEXT_PUBLIC_SITE_URL,
+      process.env.NEXT_PUBLIC_SERVER_URL,
+      process.env.NEXT_PUBLIC_CORS_URL,
+    ]
+      .map((origin) => normalizeOrigin(origin))
+      .filter((origin): origin is string => Boolean(origin))
+  )
+);
 
 const baseCategories = [
   {
@@ -195,14 +214,8 @@ export default buildConfig({
       baseDir: path.resolve(process.cwd(), "src"),
     },
   },
-  cors: [
-    "http://localhost:3000",
-    "http://localhost:3001",
-  ],
-  csrf: [
-    "http://localhost:3000",
-    "http://localhost:3001",
-  ],
+  cors: allowedOrigins,
+  csrf: allowedOrigins,
   upload: {
     limits: {
       fileSize: 100 * 1024 * 1024, // 100MB
