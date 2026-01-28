@@ -60,9 +60,7 @@ const isDigitalFormat = (value: unknown) => {
 const collectDigitalProductIds = (items: Array<{ format?: string; product?: unknown }>) => {
   const ids = items
     .filter((item) =>
-      isDigitalFormat(
-        item?.format ?? item?.formatKey ?? item?.type ?? item?.formatLabel
-      )
+      isDigitalFormat((item as any)?.format ?? (item as any)?.type ?? (item as any)?.formatLabel)
     )
     .map((item) => getProductId(item?.product))
     .filter((id): id is string | number => id !== null);
