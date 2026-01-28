@@ -6,10 +6,10 @@ import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { buildConfig, getPayload } from "payload";
 
-import { Categories } from "../payload/collections/Categories.ts";
-import { Media } from "../payload/collections/Media.ts";
-import { Products } from "../payload/collections/Products.ts";
-import { Users } from "../payload/collections/Users.ts";
+import { Categories } from "../payload/collections/Categories";
+import { Media } from "../payload/collections/Media";
+import { Products } from "../payload/collections/Products";
+import { Users } from "../payload/collections/Users";
 
 type MediaDoc = {
   id?: string | number;
