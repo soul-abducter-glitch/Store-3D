@@ -1,8 +1,8 @@
-import payloadConfig from "../../../../payload.config";
+import payloadConfig from "../../../../../payload.config";
 import {
   GRAPHQL_PLAYGROUND_GET,
   GRAPHQL_POST,
-} from "@payloadcms/next/exports/routes";
+} from "@payloadcms/next/routes";
 
 export const dynamic = "force-dynamic";
 
