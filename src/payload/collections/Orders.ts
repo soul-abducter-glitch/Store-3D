@@ -266,9 +266,9 @@ export const Orders: CollectionConfig = {
       },
     ],
     afterChange: [
-      async ({ doc, payload, req, operation }) => {
+      async ({ doc, req, operation }) => {
         if (!doc) return doc;
-        const payloadInstance = payload ?? req?.payload;
+        const payloadInstance = req?.payload;
         if (!payloadInstance) return doc;
 
         const userIdFromDoc = doc.user ? String(doc.user) : null;
@@ -323,7 +323,7 @@ export const Orders: CollectionConfig = {
               : [];
             const existing = existingRaw
               .map((id: any) => normalizeRelationshipId(id))
-              .filter((id): id is string | number => id !== null);
+              .filter((id: string | number | null): id is string | number => id !== null);
 
             const merged = Array.from(new Set([...existing, ...digitalProductIds]));
 

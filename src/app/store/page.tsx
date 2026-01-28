@@ -220,7 +220,7 @@ type CartItem = {
   customPrint?: CustomPrintMeta | null;
 };
 
-const normalizeFormat = (value?: string) => {
+const normalizeFormat = (value?: string): FormatMode | null => {
   const normalized = value?.toLowerCase() ?? "";
   if (normalized.includes("digital")) {
     return "digital";
@@ -601,7 +601,11 @@ const normalizeThemeText = (value: string) => value.toLowerCase();
 const collapseThemeText = (value: string) =>
   value.toLowerCase().replace(/[^a-z0-9а-я]+/gi, "");
 
-const hasThemeMatch = (source: string, collapsed: string, keywords: string[]) =>
+const hasThemeMatch = (
+  source: string,
+  collapsed: string,
+  keywords: readonly string[]
+) =>
   keywords.some((keyword) => {
     const normalized = normalizeThemeText(keyword);
     const collapsedKeyword = collapseThemeText(keyword);
@@ -2555,11 +2559,11 @@ export default function Home() {
                                 <button
                                   type="button"
                                   className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
-                                    renderMode === "solid"
+                                    renderMode === "final"
                                       ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
                                       : "text-white/50 hover:text-white"
                                   }`}
-                                  onClick={() => toggleRenderMode("solid")}
+                                  onClick={() => toggleRenderMode("final")}
                                 >
                                   <Layers className="h-3.5 w-3.5" />
                                   Объём
@@ -3579,8 +3583,12 @@ function Experience({
       media.addEventListener("change", update);
       return () => media.removeEventListener("change", update);
     }
-    media.addListener(update);
-    return () => media.removeListener(update);
+    const legacyMedia = media as MediaQueryList & {
+      addListener?: (listener: () => void) => void;
+      removeListener?: (listener: () => void) => void;
+    };
+    legacyMedia.addListener?.(update);
+    return () => legacyMedia.removeListener?.(update);
   }, []);
 
   const handleBounds = useCallback(

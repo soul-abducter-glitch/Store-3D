@@ -208,7 +208,7 @@ export default async function ProductPage({
   const description = richTextToPlain(product.description).trim();
   const imageUrl = resolveImageUrl(product.thumbnail);
   const priceLabel = formatPriceValue(product.price);
-  const productUrl = `${siteUrl}/product/${product.slug ?? params.slug}`;
+  const productUrl = `${siteUrl}/product/${product.slug ?? resolvedParams.slug}`;
   const jsonLd = {
     "@context": "https://schema.org",
     "@type": "Product",

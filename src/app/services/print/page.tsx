@@ -15,9 +15,9 @@ import {
   Vector3,
   DoubleSide,
 } from "three";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader";
-import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader";
-import { STLLoader } from "three/examples/jsm/loaders/STLLoader";
+import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
+import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
 import { UploadCloud, AlertTriangle, ShoppingCart, X } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";

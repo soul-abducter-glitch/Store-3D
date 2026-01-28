@@ -35,7 +35,6 @@ export const Media: CollectionConfig = {
       "application/sla",
       "application/vnd.ms-pki.stl",
     ],
-    maxSize: 100 * 1024 * 1024,
   },
   fields: [
     {

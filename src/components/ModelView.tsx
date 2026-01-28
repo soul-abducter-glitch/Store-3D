@@ -221,8 +221,9 @@ export default function ModelView({
         opacity?: number;
         transparent?: boolean;
       } = {};
-      if ("color" in material && material.color) {
-        state.color = material.color.clone();
+      const materialColor = (material as Material & { color?: Color }).color;
+      if (materialColor) {
+        state.color = materialColor.clone();
       }
       if ("map" in material) {
         state.map = (material as any).map ?? null;

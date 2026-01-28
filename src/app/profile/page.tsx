@@ -387,8 +387,10 @@ export default function ProfilePage() {
   const getOrderPrintInfo = (order: any) => {
     const items = Array.isArray(order?.items) ? order.items : [];
     const printItem =
-      items.find((item) => item?.printSpecs || item?.customerUpload) ??
-      (items.length > 0 ? items[0] : null);
+      items.find(
+        (item: { printSpecs?: unknown; customerUpload?: unknown }) =>
+          item?.printSpecs || item?.customerUpload
+      ) ?? (items.length > 0 ? items[0] : null);
     const upload = printItem?.customerUpload ?? order?.customFile ?? null;
     const filename = typeof upload?.filename === "string" ? upload.filename : null;
     const technology =
@@ -402,7 +404,7 @@ export default function ProfilePage() {
 
   const isDigitalOrder = (order: any) => {
     const items = Array.isArray(order?.items) ? order.items : [];
-    return items.some((item) => item?.format === "Digital");
+    return items.some((item: { format?: string }) => item?.format === "Digital");
   };
 
   const canCancelOrder = (order: any) => {
@@ -870,7 +872,7 @@ export default function ProfilePage() {
                       </div>
                       {download.ready ? (
                         <a
-                          href={download.downloadUrl}
+                          href={download.downloadUrl ?? undefined}
                           target="_blank"
                           rel="noreferrer"
                           download
