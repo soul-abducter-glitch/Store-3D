@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 
 import { postgresAdapter } from "@payloadcms/db-postgres";
-import { HeadObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { HeadObjectCommand, S3Client, type PutObjectCommandInput } from "@aws-sdk/client-s3";
 import { Upload } from "@aws-sdk/lib-storage";
 import { buildConfig, getPayload } from "payload";
 
@@ -220,7 +220,7 @@ const main = async () => {
       continue;
     }
 
-    const params: Record<string, any> = {
+    const params: PutObjectCommandInput = {
       Bucket: bucket,
       Key: key,
       Body: fs.createReadStream(localPath),
