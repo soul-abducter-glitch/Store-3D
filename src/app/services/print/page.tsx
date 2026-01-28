@@ -1,6 +1,15 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from "react";
+import {
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ChangeEvent,
+  type DragEvent,
+} from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Canvas } from "@react-three/fiber";
@@ -371,7 +380,7 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
   );
 };
 
-export default function PrintServicePage() {
+function PrintServiceContent() {
   const { toasts, showSuccess, showError, removeToast } = useToast();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -1686,6 +1695,20 @@ export default function PrintServicePage() {
         </div>
       </main>
     </div>
+  );
+}
+
+export default function PrintServicePage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="min-h-screen bg-[#050505] text-white">
+          <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
+        </div>
+      }
+    >
+      <PrintServiceContent />
+    </Suspense>
   );
 }
 
