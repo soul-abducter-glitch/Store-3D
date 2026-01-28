@@ -39,13 +39,14 @@ export const runtime = "nodejs";
 
 export async function GET(
   _request: NextRequest,
-  { params }: { params: { filename: string } }
+  { params }: { params: Promise<{ filename: string }> }
 ) {
   if (!client || !bucket) {
     return new Response("S3 is not configured", { status: 500 });
   }
 
-  const rawName = params?.filename ? decodeURIComponent(params.filename) : "";
+  const resolvedParams = await params;
+  const rawName = resolvedParams?.filename ? decodeURIComponent(resolvedParams.filename) : "";
   const safeName = rawName.replace(/\\/g, "/").split("/").pop() || "";
   if (!safeName) {
     return new Response("Missing filename", { status: 400 });
