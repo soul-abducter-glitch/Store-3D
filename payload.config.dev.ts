@@ -230,8 +230,6 @@ export default buildConfig({
         rejectUnauthorized: false,
       },
     },
-    // Skip migrations to avoid enum conflicts
-    migrate: false,
   }),
   editor: lexicalEditor({}),
   plugins: [
