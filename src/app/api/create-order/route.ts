@@ -224,7 +224,7 @@ export async function POST(request: NextRequest) {
 
     const incomingCustomFile = normalizeRelationshipId(data?.customFile);
     const incomingSpecs = normalizePrintSpecs(data?.technicalSpecs);
-    const hasPhysical = items.some((item) => item.format === "Physical");
+    const hasPhysical = items.some((item: { format?: string }) => item.format === "Physical");
     const paymentsMode = resolvePaymentsMode();
     const requestedPaymentMethod = normalizePaymentMethod(data?.paymentMethod);
     const paymentStatus = normalizePaymentStatus(
