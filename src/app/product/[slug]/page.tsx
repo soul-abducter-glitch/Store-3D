@@ -151,9 +151,10 @@ const selectRelatedProducts = (product: ProductDoc, catalog: CatalogProduct[]) =
 export async function generateMetadata({
   params,
 }: {
-  params: { slug: string };
+  params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
-  const product = await fetchProduct(params.slug);
+  const resolvedParams = await params;
+  const product = await fetchProduct(resolvedParams.slug);
   if (!product) {
     return {
       title: "Product not found",
@@ -167,7 +168,7 @@ export async function generateMetadata({
     richTextToPlain(product.description).trim() ||
     "3D model available in the 3D-STORE marketplace.";
   const imageUrl = resolveImageUrl(product.thumbnail) ?? "/backgrounds/bg_lab.png";
-  const canonical = `/product/${product.slug ?? params.slug}`;
+  const canonical = `/product/${product.slug ?? resolvedParams.slug}`;
 
   return {
     title,
@@ -189,8 +190,13 @@ export async function generateMetadata({
   };
 }
 
-export default async function ProductPage({ params }: { params: { slug: string } }) {
-  const product = await fetchProduct(params.slug);
+export default async function ProductPage({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}) {
+  const resolvedParams = await params;
+  const product = await fetchProduct(resolvedParams.slug);
   if (!product) {
     notFound();
   }
