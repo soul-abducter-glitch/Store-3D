@@ -256,7 +256,7 @@ function FloorPulse({ active }: { active: boolean }) {
   );
 }
 
-export default function AiLabPage() {
+function AiLabContent() {
   const searchParams = useSearchParams();
   const previewParam = searchParams.get("preview");
   const previewModel = useMemo(() => normalizePreview(previewParam), [previewParam]);
@@ -914,5 +914,13 @@ export default function AiLabPage() {
 
       <ToastContainer toasts={toasts} onRemove={removeToast} position="top-right" />
     </div>
+  );
+}
+
+export default function AiLabPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-[#030304]" />}>
+      <AiLabContent />
+    </Suspense>
   );
 }
