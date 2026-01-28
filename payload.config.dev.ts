@@ -202,11 +202,6 @@ export default buildConfig({
     importMap: {
       baseDir: path.resolve(process.cwd(), "src"),
     },
-    components: {
-      elements: {
-        CodeEditor: "./components/PatchedCodeEditor",
-      },
-    },
   },
   cors: [
     "http://localhost:3000",
