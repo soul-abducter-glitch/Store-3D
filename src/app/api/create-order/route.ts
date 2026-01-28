@@ -254,7 +254,9 @@ export async function POST(request: NextRequest) {
         }
         if (!orderData.technicalSpecs && firstPrintItem.printSpecs) {
           orderData.technicalSpecs = {
+            technology: firstPrintItem.printSpecs.technology,
             material: firstPrintItem.printSpecs.material,
+            quality: firstPrintItem.printSpecs.quality,
             dimensions: firstPrintItem.printSpecs.dimensions,
             volumeCm3: firstPrintItem.printSpecs.volumeCm3,
           };
