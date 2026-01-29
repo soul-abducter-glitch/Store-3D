@@ -746,6 +746,9 @@ const accentOptions: Array<{ value: string; label: string }> = [
 
 const CATALOG_CACHE_KEY = "store3d_catalog_cache";
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
+const CATALOG_REQUEST_TIMEOUT_MS = 15_000;
+const CATALOG_REQUEST_RETRY_DELAY_MS = 1200;
+const CATALOG_REQUEST_MAX_RETRIES = 1;
 const SEARCH_RECENTS_KEY = "store3d_search_recent";
 
 export default function Home() {
@@ -1045,19 +1048,38 @@ export default function Home() {
         // ignore cache write errors
       }
     };
-    const fetchCatalog = async () => {
-      const response = await fetch(buildApiUrl("/api/catalog"), {
-        signal: controller.signal,
-        cache: "no-store",
-      });
-      if (!response.ok) {
-        throw response;
+    const fetchCatalog = async (attempt = 0): Promise<{
+      products: ProductDoc[];
+      categories: CategoryDoc[];
+    }> => {
+      const attemptController = new AbortController();
+      const timeoutId = window.setTimeout(() => attemptController.abort(), CATALOG_REQUEST_TIMEOUT_MS);
+      const handleAbort = () => attemptController.abort();
+      controller.signal.addEventListener("abort", handleAbort, { once: true });
+
+      try {
+        const response = await fetch(buildApiUrl("/api/catalog"), {
+          signal: attemptController.signal,
+          cache: "no-store",
+        });
+        if (!response.ok) {
+          throw response;
+        }
+        const data = await response.json();
+        return {
+          products: Array.isArray(data?.products) ? data.products : data?.docs ?? [],
+          categories: Array.isArray(data?.categories) ? data.categories : [],
+        };
+      } catch (error) {
+        if (attempt < CATALOG_REQUEST_MAX_RETRIES && !controller.signal.aborted) {
+          await new Promise((resolve) => setTimeout(resolve, CATALOG_REQUEST_RETRY_DELAY_MS));
+          return fetchCatalog(attempt + 1);
+        }
+        throw error;
+      } finally {
+        window.clearTimeout(timeoutId);
+        controller.signal.removeEventListener("abort", handleAbort);
       }
-      const data = await response.json();
-      return {
-        products: Array.isArray(data?.products) ? data.products : data?.docs ?? [],
-        categories: Array.isArray(data?.categories) ? data.categories : [],
-      };
     };
 
     const fetchData = async () => {
