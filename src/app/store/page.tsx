@@ -795,6 +795,7 @@ export default function Home() {
   const [heroModelReady, setHeroModelReady] = useState(false);
   const [heroModelStalled, setHeroModelStalled] = useState(false);
   const [useProxyForModels, setUseProxyForModels] = useState(false);
+  const [forceProxyMedia, setForceProxyMedia] = useState(false);
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
