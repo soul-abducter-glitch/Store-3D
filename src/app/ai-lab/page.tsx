@@ -527,7 +527,7 @@ function AiLabContent() {
   }, []);
 
   return (
-    <div className="relative min-h-screen overflow-hidden bg-[#030304] text-white">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#030304] text-white">
       <div
         className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center page-bg-fade"
         style={{ backgroundImage: `url(${AI_LAB_BG})`, backgroundPosition: "center 70%", filter: "brightness(0.75)" }}
