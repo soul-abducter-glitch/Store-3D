@@ -331,6 +331,12 @@ const extractFilename = (value: string) => {
 const buildProxyUrl = (filename: string) =>
   `/api/media-file/${encodeURIComponent(filename)}`;
 
+const buildProxyUrlFromSource = (value?: string | null) => {
+  if (!value) return null;
+  const filename = extractFilename(value);
+  return filename ? buildProxyUrl(filename) : null;
+};
+
 const resolveMediaUrl = (value?: MediaDoc | string | null) => {
   if (!value) {
     return null;
@@ -788,6 +794,7 @@ export default function Home() {
   const [modelErrorCount, setModelErrorCount] = useState(0);
   const [heroModelReady, setHeroModelReady] = useState(false);
   const [heroModelStalled, setHeroModelStalled] = useState(false);
+  const [useProxyForModels, setUseProxyForModels] = useState(false);
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
@@ -1532,6 +1539,22 @@ export default function Home() {
     [buildPrintUrl, router, showError]
   );
   const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
+  const heroRawModelUrl = useMemo(() => {
+    if (!currentProduct) return null;
+    if (!useProxyForModels) return currentProduct.rawModelUrl;
+    return (
+      buildProxyUrlFromSource(currentProduct.rawModelUrl) ??
+      currentProduct.rawModelUrl
+    );
+  }, [currentProduct, useProxyForModels]);
+  const heroPaintedModelUrl = useMemo(() => {
+    if (!currentProduct) return null;
+    if (!useProxyForModels) return currentProduct.paintedModelUrl;
+    return (
+      buildProxyUrlFromSource(currentProduct.paintedModelUrl) ??
+      currentProduct.paintedModelUrl
+    );
+  }, [currentProduct, useProxyForModels]);
   const isInterior = preview === "interior";
   const heroDimensions =
     formatDimensions(heroBounds, currentProduct?.scale ?? null, currentProduct?.modelScale ?? null) ??
@@ -1558,6 +1581,7 @@ export default function Home() {
     setModelErrorCount(0);
     setHeroModelReady(false);
     setHeroModelStalled(false);
+    setUseProxyForModels(false);
   }, [currentProduct?.id]);
 
   useEffect(() => {
@@ -1593,11 +1617,29 @@ export default function Home() {
     setHeroModelStalled(false);
   }, []);
 
+  const attemptProxyFallback = useCallback(() => {
+    if (useProxyForModels) {
+      return false;
+    }
+    const candidate =
+      buildProxyUrlFromSource(currentProduct?.rawModelUrl ?? null) ??
+      buildProxyUrlFromSource(currentProduct?.paintedModelUrl ?? null);
+    if (!candidate) {
+      return false;
+    }
+    setUseProxyForModels(true);
+    return true;
+  }, [currentProduct?.paintedModelUrl, currentProduct?.rawModelUrl, useProxyForModels]);
+
   const handleModelError = useCallback(() => {
+    const switched = attemptProxyFallback();
     setHeroModelReady(false);
     setHeroModelStalled(true);
     setModelErrorCount((prev) => prev + 1);
-  }, []);
+    if (switched) {
+      setModelRetryKey((prev) => prev + 1);
+    }
+  }, [attemptProxyFallback]);
 
   const handleHeroBounds = useCallback(
     (bounds: ModelBounds) => {
@@ -1608,9 +1650,11 @@ export default function Home() {
   );
 
   const handleModelRetry = useCallback(() => {
+    attemptProxyFallback();
+    setHeroModelStalled(false);
     setModelErrorCount(0);
     setModelRetryKey((prev) => prev + 1);
-  }, []);
+  }, [attemptProxyFallback]);
 
   useEffect(() => {
     if (heroVisible || typeof window === "undefined") {
@@ -2063,13 +2107,23 @@ export default function Home() {
                         key={item.id}
                         className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3"
                       >
-                        <img
-                          src={item.thumbnailUrl}
-                          alt={item.name}
-                          loading="lazy"
-                          decoding="async"
-                          className="h-14 w-14 rounded-xl object-cover"
-                        />
+        <img
+          src={item.thumbnailUrl}
+          alt={item.name}
+          loading="lazy"
+          decoding="async"
+          onError={(event) => {
+            const img = event.currentTarget;
+            if (img.dataset.fallbackApplied === "1") {
+              img.src = buildCartThumbnail(item.name);
+              return;
+            }
+            img.dataset.fallbackApplied = "1";
+            const proxy = buildProxyUrlFromSource(img.src);
+            img.src = proxy ?? buildCartThumbnail(item.name);
+          }}
+          className="h-14 w-14 rounded-xl object-cover"
+        />
                         <div className="flex-1">
                           <p className="text-sm font-semibold text-white">{item.name}</p>
                           <p className="text-xs text-white/60">{item.formatLabel}</p>
@@ -2289,8 +2343,8 @@ export default function Home() {
                           preview={preview}
                           lightingMode={lightingMode}
                           accentColor={activeColor}
-                          rawModelUrl={currentProduct?.rawModelUrl ?? null}
-                          paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
+                          rawModelUrl={heroRawModelUrl}
+                          paintedModelUrl={heroPaintedModelUrl}
                           modelScale={currentProduct?.modelScale ?? null}
                           controlsRef={controlsRef}
                           onBounds={handleHeroBounds}
@@ -4200,6 +4254,16 @@ function ProductCard({
           alt={product.name}
           loading="lazy"
           decoding="async"
+          onError={(event) => {
+            const img = event.currentTarget;
+            if (img.dataset.fallbackApplied === "1") {
+              img.src = buildProductPlaceholder();
+              return;
+            }
+            img.dataset.fallbackApplied = "1";
+            const proxy = buildProxyUrlFromSource(img.src);
+            img.src = proxy ?? buildProductPlaceholder();
+          }}
           className="h-32 w-full object-contain p-2 transition-transform duration-300 ease-out group-hover:scale-[1.02] sm:h-40"
         />
         <div className="pointer-events-none absolute inset-0 shadow-[inset_0_0_30px_rgba(0,0,0,0.35)]" />
