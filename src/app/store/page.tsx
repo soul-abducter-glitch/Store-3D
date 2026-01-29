@@ -843,26 +843,6 @@ export default function Home() {
     }
   }, []);
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const shouldEnable =
-      params.get("debug") === "1" || window.localStorage.getItem("store3d_debug") === "1";
-    if (!shouldEnable) return;
-    if ((window as any).eruda) {
-      (window as any).eruda.init();
-      return;
-    }
-    const script = document.createElement("script");
-    script.src = "https://cdn.jsdelivr.net/npm/eruda";
-    script.async = true;
-    script.onload = () => (window as any).eruda?.init();
-    document.body.appendChild(script);
-    return () => {
-      script.remove();
-    };
-  }, []);
-
   const formatLabelForKey = (formatKey: FormatMode) =>
     formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
 
