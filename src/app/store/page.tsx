@@ -1590,6 +1590,7 @@ export default function Home() {
 
   const handleModelReady = useCallback(() => {
     setHeroModelReady(true);
+    setHeroModelStalled(false);
   }, []);
 
   const handleModelError = useCallback(() => {
@@ -1597,6 +1598,14 @@ export default function Home() {
     setHeroModelStalled(true);
     setModelErrorCount((prev) => prev + 1);
   }, []);
+
+  const handleHeroBounds = useCallback(
+    (bounds: ModelBounds) => {
+      setHeroBounds(bounds);
+      handleModelReady();
+    },
+    [handleModelReady]
+  );
 
   const handleModelRetry = useCallback(() => {
     setModelErrorCount(0);
@@ -2284,16 +2293,17 @@ export default function Home() {
                           paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
                           modelScale={currentProduct?.modelScale ?? null}
                           controlsRef={controlsRef}
-                          onBounds={setHeroBounds}
+                          onBounds={handleHeroBounds}
                           onStats={(stats) => {
                             setHeroPolyCountComputed(stats.polyCount);
+                            handleModelReady();
                           }}
                           onReady={handleModelReady}
                           />
                       </ErrorBoundary>
                     )}
-                    {heroModelStalled && !showHeroStandby && heroVisible && (
-                      <div className="absolute inset-0 z-20">
+                    {heroModelStalled && !heroModelReady && !showHeroStandby && heroVisible && (
+                      <div className="pointer-events-auto absolute inset-0 z-20">
                         <SystemStandbyPanel
                           message="МОДЕЛЬ ГРУЗИТСЯ СЛИШКОМ ДОЛГО"
                           className="h-full"
@@ -2666,62 +2676,15 @@ export default function Home() {
                                 <button
                                   type="button"
                                   className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
-                                    renderMode === "final"
+                                    isBaseActive
                                       ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
                                       : "text-white/50 hover:text-white"
                                   }`}
-                                  onClick={() => toggleRenderMode("final")}
+                                  onClick={() => toggleRenderMode("base")}
                                 >
-                                  <Layers className="h-3.5 w-3.5" />
-                                  Объём
+                                  <Palette className="h-3.5 w-3.5" />
+                                  Чистый цвет
                                 </button>
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
-                                ФИНИШ
-                              </p>
-                              <div className="grid grid-cols-2 gap-2">
-                                {finishOptions.map((option) => {
-                                  const isActive = finish === option.value;
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      type="button"
-                                      className={`rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
-                                        isActive
-                                          ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
-                                          : "text-white/50 hover:text-white"
-                                      }`}
-                                      onClick={() => setFinish(option.value)}
-                                    >
-                                      {option.label}
-                                    </button>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                            <div className="space-y-2">
-                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
-                                АКЦЕНТ
-                              </p>
-                              <div className="grid grid-cols-4 gap-2">
-                                {accentOptions.map((option) => {
-                                  const isActive = activeColor === option.value;
-                                  return (
-                                    <button
-                                      key={option.value}
-                                      type="button"
-                                      className={`h-9 w-9 rounded-full border transition ${
-                                        isActive
-                                          ? "border-white/80 shadow-[0_0_10px_rgba(255,255,255,0.35)]"
-                                          : "border-white/20"
-                                      }`}
-                                      style={{ backgroundColor: option.value }}
-                                      onClick={() => setActiveColor(option.value)}
-                                    />
-                                  );
-                                })}
                               </div>
                             </div>
                           </div>
