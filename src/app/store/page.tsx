@@ -3125,6 +3125,24 @@ function Header({
             </a>
           )}
         </motion.div>
+
+        <motion.div
+          variants={itemVariants}
+          className="flex w-full items-center justify-center gap-2 sm:hidden"
+        >
+          <a
+            href="/ai-lab"
+            className="rounded-full border border-white/15 bg-white/5 px-3 py-2 text-[9px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+          >
+            AI ЛАБОРАТОРИЯ
+          </a>
+          <a
+            href="/services/print"
+            className="rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-2 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
+          >
+            ПЕЧАТЬ НА ЗАКАЗ
+          </a>
+        </motion.div>
         {isSearchOpen && (
           <motion.div
             variants={itemVariants}
