@@ -16,7 +16,7 @@ import { useRouter } from "next/navigation";
 import { Canvas, useThree } from "@react-three/fiber";
 import { ContactShadows, Environment, Grid, OrbitControls, Stage } from "@react-three/drei";
 import { AnimatePresence, motion, useMotionValue, useSpring } from "framer-motion";
-import { Vector3 } from "three";
+import { Vector3, type WebGLRendererParameters } from "three";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -3605,7 +3605,7 @@ function Experience({
       }
     }, [lightingMode]);
   const isLowQuality = isMobile;
-  const glConfig = useMemo(
+  const glConfig = useMemo<Partial<WebGLRendererParameters>>(
     () => ({
       antialias: !isLowQuality,
       alpha: true,
