@@ -831,6 +831,37 @@ export default function Home() {
     setIsMounted(true);
   }, []);
 
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const forceProxy = params.get("proxy") === "1";
+    const ua = navigator.userAgent || "";
+    const isMobileUa = /android|iphone|ipad|ipod|iemobile|mobile/i.test(ua);
+    if (forceProxy || isMobileUa) {
+      setForceProxyMedia(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
+    const shouldEnable =
+      params.get("debug") === "1" || window.localStorage.getItem("store3d_debug") === "1";
+    if (!shouldEnable) return;
+    if ((window as any).eruda) {
+      (window as any).eruda.init();
+      return;
+    }
+    const script = document.createElement("script");
+    script.src = "https://cdn.jsdelivr.net/npm/eruda";
+    script.async = true;
+    script.onload = () => (window as any).eruda?.init();
+    document.body.appendChild(script);
+    return () => {
+      script.remove();
+    };
+  }, []);
+
   const formatLabelForKey = (formatKey: FormatMode) =>
     formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
 
@@ -1541,20 +1572,20 @@ export default function Home() {
   const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
   const heroRawModelUrl = useMemo(() => {
     if (!currentProduct) return null;
-    if (!useProxyForModels) return currentProduct.rawModelUrl;
+    if (!useProxyForModels && !forceProxyMedia) return currentProduct.rawModelUrl;
     return (
       buildProxyUrlFromSource(currentProduct.rawModelUrl) ??
       currentProduct.rawModelUrl
     );
-  }, [currentProduct, useProxyForModels]);
+  }, [currentProduct, useProxyForModels, forceProxyMedia]);
   const heroPaintedModelUrl = useMemo(() => {
     if (!currentProduct) return null;
-    if (!useProxyForModels) return currentProduct.paintedModelUrl;
+    if (!useProxyForModels && !forceProxyMedia) return currentProduct.paintedModelUrl;
     return (
       buildProxyUrlFromSource(currentProduct.paintedModelUrl) ??
       currentProduct.paintedModelUrl
     );
-  }, [currentProduct, useProxyForModels]);
+  }, [currentProduct, useProxyForModels, forceProxyMedia]);
   const isInterior = preview === "interior";
   const heroDimensions =
     formatDimensions(heroBounds, currentProduct?.scale ?? null, currentProduct?.modelScale ?? null) ??
@@ -1618,7 +1649,7 @@ export default function Home() {
   }, []);
 
   const attemptProxyFallback = useCallback(() => {
-    if (useProxyForModels) {
+    if (useProxyForModels || forceProxyMedia) {
       return false;
     }
     const candidate =
@@ -1629,7 +1660,12 @@ export default function Home() {
     }
     setUseProxyForModels(true);
     return true;
-  }, [currentProduct?.paintedModelUrl, currentProduct?.rawModelUrl, useProxyForModels]);
+  }, [
+    currentProduct?.paintedModelUrl,
+    currentProduct?.rawModelUrl,
+    useProxyForModels,
+    forceProxyMedia,
+  ]);
 
   const handleModelError = useCallback(() => {
     const switched = attemptProxyFallback();
@@ -2102,28 +2138,33 @@ export default function Home() {
               ) : (
                 <>
                   <div className="mt-5 flex-1 space-y-3 overflow-y-auto pr-1">
-                    {cartItems.map((item) => (
+                    {cartItems.map((item) => {
+                      const resolvedCartThumb =
+                        forceProxyMedia && isExternalUrl(item.thumbnailUrl)
+                          ? buildProxyUrlFromSource(item.thumbnailUrl) ?? item.thumbnailUrl
+                          : item.thumbnailUrl;
+                      return (
                       <div
                         key={item.id}
                         className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3"
                       >
-        <img
-          src={item.thumbnailUrl}
-          alt={item.name}
-          loading="lazy"
-          decoding="async"
-          onError={(event) => {
-            const img = event.currentTarget;
-            if (img.dataset.fallbackApplied === "1") {
-              img.src = buildCartThumbnail(item.name);
-              return;
-            }
-            img.dataset.fallbackApplied = "1";
-            const proxy = buildProxyUrlFromSource(img.src);
-            img.src = proxy ?? buildCartThumbnail(item.name);
-          }}
-          className="h-14 w-14 rounded-xl object-cover"
-        />
+                        <img
+                          src={resolvedCartThumb}
+                          alt={item.name}
+                          loading="lazy"
+                          decoding="async"
+                          onError={(event) => {
+                            const img = event.currentTarget;
+                            if (img.dataset.fallbackApplied === "1") {
+                              img.src = buildCartThumbnail(item.name);
+                              return;
+                            }
+                            img.dataset.fallbackApplied = "1";
+                            const proxy = forceProxyMedia ? null : buildProxyUrlFromSource(img.src);
+                            img.src = proxy ?? buildCartThumbnail(item.name);
+                          }}
+                          className="h-14 w-14 rounded-xl object-cover"
+                        />
                         <div className="flex-1">
                           <p className="text-sm font-semibold text-white">{item.name}</p>
                           <p className="text-xs text-white/60">{item.formatLabel}</p>
@@ -2138,7 +2179,8 @@ export default function Home() {
                           <Trash2 className="h-4 w-4" />
                         </button>
                       </div>
-                    ))}
+                    );
+                    })}
                   </div>
                   <div className="mt-4 border-t border-white/10 pt-4">
                     <div className="flex items-center justify-between text-sm text-white/80">
@@ -2881,13 +2923,14 @@ export default function Home() {
                       <ProductCard
                         key={product.id}
                         product={product}
-                          isSelected={product.id === currentModelId}
-                          onClick={() => handleProductSelect(product.id, { scroll: true })}
-                          isFavorite={isFavorite(product.id)}
-                          onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
-                          onAddToCart={() => addToCart(product)}
-                          onOrderPrint={() => handleOrderPrint(product)}
-                        />
+                        isSelected={product.id === currentModelId}
+                        onClick={() => handleProductSelect(product.id, { scroll: true })}
+                        isFavorite={isFavorite(product.id)}
+                        onToggleFavorite={() => toggleFavorite(buildFavoriteItem(product))}
+                        onAddToCart={() => addToCart(product)}
+                        onOrderPrint={() => handleOrderPrint(product)}
+                        forceProxyMedia={forceProxyMedia}
+                      />
                     ))}
                   </motion.div>
                 )}
@@ -4162,12 +4205,22 @@ function ProductCard({
   onToggleFavorite,
   onAddToCart,
   onOrderPrint,
-}: ProductCardProps) {
+  forceProxyMedia,
+}: ProductCardProps & { forceProxyMedia: boolean }) {
   const router = useRouter();
   const [favoritePulse, setFavoritePulse] = useState(false);
   const favoritePulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const prefetchDoneRef = useRef(false);
   const cardRef = useRef<HTMLDivElement | null>(null);
+  const resolvedThumbnail = useMemo(() => {
+    if (!forceProxyMedia) {
+      return product.thumbnailUrl;
+    }
+    if (!isExternalUrl(product.thumbnailUrl)) {
+      return product.thumbnailUrl;
+    }
+    return buildProxyUrlFromSource(product.thumbnailUrl) ?? product.thumbnailUrl;
+  }, [forceProxyMedia, product.thumbnailUrl]);
   const formatLabel =
     product.formatKey === "digital"
       ? "DIGITAL STL"
@@ -4250,7 +4303,7 @@ function ProductCard({
     >
       <div className="relative mb-3 overflow-hidden rounded-2xl border border-white/10 bg-white/5 sm:mb-4">
         <img
-          src={product.thumbnailUrl}
+          src={resolvedThumbnail}
           alt={product.name}
           loading="lazy"
           decoding="async"
@@ -4261,7 +4314,7 @@ function ProductCard({
               return;
             }
             img.dataset.fallbackApplied = "1";
-            const proxy = buildProxyUrlFromSource(img.src);
+            const proxy = forceProxyMedia ? null : buildProxyUrlFromSource(img.src);
             img.src = proxy ?? buildProductPlaceholder();
           }}
           className="h-32 w-full object-contain p-2 transition-transform duration-300 ease-out group-hover:scale-[1.02] sm:h-40"
