@@ -3604,6 +3604,20 @@ function Experience({
           return { preset: "studio" as const, intensity: 1.6 };
       }
     }, [lightingMode]);
+  const isLowQuality = isMobile;
+  const glConfig = useMemo(
+    () => ({
+      antialias: !isLowQuality,
+      alpha: true,
+      powerPreference: isLowQuality ? "low-power" : "high-performance",
+    }),
+    [isLowQuality]
+  );
+  const dpr = isLowQuality ? 1 : [1, 2];
+  const environmentIntensity = isLowQuality
+    ? Math.max(0.6, lightingConfig.intensity * 0.75)
+    : lightingConfig.intensity;
+  const environmentResolution = isLowQuality ? 128 : 256;
 
   useEffect(() => {
     const media = window.matchMedia("(max-width: 767px)");
@@ -3649,9 +3663,9 @@ function Experience({
   return (
     <Canvas
       camera={{ position: [5, 5, 5], fov: 42, near: 0.1, far: 1000 }}
-      dpr={isMobile ? [1, 1.5] : [1, 2]}
+      dpr={dpr}
       className="h-full w-full"
-      gl={{ antialias: true, alpha: true }}
+      gl={glConfig}
       style={{ touchAction: "none" }}
       onPointerDown={stopPropagation}
       onPointerMove={stopPropagation}
@@ -3705,14 +3719,16 @@ function Experience({
             />
         </group>
       </Stage>
-      <ContactShadows
-        key={`shadow-${shadowScale}`}
-        position={[0, shadowY, 0]}
-        scale={shadowScale}
-        opacity={0.6}
-        blur={1.6}
-        far={shadowScale * 0.8}
-      />
+      {!isLowQuality && (
+        <ContactShadows
+          key={`shadow-${shadowScale}`}
+          position={[0, shadowY, 0]}
+          scale={shadowScale}
+          opacity={0.6}
+          blur={1.6}
+          far={shadowScale * 0.8}
+        />
+      )}
       {isAR && (
         <Grid
           position={[0, 0, 0]}
@@ -3729,7 +3745,8 @@ function Experience({
       )}
       <Environment
         preset={lightingConfig.preset}
-        environmentIntensity={lightingConfig.intensity}
+        environmentIntensity={environmentIntensity}
+        resolution={environmentResolution}
       />
       <OrbitControls
         makeDefault
