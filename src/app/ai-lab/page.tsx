@@ -547,7 +547,7 @@ function AiLabContent() {
       <header className="relative z-30 border-b border-white/10 bg-obsidian/70 backdrop-blur-xl">
         <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-4">
-            <a href="/" className="text-xl font-bold tracking-[0.25em] text-white">
+            <a href="/store" className="text-xl font-bold tracking-[0.25em] text-white">
               3D-STORE
             </a>
             <div className="hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/50 md:flex">
@@ -557,7 +557,7 @@ function AiLabContent() {
           </div>
           <nav className="flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/70 sm:gap-3">
             <a
-              href="/"
+              href="/store"
               className="hidden rounded-full border border-white/15 bg-white/5 px-3 py-2 transition hover:border-white/40 hover:text-white sm:inline-flex"
             >
               МАГАЗИН

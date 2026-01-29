@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
 import { useRouter } from "next/navigation";
 import { motion, useMotionValue, useSpring } from "framer-motion";
-import { ChevronDown, Heart, ShoppingCart, User } from "lucide-react";
+import { ChevronDown, Heart, Printer, ShoppingCart, Sparkles, User } from "lucide-react";
 import { useFavorites } from "@/lib/favorites";
 
 const HERO_PORTAL_IMAGE = "/backgrounds/prtal.png";
@@ -206,16 +206,18 @@ export default function Home() {
           <button
             type="button"
             onClick={() => router.push("/ai-lab")}
-            className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
           >
-            AI ЛАБОРАТОРИЯ
+            <Sparkles className="h-3.5 w-3.5 text-[#2ED1FF]" />
+            AI
           </button>
           <button
             type="button"
             onClick={() => router.push("/services/print")}
-            className="rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
           >
-            ПЕЧАТЬ НА ЗАКАЗ
+            <Printer className="h-3.5 w-3.5" />
+            ПЕЧАТЬ
           </button>
         </div>
       </header>

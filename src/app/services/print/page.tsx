@@ -1334,7 +1334,7 @@ function PrintServiceContent() {
       <header className="relative z-10 border-b border-white/10 bg-[#050505]/80 backdrop-blur-xl">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-6 py-4">
           <div>
-            <Link href="/" className="text-2xl font-bold tracking-[0.2em] text-white">
+            <Link href="/store" className="text-2xl font-bold tracking-[0.2em] text-white">
               3D-STORE
             </Link>
             <p className="mt-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
@@ -1343,7 +1343,7 @@ function PrintServiceContent() {
           </div>
           <div className="flex items-center gap-3">
             <Link
-              href="/"
+              href="/store"
               className="rounded-full border border-white/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:text-white"
             >
               В магазин
