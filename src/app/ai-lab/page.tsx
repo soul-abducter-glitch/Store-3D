@@ -2,7 +2,6 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { DragEvent } from "react";
-import { useSearchParams } from "next/navigation";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { motion } from "framer-motion";
@@ -257,8 +256,17 @@ function FloorPulse({ active }: { active: boolean }) {
 }
 
 function AiLabContent() {
-  const searchParams = useSearchParams();
-  const previewParam = searchParams.get("preview");
+  const [previewParam, setPreviewParam] = useState<string | null>(null);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const readParams = () => {
+      const params = new URLSearchParams(window.location.search);
+      setPreviewParam(params.get("preview"));
+    };
+    readParams();
+    window.addEventListener("popstate", readParams);
+    return () => window.removeEventListener("popstate", readParams);
+  }, []);
   const previewModel = useMemo(() => normalizePreview(previewParam), [previewParam]);
   const previewLabel = useMemo(() => {
     if (!previewModel) return null;
@@ -918,9 +926,5 @@ function AiLabContent() {
 }
 
 export default function AiLabPage() {
-  return (
-    <Suspense fallback={<div className="min-h-screen bg-[#030304]" />}>
-      <AiLabContent />
-    </Suspense>
-  );
+  return <AiLabContent />;
 }
