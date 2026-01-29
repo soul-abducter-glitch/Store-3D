@@ -350,19 +350,29 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
     return value;
   }
 
+  const url = typeof value.url === "string" ? value.url : null;
+  if (url) {
+    if (isExternalUrl(url)) {
+      return url;
+    }
+    if (url.startsWith("/")) {
+      return url;
+    }
+  }
+
   const filename = value.filename ?? null;
   if (filename && isModelAsset(filename)) {
     if (isGltfAsset(filename)) {
-      if (value.url) {
-        return value.url;
+      if (url) {
+        return url;
       }
       return `/media/${filename}`;
     }
     return buildProxyUrl(filename);
   }
 
-  if (value.url) {
-    return value.url;
+  if (url) {
+    return url;
   }
   if (filename) {
     return `/media/${filename}`;
