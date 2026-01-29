@@ -202,6 +202,22 @@ export default function Home() {
             </button>
           </div>
         </div>
+        <div className="mx-auto flex max-w-[1400px] items-center justify-center gap-2 px-4 pb-3 sm:hidden">
+          <button
+            type="button"
+            onClick={() => router.push("/ai-lab")}
+            className="rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+          >
+            AI ЛАБОРАТОРИЯ
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/services/print")}
+            className="rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
+          >
+            ПЕЧАТЬ НА ЗАКАЗ
+          </button>
+        </div>
       </header>
 
       <section
