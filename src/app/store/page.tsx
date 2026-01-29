@@ -3613,7 +3613,7 @@ function Experience({
     }),
     [isLowQuality]
   );
-  const dpr = isLowQuality ? 1 : [1, 2];
+  const dpr: number | [number, number] = isLowQuality ? 1 : [1, 2];
   const environmentIntensity = isLowQuality
     ? Math.max(0.6, lightingConfig.intensity * 0.75)
     : lightingConfig.intensity;
