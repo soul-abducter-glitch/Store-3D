@@ -8,6 +8,7 @@ const accessKeyId = process.env.S3_ACCESS_KEY_ID;
 const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
 const region = process.env.S3_REGION || "us-east-1";
 const prefix = "media";
+const publicBase = endpoint ? endpoint.replace(/\/$/, "") : "";
 
 const client =
   bucket && endpoint && accessKeyId && secretAccessKey
@@ -37,14 +38,32 @@ const toWebStream = (body: any) => {
 
 export const runtime = "nodejs";
 
+const buildPublicUrl = (key: string) => {
+  if (!publicBase || !bucket) {
+    return null;
+  }
+  return `${publicBase}/${bucket}/${key}`;
+};
+
+const fetchPublicObject = async (key: string, filename: string) => {
+  const url = buildPublicUrl(key);
+  if (!url) {
+    return null;
+  }
+  const response = await fetch(url);
+  if (!response.ok) {
+    return new Response("Failed to load file", { status: response.status });
+  }
+  const headers = new Headers();
+  headers.set("Content-Type", response.headers.get("content-type") || guessContentType(filename));
+  headers.set("Cache-Control", "public, max-age=31536000, immutable");
+  return new Response(response.body, { headers });
+};
+
 export async function GET(
   _request: NextRequest,
   { params }: { params: Promise<{ filename: string }> }
 ) {
-  if (!client || !bucket) {
-    return new Response("S3 is not configured", { status: 500 });
-  }
-
   const resolvedParams = await params;
   const rawName = resolvedParams?.filename ? decodeURIComponent(resolvedParams.filename) : "";
   const safeName = rawName.replace(/\\/g, "/").split("/").pop() || "";
@@ -53,6 +72,13 @@ export async function GET(
   }
 
   const key = prefix ? `${prefix}/${safeName}` : safeName;
+  if (!client || !bucket) {
+    const fallback = await fetchPublicObject(key, safeName);
+    if (fallback) {
+      return fallback;
+    }
+    return new Response("S3 is not configured", { status: 500 });
+  }
 
   try {
     const result = await client.send(
@@ -72,6 +98,10 @@ export async function GET(
   } catch (error: any) {
     if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
       return new Response("Not found", { status: 404 });
+    }
+    const fallback = await fetchPublicObject(key, safeName);
+    if (fallback) {
+      return fallback;
     }
     console.error("S3 proxy error", error);
     return new Response("Failed to load file", { status: 500 });
