@@ -783,6 +783,8 @@ export default function Home() {
   const [isWorkshopOpen, setWorkshopOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [userProfile, setUserProfile] = useState<any | null>(null);
+  const [modelRetryKey, setModelRetryKey] = useState(0);
+  const [modelErrorCount, setModelErrorCount] = useState(0);
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
@@ -1549,6 +1551,26 @@ export default function Home() {
   }, [currentProduct, finish, isSlaProduct, renderMode]);
 
   useEffect(() => {
+    setModelRetryKey(0);
+    setModelErrorCount(0);
+  }, [currentProduct?.id]);
+
+  useEffect(() => {
+    if (modelErrorCount === 0 || modelErrorCount > 2) {
+      return;
+    }
+    const timer = window.setTimeout(() => {
+      setModelRetryKey((prev) => prev + 1);
+    }, 1200);
+    return () => window.clearTimeout(timer);
+  }, [modelErrorCount]);
+
+  const handleModelRetry = useCallback(() => {
+    setModelErrorCount(0);
+    setModelRetryKey((prev) => prev + 1);
+  }, []);
+
+  useEffect(() => {
     if (heroVisible || typeof window === "undefined") {
       return;
     }
@@ -2207,7 +2229,16 @@ export default function Home() {
                       <SystemStandbyPanel message="3D ПРОСМОТР ГОТОВИТСЯ" className="h-full" />
                     ) : (
                       <ErrorBoundary
-                        fallback={<SystemStandbyPanel message="3D System Standby" className="h-full" />}
+                        resetKey={`${currentProduct?.id ?? "none"}:${modelRetryKey}`}
+                        onError={() => setModelErrorCount((prev) => prev + 1)}
+                        fallback={
+                          <SystemStandbyPanel
+                            message="3D System Standby"
+                            className="h-full"
+                            actionLabel="Повторить"
+                            onAction={handleModelRetry}
+                          />
+                        }
                       >
                         <Experience
                           autoRotate={autoRotate && heroInView && isPageVisible}
@@ -3930,6 +3961,8 @@ function DockButton({ active, label, compactLabel, icon, fullWidth, onClick }: D
 type ErrorBoundaryProps = {
   children: ReactNode;
   fallback: ReactNode;
+  resetKey?: string | number;
+  onError?: () => void;
 };
 
 type ErrorBoundaryState = {
@@ -3943,6 +3976,16 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
     return { hasError: true };
   }
 
+  componentDidCatch() {
+    this.props.onError?.();
+  }
+
+  componentDidUpdate(prevProps: ErrorBoundaryProps) {
+    if (this.state.hasError && prevProps.resetKey !== this.props.resetKey) {
+      this.setState({ hasError: false });
+    }
+  }
+
   render() {
     if (this.state.hasError) {
       return this.props.fallback;
@@ -3954,15 +3997,33 @@ class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryState> {
 type SystemStandbyPanelProps = {
   message: string;
   className?: string;
+  actionLabel?: string;
+  onAction?: () => void;
 };
 
-function SystemStandbyPanel({ message, className }: SystemStandbyPanelProps) {
+function SystemStandbyPanel({
+  message,
+  className,
+  actionLabel,
+  onAction,
+}: SystemStandbyPanelProps) {
   return (
     <div
       className={`relative flex items-center justify-center overflow-hidden rounded-[28px] border border-white/10 bg-white/[0.03] px-4 py-8 text-center text-[10px] uppercase tracking-[0.3em] text-white/60 sm:px-6 sm:py-10 sm:text-xs ${className ?? ""}`}
     >
       <div className="pointer-events-none absolute inset-0 cad-grid-pattern opacity-30" />
-      <div className="relative">{message}</div>
+      <div className="relative flex flex-col items-center gap-3">
+        <span>{message}</span>
+        {actionLabel && onAction && (
+          <button
+            type="button"
+            onClick={onAction}
+            className="rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] px-4 py-2 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+          >
+            {actionLabel}
+          </button>
+        )}
+      </div>
     </div>
   );
 }
