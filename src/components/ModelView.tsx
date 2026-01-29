@@ -24,6 +24,7 @@ type ModelViewProps = {
     polyCount: number;
     meshCount: number;
   }) => void;
+  onReady?: () => void;
 };
 
 const FALLBACK_MODEL = "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
@@ -36,7 +37,9 @@ export default function ModelView({
   accentColor,
   onBounds,
   onStats,
+  onReady,
 }: ModelViewProps) {
+  const readyNotifiedRef = useRef(false);
   const activeUrl = useMemo(() => {
     if (finish === "Painted" && paintedModelUrl) {
       return resolveAssetUrl(paintedModelUrl);
@@ -45,6 +48,10 @@ export default function ModelView({
   }, [finish, rawModelUrl, paintedModelUrl]);
 
   const resolvedUrl = activeUrl ?? FALLBACK_MODEL;
+
+  useEffect(() => {
+    readyNotifiedRef.current = false;
+  }, [resolvedUrl]);
   const gltf = useGLTF(resolvedUrl);
   const originalMaterials = useRef<Map<string, Material | Material[]>>(new Map());
   const materialStates = useRef<
@@ -295,7 +302,11 @@ export default function ModelView({
     });
 
     setIsReady(true);
-  }, [gltf.scene, onBounds]);
+    if (!readyNotifiedRef.current) {
+      readyNotifiedRef.current = true;
+      onReady?.();
+    }
+  }, [gltf.scene, onBounds, onReady]);
 
   useEffect(() => {
     if (!isReady) return;

@@ -749,6 +749,7 @@ const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const CATALOG_REQUEST_TIMEOUT_MS = 15_000;
 const CATALOG_REQUEST_RETRY_DELAY_MS = 1200;
 const CATALOG_REQUEST_MAX_RETRIES = 1;
+const MODEL_LOAD_TIMEOUT_MS = 12_000;
 const SEARCH_RECENTS_KEY = "store3d_search_recent";
 
 export default function Home() {
@@ -785,6 +786,8 @@ export default function Home() {
   const [userProfile, setUserProfile] = useState<any | null>(null);
   const [modelRetryKey, setModelRetryKey] = useState(0);
   const [modelErrorCount, setModelErrorCount] = useState(0);
+  const [heroModelReady, setHeroModelReady] = useState(false);
+  const [heroModelStalled, setHeroModelStalled] = useState(false);
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
@@ -1553,7 +1556,27 @@ export default function Home() {
   useEffect(() => {
     setModelRetryKey(0);
     setModelErrorCount(0);
+    setHeroModelReady(false);
+    setHeroModelStalled(false);
   }, [currentProduct?.id]);
+
+  useEffect(() => {
+    if (!currentProduct || productsError || dataLoading) {
+      return;
+    }
+    setHeroModelReady(false);
+    setHeroModelStalled(false);
+    const timer = window.setTimeout(() => {
+      setHeroModelStalled(true);
+    }, MODEL_LOAD_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [currentProduct?.id, modelRetryKey, productsError, dataLoading]);
+
+  useEffect(() => {
+    if (heroModelReady) {
+      setHeroModelStalled(false);
+    }
+  }, [heroModelReady]);
 
   useEffect(() => {
     if (modelErrorCount === 0 || modelErrorCount > 2) {
@@ -1564,6 +1587,16 @@ export default function Home() {
     }, 1200);
     return () => window.clearTimeout(timer);
   }, [modelErrorCount]);
+
+  const handleModelReady = useCallback(() => {
+    setHeroModelReady(true);
+  }, []);
+
+  const handleModelError = useCallback(() => {
+    setHeroModelReady(false);
+    setHeroModelStalled(true);
+    setModelErrorCount((prev) => prev + 1);
+  }, []);
 
   const handleModelRetry = useCallback(() => {
     setModelErrorCount(0);
@@ -2230,7 +2263,7 @@ export default function Home() {
                     ) : (
                       <ErrorBoundary
                         resetKey={`${currentProduct?.id ?? "none"}:${modelRetryKey}`}
-                        onError={() => setModelErrorCount((prev) => prev + 1)}
+                        onError={handleModelError}
                         fallback={
                           <SystemStandbyPanel
                             message="3D System Standby"
@@ -2251,12 +2284,23 @@ export default function Home() {
                           paintedModelUrl={currentProduct?.paintedModelUrl ?? null}
                           modelScale={currentProduct?.modelScale ?? null}
                           controlsRef={controlsRef}
-                            onBounds={setHeroBounds}
-                            onStats={(stats) => {
-                              setHeroPolyCountComputed(stats.polyCount);
-                            }}
+                          onBounds={setHeroBounds}
+                          onStats={(stats) => {
+                            setHeroPolyCountComputed(stats.polyCount);
+                          }}
+                          onReady={handleModelReady}
                           />
                       </ErrorBoundary>
+                    )}
+                    {heroModelStalled && !showHeroStandby && heroVisible && (
+                      <div className="absolute inset-0 z-20">
+                        <SystemStandbyPanel
+                          message="МОДЕЛЬ ГРУЗИТСЯ СЛИШКОМ ДОЛГО"
+                          className="h-full"
+                          actionLabel="Повторить"
+                          onAction={handleModelRetry}
+                        />
+                      </div>
                     )}
                     <AnimatePresence>
                       {isScanning && !showHeroStandby && (
@@ -3576,6 +3620,7 @@ function Sidebar({
     controlsRef: MutableRefObject<any | null>;
     onBounds?: (bounds: ModelBounds) => void;
     onStats?: (stats: { polyCount: number; meshCount: number }) => void;
+    onReady?: () => void;
   };
 
 type CameraFitterProps = {
@@ -3628,6 +3673,7 @@ function Experience({
     controlsRef,
     onBounds,
     onStats,
+    onReady,
   }: ExperienceProps) {
   const [isMobile, setIsMobile] = useState(false);
   const [modelBounds, setModelBounds] = useState<ModelBounds | null>(null);
@@ -3769,6 +3815,7 @@ function Experience({
               accentColor={accentColor}
               onBounds={handleBounds}
               onStats={onStats}
+              onReady={onReady}
             />
         </group>
       </Stage>
