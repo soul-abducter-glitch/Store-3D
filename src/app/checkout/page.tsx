@@ -212,7 +212,7 @@ const digitalLabels = {
 
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'-]{1,49}$/;
 const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'.-]{1,49}$/;
-const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё\\s.,-]{3,120}$/;
+const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\\s.,\\-\\/№]{3,120}$/;
 
 const CheckoutPage = () => {
   const router = useRouter();
@@ -554,7 +554,9 @@ const CheckoutPage = () => {
         return;
       }
       if (!ADDRESS_REGEX.test(address)) {
-        setSubmitError("Адрес может содержать только буквы, пробелы, запятую, точку и дефис.");
+        setSubmitError(
+          "Адрес может содержать только буквы, цифры, пробелы, запятую, точку, дефис, слэш и №."
+        );
         return;
       }
     }
