@@ -122,6 +122,13 @@ const formatSpeed = (bytesPerSecond: number) => {
   return `${mb.toFixed(2)} MB/s`;
 };
 
+const buildProxyUrlFromSource = (value: string) => {
+  const normalized = value.split("?")[0] ?? value;
+  const filename = normalized.replace(/\\/g, "/").split("/").pop();
+  if (!filename) return null;
+  return `/api/media-file/${encodeURIComponent(filename)}`;
+};
+
 const buildUploadLogLine = (message: string, data?: Record<string, unknown>) => {
   const time = new Date().toLocaleTimeString("ru-RU", { hour12: false });
   if (!data) {
@@ -429,6 +436,7 @@ function PrintServiceContent() {
   const lastLoggedPercentRef = useRef<number>(-1);
   const lastStallLoggedRef = useRef(false);
   const retryTimerRef = useRef<number | null>(null);
+  const [isMobileUa, setIsMobileUa] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
     url?: string;
@@ -453,6 +461,12 @@ function PrintServiceContent() {
     Boolean(metrics) &&
     Boolean(serviceProductId) &&
     uploadStatus === "ready";
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const ua = navigator.userAgent || "";
+    setIsMobileUa(/android|iphone|ipad|ipod|iemobile|mobile/i.test(ua));
+  }, []);
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -695,6 +709,10 @@ function PrintServiceContent() {
       modelParam.startsWith("data:")
         ? modelParam
         : `${window.location.origin}${modelParam.startsWith("/") ? modelParam : `/${modelParam}`}`;
+    const prefersProxy = isMobileUa;
+    const proxyCandidate =
+      resolvedUrl.startsWith("http") ? buildProxyUrlFromSource(resolvedUrl) : null;
+    const initialUrl = prefersProxy && proxyCandidate ? proxyCandidate : resolvedUrl;
 
     const sanitize = (value: string) =>
       value
@@ -715,7 +733,13 @@ function PrintServiceContent() {
 
     const loadPreset = async () => {
       try {
-        const response = await fetch(resolvedUrl);
+        let response = await fetch(initialUrl);
+        if (!response.ok && initialUrl !== resolvedUrl) {
+          response = await fetch(resolvedUrl);
+        }
+        if (!response.ok && proxyCandidate) {
+          response = await fetch(proxyCandidate);
+        }
         if (!response.ok) {
           throw new Error(`Failed to fetch ${response.status}`);
         }
@@ -735,7 +759,7 @@ function PrintServiceContent() {
     };
 
     void loadPreset();
-  }, [handleFile, searchParams, showError, showSuccess]);
+  }, [handleFile, searchParams, showError, showSuccess, isMobileUa]);
 
   const pushUploadLog = useCallback((message: string, data?: Record<string, unknown>) => {
     if (!uploadDebugEnabled) {
@@ -876,6 +900,11 @@ function PrintServiceContent() {
       }
 
       try {
+        if (isMobileUa) {
+          setUploadStatus("finalizing");
+          await uploadViaServer();
+          return;
+        }
         console.log("Uploading file via presigned URL:", uploadMeta);
         pushUploadLog("presign-request");
 
@@ -1174,6 +1203,7 @@ function PrintServiceContent() {
     clearRetryTimer,
     waitForRetryDelay,
     pushUploadLog,
+    isMobileUa,
   ]);
 
   useEffect(() => {
