@@ -37,7 +37,7 @@ export async function GET(request: NextRequest) {
     const userId = normalizeId(searchParams.get("where[or][0][user][equals]"));
     const email = searchParams.get("where[or][1][customer.email][equals]");
 
-    const where: { or?: Array<Record<string, unknown>> } = {};
+    const where: any = {};
     const or: Array<Record<string, unknown>> = [];
     if (userId !== null) {
       or.push({ user: { equals: userId } });
