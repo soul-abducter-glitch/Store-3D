@@ -330,13 +330,33 @@ const PrintBed = () => {
 };
 
 const PrintScene = ({ model }: { model: Object3D | null }) => {
+  const [isMobile, setIsMobile] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 768px)");
+    const update = () => setIsMobile(media.matches);
+    update();
+    if ("addEventListener" in media) {
+      media.addEventListener("change", update);
+      return () => media.removeEventListener("change", update);
+    }
+    const legacyMedia = media as MediaQueryList & {
+      addListener?: (listener: () => void) => void;
+      removeListener?: (listener: () => void) => void;
+    };
+    legacyMedia.addListener?.(update);
+    return () => legacyMedia.removeListener?.(update);
+  }, []);
+
   return (
     <Canvas
       shadows
       gl={{ alpha: true, antialias: true }}
       camera={{ position: [280, 170, 340], fov: 40, near: 1, far: 2000 }}
-      dpr={[1, 1.5]}
+      dpr={isMobile ? 1 : [1, 1.5]}
       className="h-full w-full bg-transparent"
+      style={{ touchAction: isMobile ? "pan-y" : "none" }}
     >
       <ambientLight intensity={0.7} />
       <directionalLight
@@ -368,8 +388,9 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
       />
       {model && <primitive object={model} />}
       <OrbitControls
+        enabled={!isMobile}
         enablePan={false}
-        enableZoom
+        enableZoom={!isMobile}
         minDistance={140}
         maxDistance={520}
         dampingFactor={0.08}
