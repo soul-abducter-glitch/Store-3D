@@ -36,6 +36,7 @@ type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
   uploadName?: string;
+  sourceName?: string;
   technology?: string;
   material?: string;
   quality?: string;
@@ -89,6 +90,7 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     uploadId,
     uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
     uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+    sourceName: typeof raw.sourceName === "string" ? raw.sourceName : undefined,
     technology: typeof raw.technology === "string" ? raw.technology : undefined,
     material: typeof raw.material === "string" ? raw.material : undefined,
     quality: typeof raw.quality === "string" ? raw.quality : undefined,
@@ -238,6 +240,16 @@ const CheckoutPage = () => {
     shippingMethod: shippingMethodOptions[0].value,
     zipCode: "",
   });
+  const [fieldErrors, setFieldErrors] = useState<{
+    name?: string;
+    email?: string;
+    city?: string;
+    address?: string;
+  }>({});
+  const nameRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const cityRef = useRef<HTMLInputElement>(null);
+  const addressRef = useRef<HTMLTextAreaElement>(null);
   const apiBase = "";
   
   // Always use the Next.js API route, not direct backend URL
@@ -431,10 +443,26 @@ const CheckoutPage = () => {
     [hasPhysical, form.shippingMethod, paymentMethod, isPaymentStep]
   );
 
+  const focusField = useCallback((field: keyof typeof fieldErrors) => {
+    const ref =
+      field === "name"
+        ? nameRef
+        : field === "email"
+          ? emailRef
+          : field === "city"
+            ? cityRef
+            : addressRef;
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    ref.current?.focus?.();
+  }, []);
+
   const handleInputChange = (field: keyof typeof form) => (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
+    setFieldErrors((prev) =>
+      prev[field] ? { ...prev, [field]: undefined } : prev
+    );
   };
 
   const requestPaymentIntent = useCallback(
@@ -535,28 +563,48 @@ const CheckoutPage = () => {
     const zipCode = form.zipCode.trim();
     const shippingMethod = form.shippingMethod;
 
+    setFieldErrors({});
     if (!name || !email) {
       setSubmitError("Заполните имя и email.");
+      setFieldErrors({
+        name: !name ? "Укажите имя." : undefined,
+        email: !email ? "Укажите email." : undefined,
+      });
+      focusField(!name ? "name" : "email");
       return;
     }
     if (!NAME_REGEX.test(name)) {
       setSubmitError("Имя может содержать только буквы, пробелы, дефис и апостроф.");
+      setFieldErrors({ name: "Разрешены только буквы, пробел, дефис и апостроф." });
+      focusField("name");
       return;
     }
 
     if (hasPhysical && (!city || !address)) {
       setSubmitError("Укажите город и адрес доставки.");
+      setFieldErrors({
+        city: !city ? "Укажите город." : undefined,
+        address: !address ? "Укажите адрес." : undefined,
+      });
+      focusField(!city ? "city" : "address");
       return;
     }
     if (hasPhysical) {
       if (!CITY_REGEX.test(city)) {
         setSubmitError("Город может содержать только буквы, пробелы, точку и дефис.");
+        setFieldErrors({ city: "Разрешены только буквы, пробел, точка и дефис." });
+        focusField("city");
         return;
       }
       if (!ADDRESS_REGEX.test(address)) {
         setSubmitError(
           "Адрес может содержать только буквы, цифры, пробелы, запятую, точку, дефис, слэш и №."
         );
+        setFieldErrors({
+          address:
+            "Разрешены буквы, цифры, пробел, запятая, точка, дефис, слэш и №.",
+        });
+        focusField("address");
         return;
       }
     }
@@ -616,6 +664,7 @@ const CheckoutPage = () => {
               quality: item.customPrint.quality,
               dimensions: item.customPrint.dimensions,
               volumeCm3: item.customPrint.volumeCm3,
+              sourceName: item.customPrint.sourceName ?? item.customPrint.uploadName,
             }
           : undefined;
 
@@ -816,11 +865,23 @@ const CheckoutPage = () => {
                     <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
                     <input
                       type="text"
+                      ref={nameRef}
                       value={form.name}
                       onChange={handleInputChange("name")}
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                      aria-invalid={Boolean(fieldErrors.name)}
+                      aria-describedby={fieldErrors.name ? "checkout-name-error" : undefined}
+                      className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                        fieldErrors.name
+                          ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                          : "border-white/10"
+                      }`}
                     />
+                    {fieldErrors.name && (
+                      <p id="checkout-name-error" className="text-xs text-rose-300">
+                        {fieldErrors.name}
+                      </p>
+                    )}
                   </div>
                   <div className="space-y-2">
                     <label className="text-xs uppercase tracking-[0.3em] text-white/50">
@@ -828,11 +889,23 @@ const CheckoutPage = () => {
                     </label>
                     <input
                       type="email"
+                      ref={emailRef}
                       value={form.email}
                       onChange={handleInputChange("email")}
                       required
-                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                      aria-invalid={Boolean(fieldErrors.email)}
+                      aria-describedby={fieldErrors.email ? "checkout-email-error" : undefined}
+                      className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                        fieldErrors.email
+                          ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                          : "border-white/10"
+                      }`}
                     />
+                    {fieldErrors.email && (
+                      <p id="checkout-email-error" className="text-xs text-rose-300">
+                        {fieldErrors.email}
+                      </p>
+                    )}
                   </div>
                 </div>
 
@@ -866,12 +939,24 @@ const CheckoutPage = () => {
                       <input
                         type="text"
                         list="checkout-city-suggestions"
+                        ref={cityRef}
                         value={form.city}
                         onChange={handleInputChange("city")}
                         required={hasPhysical}
                         autoComplete="address-level2"
-                        className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                        aria-invalid={Boolean(fieldErrors.city)}
+                        aria-describedby={fieldErrors.city ? "checkout-city-error" : undefined}
+                        className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                          fieldErrors.city
+                            ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                            : "border-white/10"
+                        }`}
                       />
+                      {fieldErrors.city && (
+                        <p id="checkout-city-error" className="text-xs text-rose-300">
+                          {fieldErrors.city}
+                        </p>
+                      )}
                       <datalist id="checkout-city-suggestions">
                         {citySuggestions.map((city) => (
                           <option key={city} value={city} />
@@ -883,13 +968,25 @@ const CheckoutPage = () => {
                         {shippingLabels.address}
                       </label>
                       <textarea
+                        ref={addressRef}
                         value={form.address}
                         onChange={handleInputChange("address")}
                         required={hasPhysical}
                         rows={3}
                         placeholder="Город, дом, квартира"
-                        className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                        aria-invalid={Boolean(fieldErrors.address)}
+                        aria-describedby={fieldErrors.address ? "checkout-address-error" : undefined}
+                        className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                          fieldErrors.address
+                            ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                            : "border-white/10"
+                        }`}
                       />
+                      {fieldErrors.address && (
+                        <p id="checkout-address-error" className="text-xs text-rose-300">
+                          {fieldErrors.address}
+                        </p>
+                      )}
                       {streetSuggestions.length > 0 && (
                         <div className="rounded-2xl border border-white/10 bg-[#0b0f12]/80 p-2 text-xs text-white/70 shadow-[0_0_18px_rgba(0,0,0,0.35)] backdrop-blur">
                           <p className="px-2 py-1 text-[10px] uppercase tracking-[0.3em] text-white/40">

@@ -447,6 +447,7 @@ function PrintServiceContent() {
     url?: string;
     filename?: string;
   } | null>(null);
+  const [sourceName, setSourceName] = useState<string | null>(null);
   const [technology, setTechnology] = useState<TechMode>("sla");
   const [material, setMaterial] = useState<string>(materialsByTech.sla[0].label);
   const [quality, setQuality] = useState<QualityKey>("standard");
@@ -617,6 +618,7 @@ function PrintServiceContent() {
       }
 
       setUploadedMedia(null);
+      setSourceName(file.name);
       setMetrics(null);
       setModelObject(null);
       clearRetryTimer();
@@ -1309,7 +1311,8 @@ function PrintServiceContent() {
     customPrint: {
       uploadId: uploadedMedia?.id ?? "",
       uploadUrl: uploadedMedia?.url,
-      uploadName: uploadedMedia?.filename,
+      uploadName: sourceName ?? uploadedMedia?.filename,
+      sourceName: sourceName ?? uploadedMedia?.filename,
       technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
       material,
       quality: quality === "pro" ? "0.05mm" : "0.1mm",
@@ -1470,7 +1473,7 @@ function PrintServiceContent() {
               В магазин
             </Link>
             <Link
-              href="/checkout"
+              href={isLoggedIn ? "/profile" : "/profile?from=checkout"}
               className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
             >
               <ShoppingCart className="h-4 w-4" />
@@ -1570,7 +1573,7 @@ function PrintServiceContent() {
               uploadStatus === "analyzing" ||
               uploadStatus === "finalizing" ||
               uploadStatus === "pending") && (
-              <div className="absolute left-6 top-6 flex items-center gap-3 rounded-full border border-white/10 bg-black/70 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 backdrop-blur">
+              <div className="absolute left-4 right-4 top-4 z-30 flex items-center gap-3 rounded-full border border-white/10 bg-black/70 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 backdrop-blur sm:left-6 sm:right-auto sm:top-6">
                 {uploadError ? (
                   <>
                     <AlertTriangle className="h-4 w-4 text-red-400" />
@@ -1600,7 +1603,7 @@ function PrintServiceContent() {
               </div>
             )}
             {uploadStatus === "ready" && uploadedMedia?.id && (
-              <div className="absolute left-6 top-6 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-emerald-200">
+              <div className="absolute left-4 right-4 top-4 z-30 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-emerald-200 sm:left-6 sm:right-auto sm:top-6">
                 ЗАГРУЗКА ЗАВЕРШЕНА
               </div>
             )}
@@ -1614,7 +1617,7 @@ function PrintServiceContent() {
               </div>
             )}
             {isPreviewScaled && (
-              <div className="absolute right-6 top-6 rounded-full border border-[#2ED1FF]/40 bg-[#0b1014]/80 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF]">
+              <div className="absolute right-6 top-6 hidden rounded-full border border-[#2ED1FF]/40 bg-[#0b1014]/80 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] sm:block">
                 ПРЕДПРОСМОТР МАСШТАБИРОВАН
               </div>
             )}

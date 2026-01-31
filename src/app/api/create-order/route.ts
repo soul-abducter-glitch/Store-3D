@@ -54,6 +54,7 @@ const normalizePrintSpecs = (value: any) => {
     technology: typeof value.technology === "string" ? value.technology : undefined,
     material: typeof value.material === "string" ? value.material : undefined,
     quality: typeof value.quality === "string" ? value.quality : undefined,
+    sourceName: typeof value.sourceName === "string" ? value.sourceName : undefined,
     dimensions,
     volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
   };

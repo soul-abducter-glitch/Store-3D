@@ -200,6 +200,7 @@ type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
   uploadName?: string;
+  sourceName?: string;
   technology?: string;
   material?: string;
   quality?: string;
@@ -927,14 +928,15 @@ export default function Home() {
           }
         : undefined;
 
-    return {
-      uploadId,
-      uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
-      uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
-      technology: typeof raw.technology === "string" ? raw.technology : undefined,
-      material: typeof raw.material === "string" ? raw.material : undefined,
-      quality: typeof raw.quality === "string" ? raw.quality : undefined,
-      dimensions,
+  return {
+    uploadId,
+    uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
+    uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+    sourceName: typeof raw.sourceName === "string" ? raw.sourceName : undefined,
+    technology: typeof raw.technology === "string" ? raw.technology : undefined,
+    material: typeof raw.material === "string" ? raw.material : undefined,
+    quality: typeof raw.quality === "string" ? raw.quality : undefined,
+    dimensions,
       volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
     };
   };

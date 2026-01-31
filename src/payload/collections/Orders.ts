@@ -462,6 +462,10 @@ export const Orders: CollectionConfig = {
               type: "text",
             },
             {
+              name: "sourceName",
+              type: "text",
+            },
+            {
               name: "dimensions",
               type: "group",
               fields: [
