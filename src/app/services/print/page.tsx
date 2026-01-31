@@ -1014,28 +1014,29 @@ function PrintServiceContent() {
             presignData.contentType || "application/octet-stream"
           );
           xhr.upload.onprogress = (event) => {
-            if (event.lengthComputable) {
-              const percent = Math.round((event.loaded / event.total) * 100);
-              const now = Date.now();
-              const elapsedMs = uploadStartRef.current ? now - uploadStartRef.current : 0;
-              const speedBps = elapsedMs > 0 ? event.loaded / (elapsedMs / 1000) : 0;
-              const etaMs =
-                speedBps > 0 && file.size > event.loaded
-                  ? ((file.size - event.loaded) / speedBps) * 1000
-                  : null;
-              setUploadProgress(percent);
-              setUploadSpeedBps(speedBps);
-              setUploadElapsedMs(elapsedMs);
-              setUploadEtaMs(etaMs);
-              lastProgressRef.current = { time: now, loaded: event.loaded };
-              if (percent >= lastLoggedPercentRef.current + 10 || percent === 100) {
-                lastLoggedPercentRef.current = percent;
-                pushUploadLog("upload-progress", {
-                  percent,
-                  loaded: event.loaded,
-                  total: event.total,
-                });
-              }
+            const total =
+              event.lengthComputable && event.total > 0 ? event.total : file.size || 1;
+            const loaded = event.loaded;
+            const percent = Math.min(100, Math.round((loaded / total) * 100));
+            const now = Date.now();
+            const elapsedMs = uploadStartRef.current ? now - uploadStartRef.current : 0;
+            const speedBps = elapsedMs > 0 ? loaded / (elapsedMs / 1000) : 0;
+            const etaMs =
+              speedBps > 0 && file.size > loaded
+                ? ((file.size - loaded) / speedBps) * 1000
+                : null;
+            setUploadProgress(percent);
+            setUploadSpeedBps(speedBps);
+            setUploadElapsedMs(elapsedMs);
+            setUploadEtaMs(etaMs);
+            lastProgressRef.current = { time: now, loaded };
+            if (percent >= lastLoggedPercentRef.current + 10 || percent === 100) {
+              lastLoggedPercentRef.current = percent;
+              pushUploadLog("upload-progress", {
+                percent,
+                loaded,
+                total,
+              });
             }
           };
           xhr.onload = () => {
