@@ -1601,6 +1601,19 @@ function PrintServiceContent() {
                   {allowMobileRotate ? "Вращение ВКЛ" : "Вращение"}
                 </button>
               )}
+              {isMobileUa && (
+                <button
+                  type="button"
+                  className={`rounded-full border px-3 py-1 text-[8px] uppercase tracking-[0.28em] transition sm:px-5 sm:py-2 sm:text-[10px] ${
+                    uploadDebugEnabled
+                      ? "border-emerald-300/60 bg-emerald-400/10 text-emerald-200"
+                      : "border-white/20 bg-white/5 text-white/50 hover:text-white"
+                  }`}
+                  onClick={() => setUploadDebugEnabled((prev) => !prev)}
+                >
+                  {uploadDebugEnabled ? "DEBUG ВКЛ" : "DEBUG"}
+                </button>
+              )}
             </div>
 
             <input
