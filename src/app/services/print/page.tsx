@@ -793,6 +793,43 @@ function PrintServiceContent() {
     lastStallLoggedRef.current = false;
     pushUploadLog("upload-start", { name: file.name, size: file.size, type: file.type });
 
+    const uploadViaServer = async () => {
+      pushUploadLog("upload-server-start");
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await fetch("/api/customer-upload", {
+        method: "POST",
+        body: formData,
+      });
+      if (!response.ok) {
+        let errorMessage = "Server upload failed";
+        try {
+          const data = await response.json();
+          errorMessage = data?.error || data?.message || errorMessage;
+        } catch {
+          const fallbackText = await response.text().catch(() => "");
+          if (fallbackText) {
+            errorMessage = fallbackText;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+      const data = await response.json();
+      if (!data?.doc?.id) {
+        throw new Error("Server upload failed");
+      }
+      setUploadedMedia({
+        id: String(data.doc.id),
+        url: data.doc.url,
+        filename: data.doc.filename,
+      });
+      setUploadStatus("ready");
+      setPendingFile(null);
+      clearRetryTimer();
+      pushUploadLog("upload-server-done", { id: data.doc.id });
+      showSuccess("Файл загружен через сервер.");
+    };
+
     const existingUpload = await resolveExistingUpload(file);
     if (existingUpload?.id) {
       console.log("Using existing upload record:", {
@@ -1055,6 +1092,16 @@ function PrintServiceContent() {
 
         const isRetryable = isRetryableError({ code: errorCode });
         const isLastAttempt = attempt >= maxAttempts;
+
+        if (phase === "upload" && ["UPLOAD_NETWORK", "UPLOAD_FAILED"].includes(errorCode)) {
+          try {
+            setUploadStatus("finalizing");
+            await uploadViaServer();
+            return;
+          } catch (fallbackError) {
+            console.error("Server upload fallback failed", fallbackError);
+          }
+        }
 
         if (isRetryable && !isLastAttempt) {
           const delayMs = Math.min(
@@ -1380,7 +1427,7 @@ function PrintServiceContent() {
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-[1400px] px-6 pb-24 pt-10">
+      <main className="relative z-10 mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
@@ -1393,22 +1440,8 @@ function PrintServiceContent() {
             SYSTEM ONLINE
           </div>
         </div>
-        <div className="mt-4 flex sm:hidden">
-          <button
-            type="button"
-            className="w-full rounded-full border border-[#2ED1FF]/50 bg-[#0b1014] px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF]"
-            onClick={() =>
-              document.getElementById("print-settings")?.scrollIntoView({
-                behavior: "smooth",
-                block: "start",
-              })
-            }
-          >
-            НАСТРОЙКИ ПЕЧАТИ
-          </button>
-        </div>
 
-        <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="mt-6 grid gap-6 sm:mt-10 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section
             className="relative min-h-[520px] overflow-hidden"
             onDragOver={handleDragOver}
@@ -1453,7 +1486,7 @@ function PrintServiceContent() {
             <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF]"
+                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-4 py-1.5 text-[9px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF] sm:px-5 sm:py-2 sm:text-[10px]"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <UploadCloud className="h-4 w-4" />
@@ -1462,7 +1495,7 @@ function PrintServiceContent() {
               {canStartUpload && (
                 <button
                   type="button"
-                  className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
+                  className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-4 py-1.5 text-[9px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white sm:px-5 sm:py-2 sm:text-[10px]"
                   onClick={startUpload}
                 >
                   <UploadCloud className="h-4 w-4" />
