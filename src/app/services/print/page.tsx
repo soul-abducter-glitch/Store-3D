@@ -54,6 +54,7 @@ const STALL_ABORT_MS = 20_000;
 const UPLOAD_MAX_RETRIES = 2;
 const UPLOAD_RETRY_BASE_MS = 2000;
 const UPLOAD_RETRY_MAX_MS = 10_000;
+const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
 const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
 
@@ -850,6 +851,9 @@ function PrintServiceContent() {
     pushUploadLog("upload-start", { name: file.name, size: file.size, type: file.type });
 
     const uploadViaServer = async () => {
+      if (file.size > SERVER_UPLOAD_MAX_BYTES) {
+        throw new Error("Файл слишком большой для серверной загрузки.");
+      }
       pushUploadLog("upload-server-start");
       const formData = new FormData();
       formData.append("file", file);
@@ -933,14 +937,6 @@ function PrintServiceContent() {
       }
 
       try {
-        const ua =
-          typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
-        const isMobileRuntime = isMobileUa || /android|iphone|ipad|ipod|iemobile|mobile/i.test(ua);
-        if (isMobileRuntime) {
-          setUploadStatus("finalizing");
-          await uploadViaServer();
-          return;
-        }
         console.log("Uploading file via presigned URL:", uploadMeta);
         pushUploadLog("presign-request");
 
@@ -1163,6 +1159,14 @@ function PrintServiceContent() {
         const isLastAttempt = attempt >= maxAttempts;
 
         if (phase === "upload" && ["UPLOAD_NETWORK", "UPLOAD_FAILED"].includes(errorCode)) {
+          if (file.size > SERVER_UPLOAD_MAX_BYTES) {
+            clearRetryTimer();
+            setUploadError(
+              "Файл слишком большой для серверной загрузки. Разрешите прямую загрузку (CORS) и попробуйте снова."
+            );
+            setUploadStatus("pending");
+            return;
+          }
           try {
             setUploadStatus("finalizing");
             await uploadViaServer();
