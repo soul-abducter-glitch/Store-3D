@@ -55,6 +55,7 @@ const UPLOAD_MAX_RETRIES = 2;
 const UPLOAD_RETRY_BASE_MS = 2000;
 const UPLOAD_RETRY_MAX_MS = 10_000;
 const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
+const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
 const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
 
@@ -890,6 +891,193 @@ function PrintServiceContent() {
       showSuccess("Файл загружен через сервер.");
     };
 
+    const uploadViaMultipart = async () => {
+      pushUploadLog("multipart-start", { size: file.size });
+      const startResponse = await fetch("/api/customer-upload/multipart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "start",
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        }),
+      });
+      if (!startResponse.ok) {
+        let errorMessage = "Failed to start multipart upload";
+        try {
+          const errorData = await startResponse.json();
+          errorMessage = errorData?.error || errorData?.message || errorMessage;
+        } catch {
+          const fallbackText = await startResponse.text().catch(() => "");
+          if (fallbackText) {
+            errorMessage = fallbackText;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      const startData = await startResponse.json();
+      const uploadId = startData?.uploadId;
+      const key = startData?.key;
+      const partSize = startData?.partSize;
+      const partCount = startData?.partCount;
+
+      if (!uploadId || !key || !partSize || !partCount) {
+        throw new Error("Multipart start returned invalid data.");
+      }
+
+      const parts: Array<{ ETag: string; PartNumber: number }> = [];
+      let uploadedBase = 0;
+
+      for (let partNumber = 1; partNumber <= partCount; partNumber += 1) {
+        const start = (partNumber - 1) * partSize;
+        const end = Math.min(start + partSize, file.size);
+        const chunk = file.slice(start, end);
+        pushUploadLog("multipart-part-start", { partNumber, size: chunk.size });
+
+        const partResponse = await fetch("/api/customer-upload/multipart", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            action: "part",
+            uploadId,
+            key,
+            partNumber,
+          }),
+        });
+        if (!partResponse.ok) {
+          let errorMessage = "Failed to sign multipart chunk";
+          try {
+            const errorData = await partResponse.json();
+            errorMessage = errorData?.error || errorData?.message || errorMessage;
+          } catch {
+            const fallbackText = await partResponse.text().catch(() => "");
+            if (fallbackText) {
+              errorMessage = fallbackText;
+            }
+          }
+          throw new Error(errorMessage);
+        }
+        const partData = await partResponse.json();
+        const uploadUrl = partData?.uploadUrl;
+        if (!uploadUrl) {
+          throw new Error("Multipart part URL is missing.");
+        }
+
+        await new Promise<void>((resolve, reject) => {
+          const xhr = new XMLHttpRequest();
+          const uploadTimeoutMs = isMobileUa ? 20 * 60 * 1000 : UPLOAD_TIMEOUT_MS;
+          xhr.open("PUT", uploadUrl, true);
+          xhr.timeout = uploadTimeoutMs;
+          xhr.upload.onprogress = (event) => {
+            const loaded = event.lengthComputable ? event.loaded : 0;
+            const totalLoaded = uploadedBase + loaded;
+            const percent = Math.min(100, Math.round((totalLoaded / file.size) * 100));
+            const now = Date.now();
+            const elapsedMs = uploadStartRef.current ? now - uploadStartRef.current : 0;
+            const speedBps = elapsedMs > 0 ? totalLoaded / (elapsedMs / 1000) : 0;
+            const etaMs =
+              speedBps > 0 && file.size > totalLoaded
+                ? ((file.size - totalLoaded) / speedBps) * 1000
+                : null;
+            setUploadProgress(percent);
+            setUploadSpeedBps(speedBps);
+            setUploadElapsedMs(elapsedMs);
+            setUploadEtaMs(etaMs);
+            lastProgressRef.current = { time: now, loaded: totalLoaded };
+          };
+          xhr.onload = () => {
+            if (xhr.status >= 200 && xhr.status < 300) {
+              const etagHeader = xhr.getResponseHeader("ETag") || "";
+              const etag = etagHeader.replace(/\"/g, "");
+              if (!etag) {
+                reject(new Error("Missing ETag from upload response."));
+                return;
+              }
+              parts.push({ ETag: etag, PartNumber: partNumber });
+              uploadedBase += chunk.size;
+              pushUploadLog("multipart-part-done", { partNumber });
+              resolve();
+            } else {
+              reject(new Error(`Multipart upload failed (status ${xhr.status})`));
+            }
+          };
+          xhr.onerror = () => reject(new Error("Multipart upload network error"));
+          xhr.ontimeout = () => reject(new Error("Multipart upload timed out"));
+          xhr.send(chunk);
+        });
+      }
+
+      pushUploadLog("multipart-complete");
+      const completeResponse = await fetch("/api/customer-upload/multipart", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "complete",
+          uploadId,
+          key,
+          parts,
+        }),
+      });
+      if (!completeResponse.ok) {
+        let errorMessage = "Failed to complete multipart upload";
+        try {
+          const errorData = await completeResponse.json();
+          errorMessage = errorData?.error || errorData?.message || errorMessage;
+        } catch {
+          const fallbackText = await completeResponse.text().catch(() => "");
+          if (fallbackText) {
+            errorMessage = fallbackText;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      setUploadStatus("finalizing");
+      const finalizeResponse = await fetch("/api/customer-upload/complete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key,
+          fileUrl: startData?.fileUrl,
+          filename: file.name,
+          contentType: file.type || "application/octet-stream",
+          size: file.size,
+        }),
+      });
+
+      if (!finalizeResponse.ok) {
+        let errorMessage = "Failed to finalize upload";
+        try {
+          const errorData = await finalizeResponse.json();
+          errorMessage = errorData?.error || errorData?.message || errorMessage;
+        } catch {
+          const fallbackText = await finalizeResponse.text().catch(() => "");
+          if (fallbackText) {
+            errorMessage = fallbackText;
+          }
+        }
+        throw new Error(errorMessage);
+      }
+
+      const finalizeData = await finalizeResponse.json();
+      if (!finalizeData?.doc?.id) {
+        throw new Error("Upload failed");
+      }
+
+      setUploadedMedia({
+        id: String(finalizeData.doc.id),
+        url: finalizeData.doc.url,
+        filename: finalizeData.doc.filename,
+      });
+      setUploadProgress(100);
+      setUploadStatus("ready");
+      setPendingFile(null);
+      clearRetryTimer();
+      pushUploadLog("upload-done", { ms: Date.now() - (uploadStartRef.current ?? Date.now()) });
+    };
+
     const existingUpload = await resolveExistingUpload(file);
     if (existingUpload?.id) {
       console.log("Using existing upload record:", {
@@ -937,6 +1125,15 @@ function PrintServiceContent() {
       }
 
       try {
+        const ua =
+          typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
+        const isMobileRuntime =
+          isMobileUa || /android|iphone|ipad|ipod|iemobile|mobile/i.test(ua);
+        if (isMobileRuntime && file.size >= MULTIPART_THRESHOLD_BYTES) {
+          await uploadViaMultipart();
+          return;
+        }
+
         console.log("Uploading file via presigned URL:", uploadMeta);
         pushUploadLog("presign-request");
 
