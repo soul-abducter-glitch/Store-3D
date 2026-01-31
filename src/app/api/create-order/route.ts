@@ -95,6 +95,25 @@ const normalizePaymentMethod = (value?: string) => {
   return "card";
 };
 
+const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'-]{1,49}$/;
+const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'.-]{1,49}$/;
+const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё\\s.,-]{3,120}$/;
+
+const validateCustomerName = (value?: string) => {
+  if (!value) return false;
+  return NAME_REGEX.test(value.trim());
+};
+
+const validateCity = (value?: string) => {
+  if (!value) return false;
+  return CITY_REGEX.test(value.trim());
+};
+
+const validateAddress = (value?: string) => {
+  if (!value) return false;
+  return ADDRESS_REGEX.test(value.trim());
+};
+
 const PRINT_BASE_FEE = 350;
 const PRINT_TECH_SURCHARGE: Record<string, number> = {
   "SLA Resin": 120,
@@ -271,6 +290,47 @@ export async function POST(request: NextRequest) {
     const customerEmail = normalizeEmail(rawCustomerEmail);
     if ((baseData as any)?.customer && customerEmail) {
       (baseData as any).customer.email = customerEmail;
+    }
+    const rawCustomerName =
+      typeof (baseData as any)?.customer?.name === "string"
+        ? (baseData as any).customer.name
+        : "";
+    if (!validateCustomerName(rawCustomerName)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Invalid customer name.",
+        },
+        { status: 400 }
+      );
+    }
+    if (hasPhysical) {
+      const rawCity =
+        typeof (baseData as any)?.shipping?.city === "string"
+          ? (baseData as any).shipping.city
+          : "";
+      const rawAddress =
+        typeof (baseData as any)?.shipping?.address === "string"
+          ? (baseData as any).shipping.address
+          : "";
+      if (!validateCity(rawCity)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Invalid shipping city.",
+          },
+          { status: 400 }
+        );
+      }
+      if (!validateAddress(rawAddress)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Invalid shipping address.",
+          },
+          { status: 400 }
+        );
+      }
     }
 
     const productCache = new Map<string, any>();

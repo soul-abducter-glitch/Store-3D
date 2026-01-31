@@ -210,6 +210,10 @@ const digitalLabels = {
   info: "\u0426\u0438\u0444\u0440\u043e\u0432\u044b\u0435 \u0444\u0430\u0439\u043b\u044b \u0431\u0443\u0434\u0443\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u044b \u0432 \u0432\u0430\u0448\u0435\u043c \u041b\u0438\u0447\u043d\u043e\u043c \u041a\u0430\u0431\u0438\u043d\u0435\u0442\u0435 \u0441\u0440\u0430\u0437\u0443 \u043f\u043e\u0441\u043b\u0435 \u043e\u043f\u043b\u0430\u0442\u044b.",
 };
 
+const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'-]{1,49}$/;
+const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'.-]{1,49}$/;
+const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё\\s.,-]{3,120}$/;
+
 const CheckoutPage = () => {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -535,10 +539,24 @@ const CheckoutPage = () => {
       setSubmitError("Заполните имя и email.");
       return;
     }
+    if (!NAME_REGEX.test(name)) {
+      setSubmitError("Имя может содержать только буквы, пробелы, дефис и апостроф.");
+      return;
+    }
 
     if (hasPhysical && (!city || !address)) {
       setSubmitError("Укажите город и адрес доставки.");
       return;
+    }
+    if (hasPhysical) {
+      if (!CITY_REGEX.test(city)) {
+        setSubmitError("Город может содержать только буквы, пробелы, точку и дефис.");
+        return;
+      }
+      if (!ADDRESS_REGEX.test(address)) {
+        setSubmitError("Адрес может содержать только буквы, пробелы, запятую, точку и дефис.");
+        return;
+      }
     }
 
     if (!userId) {
