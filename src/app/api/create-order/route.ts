@@ -54,7 +54,6 @@ const normalizePrintSpecs = (value: any) => {
     technology?: string;
     material?: string;
     quality?: string;
-    sourceName?: string;
     dimensions?: { x: number; y: number; z: number };
     volumeCm3?: number;
   } = {
@@ -64,10 +63,6 @@ const normalizePrintSpecs = (value: any) => {
     dimensions,
     volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
   };
-
-  if (typeof value.sourceName === "string") {
-    normalized.sourceName = value.sourceName;
-  }
 
   return normalized;
 };
@@ -289,7 +284,6 @@ export async function POST(request: NextRequest) {
             technology: firstPrintItem.printSpecs.technology,
             material: firstPrintItem.printSpecs.material,
             quality: firstPrintItem.printSpecs.quality,
-            sourceName: firstPrintItem.printSpecs.sourceName,
             dimensions: firstPrintItem.printSpecs.dimensions,
             volumeCm3: firstPrintItem.printSpecs.volumeCm3,
           };

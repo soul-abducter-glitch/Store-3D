@@ -27,7 +27,7 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { UploadCloud, AlertTriangle, ShoppingCart, X } from "lucide-react";
+import { UploadCloud, AlertTriangle, ShoppingCart, RotateCw, X } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -337,7 +337,13 @@ const PrintBed = () => {
   );
 };
 
-const PrintScene = ({ model }: { model: Object3D | null }) => {
+const PrintScene = ({
+  model,
+  allowInteraction,
+}: {
+  model: Object3D | null;
+  allowInteraction: boolean;
+}) => {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -357,16 +363,18 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
     return () => legacyMedia.removeListener?.(update);
   }, []);
 
+  const interactionEnabled = !isMobile || allowInteraction;
+
   return (
     <Canvas
       shadows
       gl={{ alpha: true, antialias: true }}
       camera={{ position: [280, 170, 340], fov: 40, near: 1, far: 2000 }}
       dpr={isMobile ? 1 : [1, 1.5]}
-      className={`h-full w-full bg-transparent${isMobile ? " pointer-events-none" : ""}`}
+      className={`h-full w-full bg-transparent${interactionEnabled ? "" : " pointer-events-none"}`}
       style={{
-        touchAction: isMobile ? "pan-y" : "none",
-        pointerEvents: isMobile ? "none" : "auto",
+        touchAction: interactionEnabled ? "none" : "pan-y",
+        pointerEvents: interactionEnabled ? "auto" : "none",
       }}
     >
       <ambientLight intensity={0.7} />
@@ -399,9 +407,9 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
       />
       {model && <primitive object={model} />}
       <OrbitControls
-        enabled={!isMobile}
+        enabled={interactionEnabled}
         enablePan={false}
-        enableZoom={!isMobile}
+        enableZoom={!isMobile && interactionEnabled}
         minDistance={140}
         maxDistance={520}
         dampingFactor={0.08}
@@ -442,12 +450,12 @@ function PrintServiceContent() {
   const stallAbortArmedRef = useRef(false);
   const retryTimerRef = useRef<number | null>(null);
   const [isMobileUa, setIsMobileUa] = useState(false);
+  const [allowMobileRotate, setAllowMobileRotate] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
     url?: string;
     filename?: string;
   } | null>(null);
-  const [sourceName, setSourceName] = useState<string | null>(null);
   const [technology, setTechnology] = useState<TechMode>("sla");
   const [material, setMaterial] = useState<string>(materialsByTech.sla[0].label);
   const [quality, setQuality] = useState<QualityKey>("standard");
@@ -473,6 +481,12 @@ function PrintServiceContent() {
     const ua = navigator.userAgent || "";
     setIsMobileUa(/android|iphone|ipad|ipod|iemobile|mobile/i.test(ua));
   }, []);
+
+  useEffect(() => {
+    if (!isMobileUa) {
+      setAllowMobileRotate(false);
+    }
+  }, [isMobileUa]);
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -592,17 +606,29 @@ function PrintServiceContent() {
     [previewScale]
   );
 
-  const handleDragOver = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setDragActive(true);
-  }, []);
+  const handleDragOver = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (isMobileUa) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setDragActive(true);
+    },
+    [isMobileUa]
+  );
 
-  const handleDragLeave = useCallback((event: DragEvent<HTMLDivElement>) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setDragActive(false);
-  }, []);
+  const handleDragLeave = useCallback(
+    (event: DragEvent<HTMLDivElement>) => {
+      if (isMobileUa) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      setDragActive(false);
+    },
+    [isMobileUa]
+  );
 
   const handleFile = useCallback(
     async (file: File) => {
@@ -618,7 +644,6 @@ function PrintServiceContent() {
       }
 
       setUploadedMedia(null);
-      setSourceName(file.name);
       setMetrics(null);
       setModelObject(null);
       clearRetryTimer();
@@ -1311,8 +1336,7 @@ function PrintServiceContent() {
     customPrint: {
       uploadId: uploadedMedia?.id ?? "",
       uploadUrl: uploadedMedia?.url,
-      uploadName: sourceName ?? uploadedMedia?.filename,
-      sourceName: sourceName ?? uploadedMedia?.filename,
+      uploadName: pendingFile?.name ?? uploadedMedia?.filename,
       technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
       material,
       quality: quality === "pro" ? "0.05mm" : "0.1mm",
@@ -1499,13 +1523,13 @@ function PrintServiceContent() {
 
         <div className="mt-4 grid gap-6 sm:mt-10 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section
-            className="relative min-h-[520px] overflow-hidden"
+            className="relative min-h-[360px] overflow-hidden sm:min-h-[520px]"
             onDragOver={handleDragOver}
             onDragLeave={handleDragLeave}
             onDrop={handleDrop}
           >
             <div className="relative h-full">
-              <PrintScene model={modelObject} />
+              <PrintScene model={modelObject} allowInteraction={allowMobileRotate} />
             </div>
 
             {!modelObject && (
@@ -1558,6 +1582,20 @@ function PrintServiceContent() {
                   Загрузить модель
                 </button>
               )}
+              {isMobileUa && modelObject && (
+                <button
+                  type="button"
+                  className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[8px] uppercase tracking-[0.28em] transition sm:px-5 sm:py-2 sm:text-[10px] ${
+                    allowMobileRotate
+                      ? "border-[#2ED1FF]/70 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]"
+                      : "border-white/20 bg-white/5 text-white/60 hover:border-[#2ED1FF]/50 hover:text-white"
+                  }`}
+                  onClick={() => setAllowMobileRotate((prev) => !prev)}
+                >
+                  <RotateCw className="h-4 w-4" />
+                  {allowMobileRotate ? "Вращение ВКЛ" : "Вращение"}
+                </button>
+              )}
             </div>
 
             <input
@@ -1582,7 +1620,7 @@ function PrintServiceContent() {
                 ) : uploadStatus === "analyzing" ? (
                   <span>АНАЛИЗ МОДЕЛИ...</span>
                 ) : uploadStatus === "pending" ? (
-                  <span>ГОТОВ К ЗАГРУЗКЕ</span>
+                  <span>НАЖМИТЕ «ЗАГРУЗИТЬ МОДЕЛЬ»</span>
                 ) : uploadStatus === "finalizing" ? (
                   <span>СОХРАНЯЕМ В БАЗЕ...</span>
                 ) : (

@@ -200,7 +200,6 @@ type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
   uploadName?: string;
-  sourceName?: string;
   technology?: string;
   material?: string;
   quality?: string;
@@ -928,15 +927,14 @@ export default function Home() {
           }
         : undefined;
 
-  return {
-    uploadId,
-    uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
-    uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
-    sourceName: typeof raw.sourceName === "string" ? raw.sourceName : undefined,
-    technology: typeof raw.technology === "string" ? raw.technology : undefined,
-    material: typeof raw.material === "string" ? raw.material : undefined,
-    quality: typeof raw.quality === "string" ? raw.quality : undefined,
-    dimensions,
+    return {
+      uploadId,
+      uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
+      uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+      technology: typeof raw.technology === "string" ? raw.technology : undefined,
+      material: typeof raw.material === "string" ? raw.material : undefined,
+      quality: typeof raw.quality === "string" ? raw.quality : undefined,
+      dimensions,
       volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
     };
   };
@@ -2281,7 +2279,7 @@ export default function Home() {
         </div>
         </section>
       )}
-      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-36 sm:px-6 sm:pb-24 sm:pt-32 md:pt-28">
+      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-44 sm:px-6 sm:pb-24 sm:pt-32 md:pt-28">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr] md:items-start">
           <Sidebar
             format={format}
@@ -3074,7 +3072,7 @@ function Header({
         variants={containerVariants}
         initial="hidden"
         animate="show"
-        className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6 sm:py-5 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-6"
+        className="mx-auto flex w-full max-w-[1400px] flex-wrap items-center justify-between gap-3 px-4 py-2 sm:px-6 sm:py-5 md:grid md:grid-cols-[1fr_auto_1fr] md:items-center md:gap-6"
       >
         <motion.div variants={itemVariants} className="flex items-center gap-3 sm:gap-4">
           <div>
@@ -3269,18 +3267,18 @@ function Header({
 
         <motion.div
           variants={itemVariants}
-          className="flex w-full items-center justify-center gap-2 sm:hidden"
+          className="flex w-full items-center justify-center gap-1.5 sm:hidden"
         >
           <a
             href="/ai-lab"
-            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+            className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[8px] uppercase tracking-[0.26em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
           >
             <Sparkles className="h-3.5 w-3.5 text-[#2ED1FF]" />
             AI
           </a>
           <a
             href="/services/print"
-            className="flex items-center gap-1.5 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
+            className="flex items-center gap-1 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-2.5 py-1 text-[8px] uppercase tracking-[0.26em] text-[#BFF4FF] shadow-[0_0_10px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
           >
             <Printer className="h-3.5 w-3.5" />
             ПЕЧАТЬ

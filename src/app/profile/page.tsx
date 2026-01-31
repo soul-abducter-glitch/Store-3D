@@ -392,12 +392,9 @@ export default function ProfilePage() {
           item?.printSpecs || item?.customerUpload
       ) ?? (items.length > 0 ? items[0] : null);
     const upload = printItem?.customerUpload ?? order?.customFile ?? null;
-    const sourceName =
-      typeof printItem?.printSpecs?.sourceName === "string"
-        ? printItem.printSpecs.sourceName
-        : null;
     const filename =
-      sourceName || (typeof upload?.filename === "string" ? upload.filename : null);
+      (typeof upload?.alt === "string" && upload.alt) ||
+      (typeof upload?.filename === "string" ? upload.filename : null);
     const technology =
       typeof printItem?.printSpecs?.technology === "string"
         ? printItem.printSpecs.technology
