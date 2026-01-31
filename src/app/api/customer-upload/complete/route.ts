@@ -192,6 +192,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const storedFilename = key.split("/").pop() || filename;
     const mimeType = EXTENSION_CONTENT_TYPE[extension] || resolveMimeType(filename, contentType);
     const fileType = resolveFileType(filename);
     const url = buildPublicUrl(bucket, key);
@@ -228,6 +229,7 @@ export async function POST(request: NextRequest) {
     console.log("[customer-upload:complete] creating media", {
       requestId,
       filename,
+      storedFilename,
       key,
       size,
     });
@@ -242,7 +244,7 @@ export async function POST(request: NextRequest) {
           alt: filename,
           fileType,
           isCustomerUpload: true,
-          filename,
+          filename: storedFilename,
           mimeType,
           filesize: size,
           url,
@@ -279,7 +281,7 @@ export async function POST(request: NextRequest) {
         doc: {
           id: created.id,
           url: (created as any).url,
-          filename: (created as any).filename,
+          filename,
         },
       },
       { status: 201 }
