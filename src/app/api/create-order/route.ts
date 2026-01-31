@@ -277,6 +277,7 @@ export async function POST(request: NextRequest) {
             technology: firstPrintItem.printSpecs.technology,
             material: firstPrintItem.printSpecs.material,
             quality: firstPrintItem.printSpecs.quality,
+            sourceName: firstPrintItem.printSpecs.sourceName,
             dimensions: firstPrintItem.printSpecs.dimensions,
             volumeCm3: firstPrintItem.printSpecs.volumeCm3,
           };
