@@ -460,9 +460,12 @@ const CheckoutPage = () => {
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
-    setFieldErrors((prev) =>
-      prev[field] ? { ...prev, [field]: undefined } : prev
-    );
+    if (field in fieldErrors) {
+      const key = field as keyof typeof fieldErrors;
+      setFieldErrors((prev) =>
+        prev[key] ? { ...prev, [key]: undefined } : prev
+      );
+    }
   };
 
   const requestPaymentIntent = useCallback(
