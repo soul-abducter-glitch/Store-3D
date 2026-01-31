@@ -50,6 +50,7 @@ const PRESIGN_TIMEOUT_MS = 30_000;
 const COMPLETE_TIMEOUT_MS = 120_000;
 const PROGRESS_SEGMENTS = 10;
 const STALLED_TIMEOUT_MS = 15_000;
+const STALL_ABORT_MS = 20_000;
 const UPLOAD_MAX_RETRIES = 2;
 const UPLOAD_RETRY_BASE_MS = 2000;
 const UPLOAD_RETRY_MAX_MS = 10_000;
@@ -438,6 +439,7 @@ function PrintServiceContent() {
   const lastProgressRef = useRef<{ time: number; loaded: number } | null>(null);
   const lastLoggedPercentRef = useRef<number>(-1);
   const lastStallLoggedRef = useRef(false);
+  const stallAbortArmedRef = useRef(false);
   const retryTimerRef = useRef<number | null>(null);
   const [isMobileUa, setIsMobileUa] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<{
@@ -817,6 +819,7 @@ function PrintServiceContent() {
     lastProgressRef.current = { time: uploadStartRef.current, loaded: 0 };
     lastLoggedPercentRef.current = -1;
     lastStallLoggedRef.current = false;
+    stallAbortArmedRef.current = false;
     pushUploadLog("upload-start", { name: file.name, size: file.size, type: file.type });
 
     const uploadViaServer = async () => {
@@ -892,6 +895,7 @@ function PrintServiceContent() {
       lastProgressRef.current = { time: uploadStartRef.current, loaded: 0 };
       lastLoggedPercentRef.current = -1;
       lastStallLoggedRef.current = false;
+      stallAbortArmedRef.current = false;
 
       const uploadStartedAt = Date.now();
       const uploadMeta = { name: file.name, type: file.type, size: file.size };
@@ -1025,6 +1029,10 @@ function PrintServiceContent() {
           xhr.onerror = () => {
             pushUploadLog("upload-network-error", { status: xhr.status, statusText: xhr.statusText });
             reject(buildXhrError("Upload network error", "UPLOAD_NETWORK"));
+          };
+          xhr.onabort = () => {
+            pushUploadLog("upload-abort", { status: xhr.status, statusText: xhr.statusText });
+            reject(buildXhrError("Upload aborted", "UPLOAD_ABORT"));
           };
           xhr.ontimeout = () => {
             pushUploadLog("upload-timeout", { status: xhr.status });
@@ -1231,6 +1239,7 @@ function PrintServiceContent() {
     if (uploadStatus !== "uploading") {
       setUploadStalled(false);
       clearRetryTimer();
+      stallAbortArmedRef.current = false;
       return;
     }
     const interval = window.setInterval(() => {
@@ -1249,9 +1258,18 @@ function PrintServiceContent() {
             console.info("[upload]", "upload-stalled");
           }
         }
+        if (
+          uploadXhrRef.current &&
+          !stallAbortArmedRef.current &&
+          Date.now() - last.time > STALL_ABORT_MS
+        ) {
+          stallAbortArmedRef.current = true;
+          uploadXhrRef.current.abort();
+        }
       } else {
         setUploadStalled(false);
         lastStallLoggedRef.current = false;
+        stallAbortArmedRef.current = false;
       }
     }, 1000);
     return () => window.clearInterval(interval);

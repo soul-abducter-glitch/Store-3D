@@ -94,6 +94,43 @@ const buildExistingWhere = (filename: string, size: number, url?: string) => {
   return { or: candidates };
 };
 
+const extractErrorMessage = (error: unknown) => {
+  if (!error) return "Failed to finalize upload.";
+  if (typeof error === "string") return error;
+  if (error instanceof Error) return error.message || "Failed to finalize upload.";
+  const message = (error as any)?.message;
+  return typeof message === "string" && message ? message : "Failed to finalize upload.";
+};
+
+const extractErrorDetails = (error: unknown) => {
+  if (!error || typeof error !== "object") return undefined;
+  const anyError = error as any;
+  return {
+    name: anyError.name,
+    code: anyError.code,
+    message: anyError.message,
+    label: anyError.label,
+    stack: anyError.stack,
+    hint: anyError.hint,
+    detail: anyError.detail,
+    where: anyError.where,
+    schema: anyError.schema,
+    table: anyError.table,
+    column: anyError.column,
+    constraint: anyError.constraint,
+    position: anyError.position,
+    routine: anyError.routine,
+    severity: anyError.severity,
+    file: anyError.file,
+    line: anyError.line,
+    query: anyError.query,
+    internalQuery: anyError.internalQuery,
+    internalPosition: anyError.internalPosition,
+    data: anyError.data,
+    errors: anyError.errors,
+  };
+};
+
 export async function POST(request: NextRequest) {
   const requestId = Math.random().toString(36).slice(2, 8);
   const startedAt = Date.now();
@@ -195,21 +232,39 @@ export async function POST(request: NextRequest) {
       size,
     });
 
-    const created = await payload.create({
-      collection: "media",
-      overrideAccess: true,
-      disableTransaction: true,
-      data: {
-        alt: filename,
-        fileType,
-        isCustomerUpload: true,
-        filename,
-        mimeType,
-        filesize: size,
-        url,
-        prefix: "media",
-      },
-    });
+    let created;
+    try {
+      created = await payload.create({
+        collection: "media",
+        overrideAccess: true,
+        disableTransaction: true,
+        data: {
+          alt: filename,
+          fileType,
+          isCustomerUpload: true,
+          filename,
+          mimeType,
+          filesize: size,
+          url,
+          prefix: "media",
+        },
+      });
+    } catch (error) {
+      console.error("[customer-upload:complete] create failed", {
+        requestId,
+        ms: Date.now() - startedAt,
+        message: extractErrorMessage(error),
+        details: extractErrorDetails(error),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: extractErrorMessage(error),
+          details: extractErrorDetails(error),
+        },
+        { status: 500 }
+      );
+    }
 
     console.log("[customer-upload:complete] created", {
       requestId,
@@ -233,10 +288,15 @@ export async function POST(request: NextRequest) {
     console.error("[customer-upload:complete] error", {
       requestId,
       ms: Date.now() - startedAt,
-      error,
+      message: extractErrorMessage(error),
+      details: extractErrorDetails(error),
     });
     return NextResponse.json(
-      { success: false, error: "Failed to finalize upload." },
+      {
+        success: false,
+        error: extractErrorMessage(error),
+        details: extractErrorDetails(error),
+      },
       { status: 500 }
     );
   }
