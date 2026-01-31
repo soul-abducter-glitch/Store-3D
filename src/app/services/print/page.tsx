@@ -1007,12 +1007,14 @@ function PrintServiceContent() {
             return error;
           };
 
+          const uploadTimeoutMs = isMobileUa ? 20 * 60 * 1000 : UPLOAD_TIMEOUT_MS;
           xhr.open("PUT", presignData.uploadUrl, true);
-          xhr.timeout = UPLOAD_TIMEOUT_MS;
+          xhr.timeout = uploadTimeoutMs;
           xhr.setRequestHeader(
             "Content-Type",
             presignData.contentType || "application/octet-stream"
           );
+          pushUploadLog("upload-timeout", { ms: uploadTimeoutMs });
           xhr.upload.onprogress = (event) => {
             const total =
               event.lengthComputable && event.total > 0 ? event.total : file.size || 1;
