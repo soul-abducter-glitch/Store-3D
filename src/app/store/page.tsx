@@ -1532,8 +1532,9 @@ export default function Home() {
   const buildPrintUrl = useCallback((product: CatalogProduct) => {
     const modelUrl = product.rawModelUrl ?? product.paintedModelUrl ?? null;
     if (!modelUrl) return null;
+    const proxyUrl = buildProxyUrlFromSource(modelUrl) ?? modelUrl;
     const params = new URLSearchParams();
-    params.set("model", modelUrl);
+    params.set("model", proxyUrl);
     params.set("name", product.name ?? "model");
     params.set("source", "digital");
     return `/services/print?${params.toString()}`;
@@ -2278,7 +2279,7 @@ export default function Home() {
         </div>
         </section>
       )}
-      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-32 sm:px-6 sm:pb-24 sm:pt-28">
+      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-36 sm:px-6 sm:pb-24 sm:pt-32 md:pt-28">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr] md:items-start">
           <Sidebar
             format={format}

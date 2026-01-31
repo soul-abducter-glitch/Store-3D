@@ -362,8 +362,11 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
       gl={{ alpha: true, antialias: true }}
       camera={{ position: [280, 170, 340], fov: 40, near: 1, far: 2000 }}
       dpr={isMobile ? 1 : [1, 1.5]}
-      className="h-full w-full bg-transparent"
-      style={{ touchAction: isMobile ? "pan-y" : "none" }}
+      className={`h-full w-full bg-transparent${isMobile ? " pointer-events-none" : ""}`}
+      style={{
+        touchAction: isMobile ? "pan-y" : "none",
+        pointerEvents: isMobile ? "none" : "auto",
+      }}
     >
       <ambientLight intensity={0.7} />
       <directionalLight
@@ -709,10 +712,9 @@ function PrintServiceContent() {
       modelParam.startsWith("data:")
         ? modelParam
         : `${window.location.origin}${modelParam.startsWith("/") ? modelParam : `/${modelParam}`}`;
-    const prefersProxy = isMobileUa;
     const proxyCandidate =
       resolvedUrl.startsWith("http") ? buildProxyUrlFromSource(resolvedUrl) : null;
-    const initialUrl = prefersProxy && proxyCandidate ? proxyCandidate : resolvedUrl;
+    const initialUrl = proxyCandidate ?? resolvedUrl;
 
     const sanitize = (value: string) =>
       value
@@ -900,7 +902,10 @@ function PrintServiceContent() {
       }
 
       try {
-        if (isMobileUa) {
+        const ua =
+          typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
+        const isMobileRuntime = isMobileUa || /android|iphone|ipad|ipod|iemobile|mobile/i.test(ua);
+        if (isMobileRuntime) {
           setUploadStatus("finalizing");
           await uploadViaServer();
           return;
@@ -1457,7 +1462,7 @@ function PrintServiceContent() {
         </div>
       </header>
 
-      <main className="relative z-10 mx-auto max-w-[1400px] px-4 pb-24 pt-6 sm:px-6 sm:pt-10">
+      <main className="relative z-10 mx-auto max-w-[1400px] px-4 pb-24 pt-4 sm:px-6 sm:pt-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
@@ -1471,7 +1476,7 @@ function PrintServiceContent() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-6 sm:mt-10 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="mt-4 grid gap-6 sm:mt-10 sm:gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section
             className="relative min-h-[520px] overflow-hidden"
             onDragOver={handleDragOver}
@@ -1516,7 +1521,7 @@ function PrintServiceContent() {
             <div className="absolute bottom-6 left-1/2 flex -translate-x-1/2 flex-col items-center gap-2">
               <button
                 type="button"
-                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-4 py-1.5 text-[9px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF] sm:px-5 sm:py-2 sm:text-[10px]"
+                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#050505]/80 px-3 py-1 text-[8px] uppercase tracking-[0.3em] text-[#BFF4FF] backdrop-blur-sm transition hover:border-[#7FE7FF] sm:px-5 sm:py-2 sm:text-[10px]"
                 onClick={() => fileInputRef.current?.click()}
               >
                 <UploadCloud className="h-4 w-4" />
@@ -1525,7 +1530,7 @@ function PrintServiceContent() {
               {canStartUpload && (
                 <button
                   type="button"
-                  className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-4 py-1.5 text-[9px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white sm:px-5 sm:py-2 sm:text-[10px]"
+                  className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-3 py-1 text-[8px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white sm:px-5 sm:py-2 sm:text-[10px]"
                   onClick={startUpload}
                 >
                   <UploadCloud className="h-4 w-4" />
