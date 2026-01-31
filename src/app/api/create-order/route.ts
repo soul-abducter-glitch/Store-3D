@@ -50,14 +50,26 @@ const normalizePrintSpecs = (value: any) => {
         }
       : undefined;
 
-  return {
+  const normalized: {
+    technology?: string;
+    material?: string;
+    quality?: string;
+    sourceName?: string;
+    dimensions?: { x: number; y: number; z: number };
+    volumeCm3?: number;
+  } = {
     technology: typeof value.technology === "string" ? value.technology : undefined,
     material: typeof value.material === "string" ? value.material : undefined,
     quality: typeof value.quality === "string" ? value.quality : undefined,
-    sourceName: typeof value.sourceName === "string" ? value.sourceName : undefined,
     dimensions,
     volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
   };
+
+  if (typeof value.sourceName === "string") {
+    normalized.sourceName = value.sourceName;
+  }
+
+  return normalized;
 };
 
 const normalizeOrderStatus = (value?: string) => {
