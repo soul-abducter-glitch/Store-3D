@@ -2278,7 +2278,7 @@ export default function Home() {
         </div>
         </section>
       )}
-      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-24 sm:px-6 sm:pb-24 sm:pt-28">
+      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-32 sm:px-6 sm:pb-24 sm:pt-28">
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr] md:items-start">
           <Sidebar
             format={format}

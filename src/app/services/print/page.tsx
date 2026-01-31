@@ -1372,6 +1372,20 @@ function PrintServiceContent() {
             SYSTEM ONLINE
           </div>
         </div>
+        <div className="mt-4 flex sm:hidden">
+          <button
+            type="button"
+            className="w-full rounded-full border border-[#2ED1FF]/50 bg-[#0b1014] px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF]"
+            onClick={() =>
+              document.getElementById("print-settings")?.scrollIntoView({
+                behavior: "smooth",
+                block: "start",
+              })
+            }
+          >
+            НАСТРОЙКИ ПЕЧАТИ
+          </button>
+        </div>
 
         <div className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]">
           <section
@@ -1499,7 +1513,10 @@ function PrintServiceContent() {
             )}
           </section>
 
-          <aside className="space-y-5 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+          <aside
+            id="print-settings"
+            className="space-y-5 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl"
+          >
             <div className="space-y-3">
               <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                 Технические данные
