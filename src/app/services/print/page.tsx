@@ -1274,12 +1274,13 @@ function PrintServiceContent() {
       stallAbortArmedRef.current = false;
       return;
     }
+    const stallTimeout = isMobileUa ? STALLED_TIMEOUT_MS * 4 : STALLED_TIMEOUT_MS;
     const interval = window.setInterval(() => {
       if (uploadStartRef.current) {
         setUploadElapsedMs(Date.now() - uploadStartRef.current);
       }
       const last = lastProgressRef.current;
-      if (last && Date.now() - last.time > STALLED_TIMEOUT_MS) {
+      if (last && Date.now() - last.time > stallTimeout) {
         setUploadStalled(true);
         if (!lastStallLoggedRef.current) {
           lastStallLoggedRef.current = true;
@@ -1291,6 +1292,7 @@ function PrintServiceContent() {
           }
         }
         if (
+          !isMobileUa &&
           uploadXhrRef.current &&
           !stallAbortArmedRef.current &&
           Date.now() - last.time > STALL_ABORT_MS
@@ -1305,7 +1307,7 @@ function PrintServiceContent() {
       }
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [uploadStatus, uploadDebugEnabled, clearRetryTimer]);
+  }, [uploadStatus, uploadDebugEnabled, clearRetryTimer, isMobileUa]);
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
