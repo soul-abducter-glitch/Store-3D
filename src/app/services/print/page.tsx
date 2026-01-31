@@ -997,6 +997,13 @@ function PrintServiceContent() {
               }
               parts.push({ ETag: etag, PartNumber: partNumber });
               uploadedBase += chunk.size;
+              {
+                const percent = Math.min(100, Math.round((uploadedBase / file.size) * 100));
+                setUploadProgress(percent);
+                setUploadSpeedBps((prev) => prev);
+                setUploadElapsedMs((prev) => prev);
+                lastProgressRef.current = { time: Date.now(), loaded: uploadedBase };
+              }
               pushUploadLog("multipart-part-done", { partNumber });
               resolve();
             } else {
@@ -1125,11 +1132,7 @@ function PrintServiceContent() {
       }
 
       try {
-        const ua =
-          typeof navigator !== "undefined" && navigator.userAgent ? navigator.userAgent : "";
-        const isMobileRuntime =
-          isMobileUa || /android|iphone|ipad|ipod|iemobile|mobile/i.test(ua);
-        if (isMobileRuntime && file.size >= MULTIPART_THRESHOLD_BYTES) {
+        if (file.size >= MULTIPART_THRESHOLD_BYTES) {
           await uploadViaMultipart();
           return;
         }
