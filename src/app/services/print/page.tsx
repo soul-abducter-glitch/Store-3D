@@ -9,6 +9,7 @@ import {
   useState,
   type ChangeEvent,
   type DragEvent,
+  type MutableRefObject,
 } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -27,7 +28,7 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { UploadCloud, AlertTriangle, ShoppingCart, X } from "lucide-react";
+import { UploadCloud, AlertTriangle, ShoppingCart, X, ZoomIn, ZoomOut } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -403,7 +404,13 @@ const PrintBed = () => {
   );
 };
 
-const PrintScene = ({ model }: { model: Object3D | null }) => {
+const PrintScene = ({
+  model,
+  controlsRef,
+}: {
+  model: Object3D | null;
+  controlsRef: MutableRefObject<any | null>;
+}) => {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -423,10 +430,12 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
     return () => legacyMedia.removeListener?.(update);
   }, []);
 
+  const enableShadows = !isMobile;
+
   return (
     <Canvas
-      shadows
-      gl={{ alpha: true, antialias: true }}
+      shadows={enableShadows}
+      gl={{ alpha: true, antialias: !isMobile }}
       camera={{ position: [280, 170, 340], fov: 40, near: 1, far: 2000 }}
       dpr={isMobile ? 1 : [1, 1.5]}
       className="h-full w-full bg-transparent"
@@ -435,13 +444,13 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
         pointerEvents: "auto",
       }}
     >
-      <ambientLight intensity={0.7} />
+      <ambientLight intensity={isMobile ? 0.85 : 0.7} />
       <directionalLight
         position={[180, 240, 120]}
-        intensity={1.4}
-        castShadow
-        shadow-mapSize-width={1024}
-        shadow-mapSize-height={1024}
+        intensity={isMobile ? 1.1 : 1.4}
+        castShadow={enableShadows}
+        shadow-mapSize-width={512}
+        shadow-mapSize-height={512}
         shadow-camera-near={10}
         shadow-camera-far={800}
         shadow-camera-left={-220}
@@ -450,7 +459,7 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
         shadow-camera-bottom={-220}
         shadow-bias={-0.0003}
       />
-      <directionalLight position={[-120, 160, -80]} intensity={0.8} />
+      <directionalLight position={[-120, 160, -80]} intensity={isMobile ? 0.6 : 0.8} />
       <PrintBed />
       <Grid
         position={[0, 0, 0]}
@@ -473,6 +482,7 @@ const PrintScene = ({ model }: { model: Object3D | null }) => {
         dampingFactor={0.08}
         enableDamping
         target={[0, 80, 0]}
+        ref={controlsRef}
       />
     </Canvas>
   );
@@ -482,6 +492,7 @@ function PrintServiceContent() {
   const { toasts, showSuccess, showError, removeToast } = useToast();
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const controlsRef = useRef<any | null>(null);
   const prefillRef = useRef(false);
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
@@ -1767,6 +1778,21 @@ function PrintServiceContent() {
     setIsAdding(false);
   };
 
+  const handleZoom = useCallback((delta: number) => {
+    const controls = controlsRef.current;
+    if (!controls || !controls.object || !controls.target) return;
+    const camera = controls.object;
+    const target = controls.target;
+    const direction = new Vector3()
+      .copy(camera.position)
+      .sub(target)
+      .normalize();
+    const currentDistance = camera.position.distanceTo(target);
+    const nextDistance = Math.min(520, Math.max(140, currentDistance + delta));
+    camera.position.copy(target).add(direction.multiplyScalar(nextDistance));
+    controls.update?.();
+  }, []);
+
   const handleAuthSuccess = () => {
     setIsLoggedIn(true);
     setAuthModalOpen(false);
@@ -1787,7 +1813,7 @@ function PrintServiceContent() {
         className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center page-bg-fade"
         style={{
           backgroundImage: `url(${PRINT_BG_IMAGE})`,
-          filter: "blur(8px) brightness(0.5) saturate(1.05)",
+          filter: "blur(8px) brightness(0.6) saturate(1.15)",
           transform: "scale(1.05)",
         }}
       />
@@ -1864,7 +1890,27 @@ function PrintServiceContent() {
             onDrop={handleDrop}
           >
             <div className="relative h-full">
-              <PrintScene model={modelObject} />
+              <PrintScene model={modelObject} controlsRef={controlsRef} />
+            </div>
+
+            <div className="absolute left-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
+              <span className="text-[9px] uppercase tracking-[0.3em] text-white/50">ZOOM</span>
+              <button
+                type="button"
+                onClick={() => handleZoom(-40)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                aria-label="Zoom in"
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => handleZoom(40)}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                aria-label="Zoom out"
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
             </div>
 
             {!modelObject && (
