@@ -24,30 +24,30 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
     <button
       onClick={() => onSelect(option.id)}
       className={`
-        w-full text-left rounded-2xl border-2 p-6 transition-all duration-300 backdrop-blur-xl
+        w-full min-w-0 text-left rounded-2xl border-2 p-4 transition-all duration-300 backdrop-blur-xl sm:p-6
         ${selected
           ? "border-[#2ED1FF]/80 bg-[#0b1014] shadow-[0_0_36px_rgba(46,209,255,0.25)]"
           : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
         }
       `}
     >
-      <div className="flex items-start justify-between">
-        <div className="flex items-start gap-4">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3 sm:gap-4">
           <div
             className={`
-              flex h-12 w-12 items-center justify-center rounded-xl
+              flex h-10 w-10 items-center justify-center rounded-xl sm:h-12 sm:w-12
               ${selected ? "bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_16px_rgba(46,209,255,0.35)]" : "bg-white/10 text-white/70"}
             `}
           >
             {option.icon}
           </div>
 
-          <div className="flex-1">
-            <div className="flex items-center gap-3">
-              <h3 className="text-lg font-semibold text-white">{option.name}</h3>
+          <div className="min-w-0 flex-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-base font-semibold text-white sm:text-lg">{option.name}</h3>
               <span
                 className={`
-                  text-sm font-medium px-2 py-1 rounded-full
+                  whitespace-nowrap rounded-full px-2 py-1 text-xs font-medium sm:text-sm
                   ${selected ? "bg-[#2ED1FF]/20 text-[#BFF4FF]" : "bg-white/10 text-white/60"}
                 `}
               >
@@ -55,9 +55,9 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
               </span>
             </div>
 
-            <p className="text-sm text-white/70 mt-1">{option.description}</p>
+            <p className="mt-1 text-sm text-white/70">{option.description}</p>
 
-            <div className="flex items-center gap-4 mt-3 text-xs text-white/60">
+            <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-white/60">
               <div className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {option.estimatedTime}
@@ -83,7 +83,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
 
         <div
           className={`
-            w-4 h-4 rounded-full border-2 transition-all duration-200
+            self-end sm:self-auto w-3 h-3 rounded-full border-2 transition-all duration-200 sm:h-4 sm:w-4
             ${selected ? "border-[#2ED1FF] bg-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.45)]" : "border-white/30 bg-transparent"}
           `}
         >
