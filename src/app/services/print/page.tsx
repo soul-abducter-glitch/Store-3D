@@ -532,6 +532,21 @@ function PrintServiceContent() {
     }
   };
 
+  const fetchMediaById = async (id: string) => {
+    if (!id) return null;
+    try {
+      const response = await fetch(`${apiBase}/api/media/${id}?depth=0`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return await response.json();
+    } catch {
+      return null;
+    }
+  };
+
   useEffect(() => {
     const nextMaterials = materialsByTech[technology];
     if (!nextMaterials.some((entry) => entry.label === material)) {
@@ -746,6 +761,7 @@ function PrintServiceContent() {
     prefillRef.current = true;
 
     const nameParam = searchParams.get("name");
+    const mediaIdParam = searchParams.get("mediaId");
     const resolvedUrl =
       modelParam.startsWith("http://") ||
       modelParam.startsWith("https://") ||
@@ -794,7 +810,23 @@ function PrintServiceContent() {
         const fileType = blob.type || "model/gltf-binary";
         const file = new File([blob], filename, { type: fileType });
         await handleFile(file);
-        showSuccess("Модель подставлена для печати.");
+        if (mediaIdParam) {
+          const existingMedia = await fetchMediaById(mediaIdParam);
+          setUploadedMedia({
+            id: mediaIdParam,
+            url: existingMedia?.url ?? resolvedUrl,
+            filename:
+              typeof existingMedia?.filename === "string"
+                ? existingMedia.filename
+                : filename,
+          });
+          setUploadProgress(100);
+          setUploadStatus("ready");
+          setPendingFile(null);
+          showSuccess("Модель уже в базе. Можно добавлять в корзину.");
+        } else {
+          showSuccess("Модель подставлена для печати.");
+        }
       } catch (error) {
         prefillRef.current = false;
         showError("Не удалось загрузить модель для печати.");

@@ -172,6 +172,8 @@ type CatalogProduct = {
   formatKey: FormatMode | null;
   rawModelUrl: string | null;
   paintedModelUrl: string | null;
+  rawModelId?: string | null;
+  paintedModelId?: string | null;
   modelScale: number | null;
   thumbnailUrl: string;
   techKey: TechMode | null;
@@ -382,6 +384,19 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
   }
   if (filename) {
     return `/media/${filename}`;
+  }
+  return null;
+};
+
+const resolveMediaId = (value?: MediaDoc | string | null) => {
+  if (!value || typeof value === "string") {
+    return null;
+  }
+  if (value.id) {
+    return String(value.id);
+  }
+  if ((value as any).value) {
+    return String((value as any).value);
   }
   return null;
 };
@@ -1208,6 +1223,8 @@ export default function Home() {
         (typeof product.technology === "string" ? product.technology : "Unknown");
       const rawModelUrl = resolveMediaUrl(product.rawModel ?? null);
       const paintedModelUrl = resolveMediaUrl(product.paintedModel ?? null);
+      const rawModelId = resolveMediaId(product.rawModel ?? null);
+      const paintedModelId = resolveMediaId(product.paintedModel ?? null);
       const priceValue = typeof product.price === "number" ? product.price : null;
       const priceLabel = formatCurrency(product.price);
       const polyCount = typeof product.polyCount === "number" ? product.polyCount : null;
@@ -1239,6 +1256,8 @@ export default function Home() {
         categoryKeys,
         rawModelUrl,
         paintedModelUrl,
+        rawModelId,
+        paintedModelId,
         thumbnailUrl,
       };
     });
@@ -1532,11 +1551,16 @@ export default function Home() {
   const buildPrintUrl = useCallback((product: CatalogProduct) => {
     const modelUrl = product.rawModelUrl ?? product.paintedModelUrl ?? null;
     if (!modelUrl) return null;
+    const mediaId =
+      product.rawModelUrl === modelUrl ? product.rawModelId : product.paintedModelId;
     const proxyUrl = buildProxyUrlFromSource(modelUrl) ?? modelUrl;
     const params = new URLSearchParams();
     params.set("model", proxyUrl);
     params.set("name", product.name ?? "model");
     params.set("source", "digital");
+    if (mediaId) {
+      params.set("mediaId", mediaId);
+    }
     return `/services/print?${params.toString()}`;
   }, []);
 
