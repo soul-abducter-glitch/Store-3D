@@ -35,7 +35,8 @@ import {
   X,
   ZoomIn,
   ZoomOut,
-  RotateCw,
+  ArrowLeft,
+  ArrowRight,
 } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
@@ -1823,6 +1824,13 @@ function PrintServiceContent() {
     controls.update?.();
   }, []);
 
+  const rotateBy = useCallback((azimuth: number) => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.rotateLeft(azimuth);
+    controls.update?.();
+  }, []);
+
 
   const handleAuthSuccess = () => {
     setIsLoggedIn(true);
@@ -1942,15 +1950,25 @@ function PrintServiceContent() {
               >
                 <ZoomOut className="h-4 w-4" />
               </button>
-            </div>
-
-            {modelObject && (
-              <div className="pointer-events-none absolute left-1/2 top-[44%] z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/70 shadow-[0_0_14px_rgba(46,209,255,0.25)]">
-                  <RotateCw className="h-5 w-5" />
-                </div>
+              <div className="mt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => rotateBy(0.25)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                  aria-label="Rotate left"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => rotateBy(-0.25)}
+                  className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                  aria-label="Rotate right"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               </div>
-            )}
+            </div>
 
             {!modelObject && (
               <div
