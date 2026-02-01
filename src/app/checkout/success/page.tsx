@@ -92,7 +92,7 @@ function CheckoutSuccessContent() {
             Перейти в профиль
           </Link>
           <Link
-            href="/"
+            href="/store"
             className="rounded-full border border-white/15 px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-white/80 transition hover:border-white/30 hover:text-white"
           >
             Вернуться в магазин

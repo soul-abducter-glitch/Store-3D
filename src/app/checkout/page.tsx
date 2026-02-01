@@ -834,7 +834,7 @@ const CheckoutPage = () => {
             <h1 className="mt-3 text-3xl font-semibold text-white">Оформление заказа</h1>
           </div>
           <Link
-            href="/"
+            href="/store"
             className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
           >
             Назад в магазин
@@ -853,7 +853,7 @@ const CheckoutPage = () => {
               transition={{ duration: 0.35 }}
               className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]"
             >
-              <div className="lg:col-span-2">
+              <div className="hidden lg:col-span-2 md:block">
                 <CheckoutStepper steps={stepperSteps} />
               </div>
               <div className="space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
