@@ -3,6 +3,11 @@ import { getPayloadHMR } from "@payloadcms/next/utilities";
 
 import payloadConfig from "../../../../payload.config";
 import { importMap } from "../../(payload)/admin/importMap";
+import {
+  KNOWN_CITY_SET,
+  normalizeCityInput,
+  normalizeNameInput,
+} from "@/lib/cities";
 
 export const dynamic = "force-dynamic";
 
@@ -109,12 +114,20 @@ const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\\s.,\\-\\/№]{3,120}$/;
 
 const validateCustomerName = (value?: string) => {
   if (!value) return false;
-  return NAME_REGEX.test(value.trim());
+  const trimmed = value.trim();
+  if (!NAME_REGEX.test(trimmed)) {
+    return false;
+  }
+  return !KNOWN_CITY_SET.has(normalizeNameInput(trimmed));
 };
 
 const validateCity = (value?: string) => {
   if (!value) return false;
-  return CITY_REGEX.test(value.trim());
+  const trimmed = value.trim();
+  if (!CITY_REGEX.test(trimmed)) {
+    return false;
+  }
+  return KNOWN_CITY_SET.has(normalizeCityInput(trimmed));
 };
 
 const validateAddress = (value?: string) => {
@@ -322,6 +335,7 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+    const normalizedName = normalizeNameInput(rawCustomerName);
     if (hasPhysical) {
       const rawCity =
         typeof (baseData as any)?.shipping?.city === "string"
@@ -336,6 +350,15 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             error: "Invalid shipping city.",
+          },
+          { status: 400 }
+        );
+      }
+      if (normalizedName === normalizeCityInput(rawCity)) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Customer name must not match city.",
           },
           { status: 400 }
         );

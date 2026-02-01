@@ -16,6 +16,12 @@ import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
 import CheckoutStepper from "@/components/CheckoutStepper";
 import DeliveryCard, { deliveryOptions } from "@/components/DeliveryCard";
 import StickyOrderSummary from "@/components/StickyOrderSummary";
+import {
+  KNOWN_CITIES,
+  KNOWN_CITY_SET,
+  normalizeCityInput,
+  normalizeNameInput,
+} from "@/lib/cities";
 
 type CartItem = {
   id: string;
@@ -190,7 +196,7 @@ const paymentOptions = [
   { value: "cash", label: "Наличными при получении" },
 ];
 
-const citySuggestions = ["Москва", "Санкт-Петербург", "Новосибирск", "Екатеринбург", "Казань"];
+const citySuggestions = KNOWN_CITIES;
 const streetSuggestionsByCity: Record<string, string[]> = {
   Москва: ["Арбат", "Тверская", "Покровка", "Мясницкая", "Никольская", "Садовое кольцо"],
   "Санкт-Петербург": ["Невский проспект", "Малая Конюшенная", "Литейный", "Гороховая"],
@@ -584,6 +590,13 @@ const CheckoutPage = () => {
       focusField("name");
       return;
     }
+    const normalizedName = normalizeNameInput(name);
+    if (KNOWN_CITY_SET.has(normalizedName)) {
+      setSubmitError("Имя не должно быть названием города.");
+      setFieldErrors({ name: "Укажите имя, а не город." });
+      focusField("name");
+      return;
+    }
 
     if (hasPhysical && (!city || !address)) {
       setSubmitError("Укажите город и адрес доставки.");
@@ -598,6 +611,19 @@ const CheckoutPage = () => {
       if (!CITY_REGEX.test(city)) {
         setSubmitError("Город может содержать только буквы, пробелы, точку и дефис.");
         setFieldErrors({ city: "Разрешены только буквы, пробел, точка и дефис." });
+        focusField("city");
+        return;
+      }
+      const normalizedCity = normalizeCityInput(city);
+      if (!KNOWN_CITY_SET.has(normalizedCity)) {
+        setSubmitError("Город должен быть реальным. Выберите из списка.");
+        setFieldErrors({ city: "Выберите город из списка." });
+        focusField("city");
+        return;
+      }
+      if (normalizedName === normalizedCity) {
+        setSubmitError("Имя и город не должны совпадать.");
+        setFieldErrors({ city: "Город не должен совпадать с именем." });
         focusField("city");
         return;
       }
