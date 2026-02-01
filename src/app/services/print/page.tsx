@@ -35,10 +35,7 @@ import {
   X,
   ZoomIn,
   ZoomOut,
-  ArrowUp,
-  ArrowDown,
-  ArrowLeft,
-  ArrowRight,
+  RotateCw,
 } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
@@ -418,9 +415,11 @@ const PrintBed = () => {
 const PrintScene = ({
   model,
   controlsRef,
+  autoRotate,
 }: {
   model: Object3D | null;
   controlsRef: MutableRefObject<any | null>;
+  autoRotate: boolean;
 }) => {
   const [isMobile, setIsMobile] = useState(false);
 
@@ -503,6 +502,8 @@ const PrintScene = ({
         enableDamping
         target={[0, 80, 0]}
         ref={controlsRef}
+        autoRotate={autoRotate}
+        autoRotateSpeed={autoRotate ? (isMobile ? 0.6 : 0.8) : 0}
       />
     </Canvas>
   );
@@ -513,9 +514,8 @@ function PrintServiceContent() {
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<any | null>(null);
-  const rotateIntentRef = useRef<{ azimuth: number; polar: number } | null>(null);
-  const rotateRafRef = useRef<number | null>(null);
   const prefillRef = useRef(false);
+  const [autoRotateEnabled, setAutoRotateEnabled] = useState(false);
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -1815,36 +1815,9 @@ function PrintServiceContent() {
     controls.update?.();
   }, []);
 
-  const rotateOnce = useCallback((azimuth: number, polar: number) => {
-    const controls = controlsRef.current;
-    if (!controls) return;
-    controls.rotateLeft(azimuth);
-    controls.rotateUp(polar);
-    controls.update?.();
+  const toggleAutoRotate = useCallback(() => {
+    setAutoRotateEnabled((prev) => !prev);
   }, []);
-
-  const stopRotate = useCallback(() => {
-    rotateIntentRef.current = null;
-    if (rotateRafRef.current) {
-      cancelAnimationFrame(rotateRafRef.current);
-      rotateRafRef.current = null;
-    }
-  }, []);
-
-  const startRotate = useCallback(
-    (azimuth: number, polar: number) => {
-      rotateIntentRef.current = { azimuth, polar };
-      const tick = () => {
-        if (!rotateIntentRef.current) return;
-        rotateOnce(rotateIntentRef.current.azimuth, rotateIntentRef.current.polar);
-        rotateRafRef.current = requestAnimationFrame(tick);
-      };
-      if (!rotateRafRef.current) {
-        rotateRafRef.current = requestAnimationFrame(tick);
-      }
-    },
-    [rotateOnce]
-  );
 
   const handleAuthSuccess = () => {
     setIsLoggedIn(true);
@@ -1943,7 +1916,11 @@ function PrintServiceContent() {
             onDrop={handleDrop}
           >
             <div className="relative h-full">
-              <PrintScene model={modelObject} controlsRef={controlsRef} />
+              <PrintScene
+                model={modelObject}
+                controlsRef={controlsRef}
+                autoRotate={autoRotateEnabled}
+              />
             </div>
 
             <div className="absolute left-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
@@ -1966,55 +1943,21 @@ function PrintServiceContent() {
               </button>
             </div>
 
-            <div className="absolute right-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
-              <span className="text-[9px] uppercase tracking-[0.3em] text-white/50">ПОВОРОТ</span>
+            {modelObject && (
               <button
                 type="button"
-                onPointerDown={() => startRotate(0, 0.18)}
-                onPointerUp={stopRotate}
-                onPointerLeave={stopRotate}
-                onPointerCancel={stopRotate}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
-                aria-label="Rotate up"
+                onClick={toggleAutoRotate}
+                className={`absolute left-1/2 top-[46%] z-20 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border backdrop-blur transition sm:hidden ${
+                  autoRotateEnabled
+                    ? "border-[#2ED1FF]/70 bg-[#0b1014]/80 text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)]"
+                    : "border-white/20 bg-black/50 text-white/70 hover:border-[#2ED1FF]/60 hover:text-white"
+                }`}
+                aria-label="Toggle auto rotate"
+                aria-pressed={autoRotateEnabled}
               >
-                <ArrowUp className="h-4 w-4" />
+                <RotateCw className="h-5 w-5" />
               </button>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onPointerDown={() => startRotate(0.18, 0)}
-                  onPointerUp={stopRotate}
-                  onPointerLeave={stopRotate}
-                  onPointerCancel={stopRotate}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
-                  aria-label="Rotate left"
-                >
-                  <ArrowLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onPointerDown={() => startRotate(-0.18, 0)}
-                  onPointerUp={stopRotate}
-                  onPointerLeave={stopRotate}
-                  onPointerCancel={stopRotate}
-                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
-                  aria-label="Rotate right"
-                >
-                  <ArrowRight className="h-4 w-4" />
-                </button>
-              </div>
-              <button
-                type="button"
-                onPointerDown={() => startRotate(0, -0.18)}
-                onPointerUp={stopRotate}
-                onPointerLeave={stopRotate}
-                onPointerCancel={stopRotate}
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
-                aria-label="Rotate down"
-              >
-                <ArrowDown className="h-4 w-4" />
-              </button>
-            </div>
+            )}
 
             {!modelObject && (
               <div
