@@ -432,6 +432,10 @@ const PrintScene = ({
 
   const enableShadows = !isMobile;
 
+  const stopPropagation = (event: { stopPropagation: () => void }) => {
+    event.stopPropagation();
+  };
+
   return (
     <Canvas
       shadows={enableShadows}
@@ -443,6 +447,11 @@ const PrintScene = ({
         touchAction: isMobile ? "none" : "none",
         pointerEvents: "auto",
       }}
+      onPointerDown={stopPropagation}
+      onPointerMove={stopPropagation}
+      onPointerUp={stopPropagation}
+      onPointerCancel={stopPropagation}
+      onWheel={stopPropagation}
     >
       <ambientLight intensity={isMobile ? 0.85 : 0.7} />
       <directionalLight
