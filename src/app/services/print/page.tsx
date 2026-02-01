@@ -57,6 +57,8 @@ const UPLOAD_RETRY_MAX_MS = 10_000;
 const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
+const DEBUG_STORAGE_KEY = "store3d_upload_debug";
+const BUILD_TAG = "2026-02-01-ee73e22";
 const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
@@ -482,6 +484,14 @@ function PrintServiceContent() {
     if (typeof window === "undefined") return;
     const ua = navigator.userAgent || "";
     setIsMobileUa(/android|iphone|ipad|ipod|iemobile|mobile/i.test(ua));
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(DEBUG_STORAGE_KEY);
+    if (stored === "1") {
+      setUploadDebugEnabled(true);
+    }
   }, []);
 
   useEffect(() => {
@@ -1470,6 +1480,16 @@ function PrintServiceContent() {
   }, []);
 
   useEffect(() => {
+    if (!uploadDebugEnabled) return;
+    setUploadDebug((prev) => {
+      if (prev.some((line) => line.includes("build"))) {
+        return prev;
+      }
+      return [...prev, buildUploadLogLine("build", { tag: BUILD_TAG })].slice(-10);
+    });
+  }, [uploadDebugEnabled]);
+
+  useEffect(() => {
     if (uploadStatus !== "uploading") {
       setUploadStalled(false);
       clearRetryTimer();
@@ -1813,7 +1833,15 @@ function PrintServiceContent() {
                       ? "border-emerald-300/60 bg-emerald-400/10 text-emerald-200"
                       : "border-white/20 bg-white/5 text-white/50 hover:text-white"
                   }`}
-                  onClick={() => setUploadDebugEnabled((prev) => !prev)}
+                  onClick={() =>
+                    setUploadDebugEnabled((prev) => {
+                      const next = !prev;
+                      if (typeof window !== "undefined") {
+                        window.localStorage.setItem(DEBUG_STORAGE_KEY, next ? "1" : "0");
+                      }
+                      return next;
+                    })
+                  }
                 >
                   {uploadDebugEnabled ? "DEBUG ВКЛ" : "DEBUG"}
                 </button>
@@ -1867,12 +1895,16 @@ function PrintServiceContent() {
                 ЗАГРУЗКА ЗАВЕРШЕНА
               </div>
             )}
-            {uploadDebugEnabled && uploadDebug.length > 0 && (
-              <div className="pointer-events-none absolute left-6 top-20 max-w-[320px] rounded-2xl border border-white/10 bg-black/70 px-3 py-2 text-[9px] uppercase tracking-[0.2em] text-white/60 backdrop-blur">
+            {uploadDebugEnabled && (
+              <div className="pointer-events-none absolute left-4 right-4 top-20 max-w-[360px] rounded-2xl border border-white/10 bg-black/70 px-3 py-2 text-[9px] uppercase tracking-[0.2em] text-white/60 backdrop-blur sm:left-6 sm:right-auto">
                 <div className="space-y-1">
-                  {uploadDebug.map((line, index) => (
-                    <div key={`${line}-${index}`}>{line}</div>
-                  ))}
+                  {uploadDebug.length === 0 ? (
+                    <div>DEBUG ГОТОВ (build {BUILD_TAG})</div>
+                  ) : (
+                    uploadDebug.map((line, index) => (
+                      <div key={`${line}-${index}`}>{line}</div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
