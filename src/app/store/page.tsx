@@ -1558,6 +1558,9 @@ export default function Home() {
     params.set("model", proxyUrl);
     params.set("name", product.name ?? "model");
     params.set("source", "digital");
+    if (product.techKey) {
+      params.set("tech", product.techKey);
+    }
     if (mediaId) {
       params.set("mediaId", mediaId);
     }

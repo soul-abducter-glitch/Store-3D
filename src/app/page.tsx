@@ -120,12 +120,12 @@ export default function Home() {
   }, []);
 
   const handleCartClick = useCallback(() => {
-    if (cartCount > 0) {
-      router.push("/checkout");
-    } else {
-      router.push("/store");
+    if (isAuthenticated) {
+      router.push("/profile");
+      return;
     }
-  }, [cartCount, router]);
+    router.push("/profile?from=checkout");
+  }, [isAuthenticated, router]);
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white font-[var(--font-inter)]">

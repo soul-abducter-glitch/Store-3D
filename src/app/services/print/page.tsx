@@ -470,6 +470,7 @@ function PrintServiceContent() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [technologyLocked, setTechnologyLocked] = useState(false);
   const apiBase = "";
   const isUploadBusy =
     uploadStatus === "uploading" || uploadStatus === "analyzing" || uploadStatus === "finalizing";
@@ -672,6 +673,7 @@ function PrintServiceContent() {
 
       setUploadedMedia(null);
       setMetrics(null);
+      setTechnologyLocked(false);
       setModelObject(null);
       clearRetryTimer();
       setUploadAttempt(1);
@@ -762,6 +764,7 @@ function PrintServiceContent() {
 
     const nameParam = searchParams.get("name");
     const mediaIdParam = searchParams.get("mediaId");
+    const techParam = searchParams.get("tech");
     const resolvedUrl =
       modelParam.startsWith("http://") ||
       modelParam.startsWith("https://") ||
@@ -809,6 +812,17 @@ function PrintServiceContent() {
         const filename = hasExtension ? rawName : `${rawName}.glb`;
         const fileType = blob.type || "model/gltf-binary";
         const file = new File([blob], filename, { type: fileType });
+        if (techParam) {
+          const normalized = techParam.toLowerCase();
+          if (normalized.includes("fdm") || normalized.includes("plastic")) {
+            setTechnology("fdm");
+          } else if (normalized.includes("sla") || normalized.includes("resin")) {
+            setTechnology("sla");
+          }
+          setTechnologyLocked(true);
+        } else {
+          setTechnologyLocked(false);
+        }
         await handleFile(file);
         if (mediaIdParam) {
           const existingMedia = await fetchMediaById(mediaIdParam);
@@ -834,7 +848,7 @@ function PrintServiceContent() {
     };
 
     void loadPreset();
-  }, [handleFile, searchParams, showError, showSuccess, isMobileUa]);
+  }, [handleFile, searchParams, showError, showSuccess, isMobileUa, fetchMediaById]);
 
   const pushUploadLog = useCallback((message: string, data?: Record<string, unknown>) => {
     if (!uploadDebugEnabled) {
@@ -1990,7 +2004,8 @@ function PrintServiceContent() {
                 <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
                   <button
                     type="button"
-                    className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
+                    disabled={technologyLocked}
+                    className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] disabled:cursor-not-allowed disabled:opacity-60 ${
                       technology === "sla"
                         ? "bg-white/15 text-white"
                         : "text-white/50 hover:text-white"
@@ -2001,7 +2016,8 @@ function PrintServiceContent() {
                   </button>
                   <button
                     type="button"
-                    className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
+                    disabled={technologyLocked}
+                    className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] disabled:cursor-not-allowed disabled:opacity-60 ${
                       technology === "fdm"
                         ? "bg-white/15 text-white"
                         : "text-white/50 hover:text-white"
@@ -2011,6 +2027,11 @@ function PrintServiceContent() {
                     FDM Plastic
                   </button>
                 </div>
+                {technologyLocked && (
+                  <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
+                    Технология зафиксирована для этой модели.
+                  </p>
+                )}
               </div>
 
               <div className="space-y-3">
