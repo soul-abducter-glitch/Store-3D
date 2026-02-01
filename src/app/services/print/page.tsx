@@ -27,7 +27,7 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { UploadCloud, AlertTriangle, ShoppingCart, RotateCw, X } from "lucide-react";
+import { UploadCloud, AlertTriangle, ShoppingCart, X } from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -189,6 +189,40 @@ const registerOriginalMaterials = (object: Object3D) => {
   });
 };
 
+const clonePreviewMaterial = (
+  base: MeshStandardMaterial,
+  source?: MeshStandardMaterial | null
+) => {
+  const next = base.clone();
+  if (!source) {
+    return next;
+  }
+  if (source.normalMap) {
+    next.normalMap = source.normalMap;
+    next.normalScale = source.normalScale?.clone?.() ?? source.normalScale;
+  }
+  if (source.bumpMap) {
+    next.bumpMap = source.bumpMap;
+    next.bumpScale = source.bumpScale ?? 1;
+  }
+  if (source.aoMap) {
+    next.aoMap = source.aoMap;
+    next.aoMapIntensity = source.aoMapIntensity ?? 1;
+  }
+  if (source.roughnessMap) {
+    next.roughnessMap = source.roughnessMap;
+  }
+  if (source.metalnessMap) {
+    next.metalnessMap = source.metalnessMap;
+  }
+  if (source.displacementMap) {
+    next.displacementMap = source.displacementMap;
+    next.displacementScale = source.displacementScale ?? 1;
+    next.displacementBias = source.displacementBias ?? 0;
+  }
+  return next;
+};
+
 const applyPreviewMaterial = (
   object: Object3D,
   mode: PreviewMode,
@@ -203,22 +237,50 @@ const applyPreviewMaterial = (
       return;
     }
 
+    const originalMaterial = child.userData.originalMaterial ?? child.material;
+
     if (mode === "original") {
-      if (child.userData.originalMaterial) {
-        child.material = child.userData.originalMaterial;
+      if (originalMaterial) {
+        child.material = originalMaterial;
         return;
       }
       child.material = materials.resin;
       return;
     }
 
-    const nextMaterial =
-      mode === "resin"
-        ? materials.resin
-        : mode === "plastic"
-          ? materials.plastic
-          : materials.hologram;
-    child.material = nextMaterial;
+    const cache = (child.userData.previewMaterials ?? {}) as Record<
+      PreviewMode,
+      MeshStandardMaterial | MeshStandardMaterial[] | undefined
+    >;
+
+    if (!cache[mode]) {
+      const base =
+        mode === "resin"
+          ? materials.resin
+          : mode === "plastic"
+            ? materials.plastic
+            : materials.hologram;
+
+      if (Array.isArray(originalMaterial)) {
+        cache[mode] = originalMaterial.map((material) =>
+          clonePreviewMaterial(
+            base,
+            material instanceof MeshStandardMaterial ? material : null
+          )
+        );
+      } else if (mode === "resin" || mode === "plastic") {
+        cache[mode] = clonePreviewMaterial(
+          base,
+          originalMaterial instanceof MeshStandardMaterial ? originalMaterial : null
+        );
+      } else {
+        cache[mode] = base;
+      }
+
+      child.userData.previewMaterials = cache;
+    }
+
+    child.material = cache[mode] ?? materials.resin;
   });
 };
 
@@ -341,13 +403,7 @@ const PrintBed = () => {
   );
 };
 
-const PrintScene = ({
-  model,
-  allowInteraction,
-}: {
-  model: Object3D | null;
-  allowInteraction: boolean;
-}) => {
+const PrintScene = ({ model }: { model: Object3D | null }) => {
   const [isMobile, setIsMobile] = useState(false);
 
   useEffect(() => {
@@ -367,18 +423,16 @@ const PrintScene = ({
     return () => legacyMedia.removeListener?.(update);
   }, []);
 
-  const interactionEnabled = !isMobile || allowInteraction;
-
   return (
     <Canvas
       shadows
       gl={{ alpha: true, antialias: true }}
       camera={{ position: [280, 170, 340], fov: 40, near: 1, far: 2000 }}
       dpr={isMobile ? 1 : [1, 1.5]}
-      className={`h-full w-full bg-transparent${interactionEnabled ? "" : " pointer-events-none"}`}
+      className="h-full w-full bg-transparent"
       style={{
-        touchAction: interactionEnabled ? "none" : "pan-y",
-        pointerEvents: interactionEnabled ? "auto" : "none",
+        touchAction: isMobile ? "none" : "none",
+        pointerEvents: "auto",
       }}
     >
       <ambientLight intensity={0.7} />
@@ -411,9 +465,9 @@ const PrintScene = ({
       />
       {model && <primitive object={model} />}
       <OrbitControls
-        enabled={interactionEnabled}
+        enabled
         enablePan={false}
-        enableZoom={!isMobile && interactionEnabled}
+        enableZoom={!isMobile}
         minDistance={140}
         maxDistance={520}
         dampingFactor={0.08}
@@ -455,7 +509,6 @@ function PrintServiceContent() {
   const stallAbortArmedRef = useRef(false);
   const retryTimerRef = useRef<number | null>(null);
   const [isMobileUa, setIsMobileUa] = useState(false);
-  const [allowMobileRotate, setAllowMobileRotate] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
     url?: string;
@@ -495,12 +548,6 @@ function PrintServiceContent() {
       setUploadDebugEnabled(true);
     }
   }, []);
-
-  useEffect(() => {
-    if (!isMobileUa) {
-      setAllowMobileRotate(false);
-    }
-  }, [isMobileUa]);
 
   const clearRetryTimer = useCallback(() => {
     if (retryTimerRef.current) {
@@ -1817,7 +1864,7 @@ function PrintServiceContent() {
             onDrop={handleDrop}
           >
             <div className="relative h-full">
-              <PrintScene model={modelObject} allowInteraction={allowMobileRotate} />
+              <PrintScene model={modelObject} />
             </div>
 
             {!modelObject && (
@@ -1870,41 +1917,6 @@ function PrintServiceContent() {
                   Загрузить модель
                 </button>
               )}
-              {isMobileUa && modelObject && (
-                <button
-                  type="button"
-                  className={`flex items-center gap-2 rounded-full border px-3 py-1 text-[8px] uppercase tracking-[0.28em] transition sm:px-5 sm:py-2 sm:text-[10px] ${
-                    allowMobileRotate
-                      ? "border-[#2ED1FF]/70 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]"
-                      : "border-white/20 bg-white/5 text-white/60 hover:border-[#2ED1FF]/50 hover:text-white"
-                  }`}
-                  onClick={() => setAllowMobileRotate((prev) => !prev)}
-                >
-                  <RotateCw className="h-4 w-4" />
-                  {allowMobileRotate ? "Вращение ВКЛ" : "Вращение"}
-                </button>
-              )}
-              {isMobileUa && (
-                <button
-                  type="button"
-                  className={`rounded-full border px-3 py-1 text-[8px] uppercase tracking-[0.28em] transition sm:px-5 sm:py-2 sm:text-[10px] ${
-                    uploadDebugEnabled
-                      ? "border-emerald-300/60 bg-emerald-400/10 text-emerald-200"
-                      : "border-white/20 bg-white/5 text-white/50 hover:text-white"
-                  }`}
-                  onClick={() =>
-                    setUploadDebugEnabled((prev) => {
-                      const next = !prev;
-                      if (typeof window !== "undefined") {
-                        window.localStorage.setItem(DEBUG_STORAGE_KEY, next ? "1" : "0");
-                      }
-                      return next;
-                    })
-                  }
-                >
-                  {uploadDebugEnabled ? "DEBUG ВКЛ" : "DEBUG"}
-                </button>
-              )}
             </div>
 
             <input
@@ -1952,19 +1964,6 @@ function PrintServiceContent() {
             {uploadStatus === "ready" && uploadedMedia?.id && (
               <div className="absolute left-4 right-4 top-4 z-30 rounded-full border border-emerald-400/40 bg-emerald-400/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-emerald-200 sm:left-6 sm:right-auto sm:top-6">
                 ЗАГРУЗКА ЗАВЕРШЕНА
-              </div>
-            )}
-            {uploadDebugEnabled && (
-              <div className="pointer-events-none absolute left-4 right-4 top-20 max-w-[360px] rounded-2xl border border-white/10 bg-black/70 px-3 py-2 text-[9px] uppercase tracking-[0.2em] text-white/60 backdrop-blur sm:left-6 sm:right-auto">
-                <div className="space-y-1">
-                  {uploadDebug.length === 0 ? (
-                    <div>DEBUG ГОТОВ (build {BUILD_TAG})</div>
-                  ) : (
-                    uploadDebug.map((line, index) => (
-                      <div key={`${line}-${index}`}>{line}</div>
-                    ))
-                  )}
-                </div>
               </div>
             )}
             {isPreviewScaled && (
