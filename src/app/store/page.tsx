@@ -1581,6 +1581,16 @@ export default function Home() {
     },
     [buildPrintUrl, router, showError]
   );
+  const canPrintCurrent =
+    Boolean(currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) &&
+    isCurrentDigital;
+  const handleHeaderPrint = useCallback(() => {
+    if (currentProduct && canPrintCurrent) {
+      handleOrderPrint(currentProduct);
+      return;
+    }
+    router.push("/services/print");
+  }, [canPrintCurrent, currentProduct, handleOrderPrint, router]);
   const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
   const heroRawModelUrl = useMemo(() => {
     if (!currentProduct) return null;
@@ -2055,6 +2065,7 @@ export default function Home() {
         userLabel={userLabel}
         onLogout={handleLogout}
         hasUnreadStatus={hasUnreadStatus}
+        onPrint={handleHeaderPrint}
       />
       <AnimatePresence>
         {isSidebarOpen && (
@@ -2486,7 +2497,8 @@ export default function Home() {
                           <ShoppingCart className="h-4 w-4" />
                           <span className="sr-only">В корзину</span>
                         </button>
-                        {isCurrentDigital && currentProduct?.rawModelUrl && (
+                        {isCurrentDigital &&
+                          (currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) && (
                           <button
                             type="button"
                             aria-label="Заказать печать"
@@ -2970,6 +2982,7 @@ type HeaderProps = {
   userLabel: string;
   onLogout: () => void;
   hasUnreadStatus: boolean;
+  onPrint?: () => void;
 };
 
 const suggestionTypeLabel: Record<SearchSuggestion["type"], string> = {
@@ -3031,6 +3044,7 @@ function Header({
   userLabel,
   onLogout,
   hasUnreadStatus,
+  onPrint,
 }: HeaderProps) {
   const router = useRouter();
   const [isSearchOpen, setIsSearchOpen] = useState(false);
@@ -3133,24 +3147,38 @@ function Header({
           >
             AI ЛАБОРАТОРИЯ
           </a>
-          <a
-            href="/services/print"
+          <button
+            type="button"
+            onClick={() => {
+              if (onPrint) {
+                onPrint();
+                return;
+              }
+              router.push("/services/print");
+            }}
             className="rounded-full border border-[#2ED1FF] bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.45)] transition hover:border-[#7FE7FF] hover:text-white"
           >
             ПЕЧАТЬ НА ЗАКАЗ
-          </a>
+          </button>
         </motion.nav>
 
         <motion.div
           variants={itemVariants}
           className="flex items-center gap-2 md:justify-end md:gap-3"
         >
-          <a
-            href="/services/print"
+          <button
+            type="button"
+            onClick={() => {
+              if (onPrint) {
+                onPrint();
+                return;
+              }
+              router.push("/services/print");
+            }}
             className="hidden rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-2 text-[8px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] sm:inline-flex md:hidden"
           >
             ПЕЧАТЬ НА ЗАКАЗ
-          </a>
+          </button>
           <a
             href="/ai-lab"
             className="hidden rounded-full border border-white/15 bg-white/5 px-3 py-2 text-[8px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:inline-flex md:hidden"
@@ -3306,13 +3334,20 @@ function Header({
             <Sparkles className="h-3.5 w-3.5 text-[#2ED1FF]" />
             AI
           </a>
-          <a
-            href="/services/print"
+          <button
+            type="button"
+            onClick={() => {
+              if (onPrint) {
+                onPrint();
+                return;
+              }
+              router.push("/services/print");
+            }}
             className="flex items-center gap-1 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-2.5 py-1 text-[8px] uppercase tracking-[0.26em] text-[#BFF4FF] shadow-[0_0_10px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
           >
             <Printer className="h-3.5 w-3.5" />
             ПЕЧАТЬ
-          </a>
+          </button>
         </motion.div>
         {isSearchOpen && (
           <motion.div
