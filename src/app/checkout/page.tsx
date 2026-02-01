@@ -1046,7 +1046,7 @@ const CheckoutPage = () => {
                     {availablePaymentOptions.map((option) => (
                       <label
                         key={option.value}
-                        className={`flex items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition ${
+                        className={`flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm transition sm:gap-3 ${
                           paymentMethod === option.value
                             ? "border-[#2ED1FF]/80 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.3)]"
                             : "border-white/15 bg-white/5 text-white/75 hover:border-white/25 hover:bg-white/10"
@@ -1054,7 +1054,7 @@ const CheckoutPage = () => {
                       >
                         <input
                           type="radio"
-                          className="h-4 w-4 accent-[#2ED1FF]"
+                          className="hidden h-4 w-4 accent-[#2ED1FF] sm:inline-block"
                           checked={paymentMethod === option.value}
                           onChange={() => setPaymentMethod(option.value)}
                         />

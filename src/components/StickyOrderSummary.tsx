@@ -34,31 +34,31 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 
   return (
     <div className="lg:sticky lg:top-24">
-      <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
-        <div className="mb-6 flex items-center justify-between">
+      <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6">
+        <div className="mb-5 flex flex-wrap items-center justify-between gap-2 sm:mb-6">
           <h2 className="text-lg font-semibold text-white">Ваш заказ</h2>
           <span className="text-xs uppercase tracking-[0.3em] text-white/50">
             {itemCount} позиций
           </span>
         </div>
 
-        <div className="mb-6 max-h-[320px] space-y-3 overflow-y-auto pr-1">
+        <div className="mb-5 max-h-[240px] space-y-3 overflow-y-auto pr-1 sm:mb-6 sm:max-h-[320px]">
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3"
+              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-2.5 sm:p-3"
             >
               <img
                 src={item.thumbnailUrl}
                 alt={item.name}
-                className="h-12 w-12 rounded-xl object-cover"
+                className="h-10 w-10 rounded-xl object-cover sm:h-12 sm:w-12"
               />
-              <div className="flex-1">
-                <p className="text-sm font-semibold text-white">{item.name}</p>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm font-semibold text-white">{item.name}</p>
                 <p className="text-xs text-white/60">{item.formatLabel}</p>
                 <p className="text-xs text-white/50">x{item.quantity}</p>
               </div>
-              <div className="text-right text-sm font-semibold text-white">
+              <div className="shrink-0 text-right text-xs font-semibold text-white sm:text-sm">
                 {formatPrice(item.priceValue * item.quantity)}?
               </div>
             </div>
