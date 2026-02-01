@@ -28,7 +28,18 @@ import {
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/examples/jsm/loaders/OBJLoader.js";
 import { STLLoader } from "three/examples/jsm/loaders/STLLoader.js";
-import { UploadCloud, AlertTriangle, ShoppingCart, X, ZoomIn, ZoomOut } from "lucide-react";
+import {
+  UploadCloud,
+  AlertTriangle,
+  ShoppingCart,
+  X,
+  ZoomIn,
+  ZoomOut,
+  ArrowUp,
+  ArrowDown,
+  ArrowLeft,
+  ArrowRight,
+} from "lucide-react";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -502,6 +513,8 @@ function PrintServiceContent() {
   const searchParams = useSearchParams();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<any | null>(null);
+  const rotateIntentRef = useRef<{ azimuth: number; polar: number } | null>(null);
+  const rotateRafRef = useRef<number | null>(null);
   const prefillRef = useRef(false);
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
@@ -1802,6 +1815,37 @@ function PrintServiceContent() {
     controls.update?.();
   }, []);
 
+  const rotateOnce = useCallback((azimuth: number, polar: number) => {
+    const controls = controlsRef.current;
+    if (!controls) return;
+    controls.rotateLeft(azimuth);
+    controls.rotateUp(polar);
+    controls.update?.();
+  }, []);
+
+  const stopRotate = useCallback(() => {
+    rotateIntentRef.current = null;
+    if (rotateRafRef.current) {
+      cancelAnimationFrame(rotateRafRef.current);
+      rotateRafRef.current = null;
+    }
+  }, []);
+
+  const startRotate = useCallback(
+    (azimuth: number, polar: number) => {
+      rotateIntentRef.current = { azimuth, polar };
+      const tick = () => {
+        if (!rotateIntentRef.current) return;
+        rotateOnce(rotateIntentRef.current.azimuth, rotateIntentRef.current.polar);
+        rotateRafRef.current = requestAnimationFrame(tick);
+      };
+      if (!rotateRafRef.current) {
+        rotateRafRef.current = requestAnimationFrame(tick);
+      }
+    },
+    [rotateOnce]
+  );
+
   const handleAuthSuccess = () => {
     setIsLoggedIn(true);
     setAuthModalOpen(false);
@@ -1919,6 +1963,56 @@ function PrintServiceContent() {
                 aria-label="Zoom out"
               >
                 <ZoomOut className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="absolute right-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
+              <span className="text-[9px] uppercase tracking-[0.3em] text-white/50">ПОВОРОТ</span>
+              <button
+                type="button"
+                onPointerDown={() => startRotate(0, 0.18)}
+                onPointerUp={stopRotate}
+                onPointerLeave={stopRotate}
+                onPointerCancel={stopRotate}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                aria-label="Rotate up"
+              >
+                <ArrowUp className="h-4 w-4" />
+              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onPointerDown={() => startRotate(0.18, 0)}
+                  onPointerUp={stopRotate}
+                  onPointerLeave={stopRotate}
+                  onPointerCancel={stopRotate}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                  aria-label="Rotate left"
+                >
+                  <ArrowLeft className="h-4 w-4" />
+                </button>
+                <button
+                  type="button"
+                  onPointerDown={() => startRotate(-0.18, 0)}
+                  onPointerUp={stopRotate}
+                  onPointerLeave={stopRotate}
+                  onPointerCancel={stopRotate}
+                  className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                  aria-label="Rotate right"
+                >
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+              <button
+                type="button"
+                onPointerDown={() => startRotate(0, -0.18)}
+                onPointerUp={stopRotate}
+                onPointerLeave={stopRotate}
+                onPointerCancel={stopRotate}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
+                aria-label="Rotate down"
+              >
+                <ArrowDown className="h-4 w-4" />
               </button>
             </div>
 
