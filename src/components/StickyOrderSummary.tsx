@@ -33,8 +33,8 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
 
   return (
-    <div className="lg:sticky lg:top-24">
-      <div className="rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6">
+    <div className="w-full min-w-0 lg:sticky lg:top-24">
+      <div className="w-full min-w-0 rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6">
         <div className="mb-5 flex flex-wrap items-center justify-between gap-2 sm:mb-6">
           <h2 className="text-lg font-semibold text-white">Ваш заказ</h2>
           <span className="text-xs uppercase tracking-[0.3em] text-white/50">

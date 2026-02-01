@@ -856,7 +856,7 @@ const CheckoutPage = () => {
               <div className="hidden lg:col-span-2 md:block">
                 <CheckoutStepper steps={stepperSteps} />
               </div>
-              <div className="space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+              <div className="min-w-0 space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                     <ShieldCheck className="h-5 w-5" />
@@ -1075,7 +1075,7 @@ const CheckoutPage = () => {
                 )}
               </div>
 
-              <div>
+              <div className="min-w-0">
                 <StickyOrderSummary
                   items={cartItems.map((item) => ({
                     id: item.id,
@@ -1111,7 +1111,9 @@ const CheckoutPage = () => {
               transition={{ duration: 0.35 }}
               className="mt-12 space-y-6"
             >
-              <CheckoutStepper steps={stepperSteps} />
+              <div className="hidden md:block">
+                <CheckoutStepper steps={stepperSteps} />
+              </div>
               <div className="rounded-[32px] border border-white/10 bg-white/[0.04] px-4 py-8 text-center backdrop-blur-xl sm:px-6 sm:py-10">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                   <ShieldCheck className="h-6 w-6" />
