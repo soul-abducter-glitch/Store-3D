@@ -1827,7 +1827,12 @@ function PrintServiceContent() {
   const rotateBy = useCallback((azimuth: number) => {
     const controls = controlsRef.current;
     if (!controls) return;
-    controls.rotateLeft(azimuth);
+    if (typeof controls.getAzimuthalAngle === "function" && typeof controls.setAzimuthalAngle === "function") {
+      const current = controls.getAzimuthalAngle();
+      controls.setAzimuthalAngle(current + azimuth);
+    } else if (typeof controls.rotateLeft === "function") {
+      controls.rotateLeft(azimuth);
+    }
     controls.update?.();
   }, []);
 
@@ -1953,7 +1958,7 @@ function PrintServiceContent() {
               <div className="mt-2 flex items-center gap-2">
                 <button
                   type="button"
-                  onClick={() => rotateBy(0.25)}
+                  onClick={() => rotateBy(0.35)}
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
                   aria-label="Rotate left"
                 >
@@ -1961,7 +1966,7 @@ function PrintServiceContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => rotateBy(-0.25)}
+                  onClick={() => rotateBy(-0.35)}
                   className="flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/50 text-white/80 backdrop-blur transition hover:border-[#2ED1FF]/60 hover:text-white"
                   aria-label="Rotate right"
                 >
