@@ -223,6 +223,12 @@ export async function POST(request: NextRequest) {
           const customerUpload = normalizeRelationshipId(
             item?.customerUpload ?? item?.customerUploadId ?? item?.customPrint?.uploadId
           );
+          const sourcePriceRaw =
+            typeof item?.sourcePrice === "number"
+              ? item.sourcePrice
+              : typeof item?.customPrint?.sourcePrice === "number"
+                ? item.customPrint.sourcePrice
+                : null;
           const printSpecs = normalizePrintSpecs(item?.printSpecs ?? item?.customPrint);
 
           return {
@@ -230,6 +236,10 @@ export async function POST(request: NextRequest) {
             quantity,
             format,
             customerUpload: customerUpload ?? undefined,
+            sourcePrice:
+              typeof sourcePriceRaw === "number" && Number.isFinite(sourcePriceRaw)
+                ? sourcePriceRaw
+                : undefined,
             printSpecs,
           };
         })
@@ -342,6 +352,14 @@ export async function POST(request: NextRequest) {
     }
 
     const productCache = new Map<string, any>();
+    const physicalUploadIds = new Set(
+      items
+        .filter(
+          (item: { format?: string; customerUpload?: unknown }) =>
+            item.format === "Physical" && item.customerUpload
+        )
+        .map((item: { customerUpload?: unknown }) => String(item.customerUpload))
+    );
 
     // Verify referenced products exist to avoid relationship validation errors
     for (const item of items) {
@@ -375,7 +393,7 @@ export async function POST(request: NextRequest) {
           depth: 0,
           overrideAccess: true,
         });
-        if (!mediaDoc?.isCustomerUpload) {
+        if (!mediaDoc?.isCustomerUpload && item.format !== "Physical") {
           return NextResponse.json(
             {
               success: false,
@@ -403,7 +421,8 @@ export async function POST(request: NextRequest) {
           depth: 0,
           overrideAccess: true,
         });
-        if (!mediaDoc?.isCustomerUpload) {
+        const customFileId = String(orderData.customFile);
+        if (!mediaDoc?.isCustomerUpload && !physicalUploadIds.has(customFileId)) {
           return NextResponse.json(
             {
               success: false,
@@ -430,6 +449,8 @@ export async function POST(request: NextRequest) {
         unitPrice?: number;
         customerUpload?: unknown;
         printSpecs?: unknown;
+        sourcePrice?: number;
+        format?: string;
       }) => {
       const productDoc = productCache.get(String(item.product));
       const productPrice =
@@ -439,13 +460,27 @@ export async function POST(request: NextRequest) {
       const printPrice = resolvePrintPrice(
         item.printSpecs as { technology?: string; material?: string; quality?: string } | undefined
       );
-      const unitPrice =
-        item.customerUpload || item.printSpecs
-          ? Math.max(productPrice, printPrice ?? productPrice)
-          : productPrice;
+      const hasPrint = Boolean(item.customerUpload || item.printSpecs);
+      const sourcePrice =
+        typeof item.sourcePrice === "number" && Number.isFinite(item.sourcePrice)
+          ? item.sourcePrice
+          : null;
+
+      let unitPrice = productPrice;
+      if (hasPrint) {
+        const computedPrint = printPrice ?? productPrice;
+        unitPrice =
+          typeof sourcePrice === "number"
+            ? Math.max(sourcePrice, computedPrint)
+            : Math.max(productPrice, computedPrint);
+      }
 
       return {
-        ...item,
+        product: item.product,
+        quantity: item.quantity,
+        format: item.format,
+        customerUpload: item.customerUpload,
+        printSpecs: item.printSpecs,
         unitPrice,
       };
     });

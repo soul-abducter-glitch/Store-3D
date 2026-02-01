@@ -36,6 +36,7 @@ type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
   uploadName?: string;
+  sourcePrice?: number;
   technology?: string;
   material?: string;
   quality?: string;
@@ -89,6 +90,7 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     uploadId,
     uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
     uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+    sourcePrice: typeof raw.sourcePrice === "number" ? raw.sourcePrice : undefined,
     technology: typeof raw.technology === "string" ? raw.technology : undefined,
     material: typeof raw.material === "string" ? raw.material : undefined,
     quality: typeof raw.quality === "string" ? raw.quality : undefined,
@@ -639,6 +641,7 @@ const CheckoutPage = () => {
         quantity: number;
         unitPrice: number;
         customerUpload?: string;
+        sourcePrice?: number;
         printSpecs?: {
           technology?: string;
           material?: string;
@@ -660,6 +663,7 @@ const CheckoutPage = () => {
         }
 
         const customerUpload = item.customPrint?.uploadId;
+        const sourcePrice = item.customPrint?.sourcePrice;
         const printSpecs = item.customPrint
           ? {
               technology: item.customPrint.technology,
@@ -676,6 +680,7 @@ const CheckoutPage = () => {
           quantity: item.quantity,
           unitPrice: item.priceValue,
           customerUpload,
+          sourcePrice,
           printSpecs,
         });
       }

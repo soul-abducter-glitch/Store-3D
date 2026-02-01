@@ -1564,6 +1564,9 @@ export default function Home() {
     if (mediaId) {
       params.set("mediaId", mediaId);
     }
+    if (typeof product.priceValue === "number" && Number.isFinite(product.priceValue)) {
+      params.set("price", String(product.priceValue));
+    }
     return `/services/print?${params.toString()}`;
   }, []);
 

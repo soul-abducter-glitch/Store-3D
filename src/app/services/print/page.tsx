@@ -444,6 +444,7 @@ function PrintServiceContent() {
   const [uploadStalled, setUploadStalled] = useState(false);
   const [uploadAttempt, setUploadAttempt] = useState(1);
   const [uploadRetryInMs, setUploadRetryInMs] = useState<number | null>(null);
+  const [sourcePrice, setSourcePrice] = useState<number | null>(null);
   const [uploadDebug, setUploadDebug] = useState<string[]>([]);
   const [uploadDebugEnabled, setUploadDebugEnabled] = useState(DEFAULT_UPLOAD_DEBUG_ENABLED);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -601,8 +602,12 @@ function PrintServiceContent() {
     const materialFee = materialSurcharge[material] ?? 0;
     const qualityFee = qualitySurcharge[quality] ?? 0;
     const techFee = techSurcharge[technology] ?? 0;
-    return BASE_FEE + techFee + materialFee + qualityFee;
-  }, [material, quality, technology]);
+    const computed = BASE_FEE + techFee + materialFee + qualityFee;
+    if (typeof sourcePrice === "number" && Number.isFinite(sourcePrice)) {
+      return Math.max(sourcePrice, computed);
+    }
+    return computed;
+  }, [material, quality, technology, sourcePrice]);
 
   const materialHint = useMemo(() => {
     const hints: Record<string, string> = {
@@ -765,6 +770,7 @@ function PrintServiceContent() {
     const nameParam = searchParams.get("name");
     const mediaIdParam = searchParams.get("mediaId");
     const techParam = searchParams.get("tech");
+    const priceParam = searchParams.get("price");
     const resolvedUrl =
       modelParam.startsWith("http://") ||
       modelParam.startsWith("https://") ||
@@ -795,6 +801,10 @@ function PrintServiceContent() {
 
     const loadPreset = async () => {
       try {
+        if (priceParam) {
+          const parsed = Number(priceParam);
+          setSourcePrice(Number.isFinite(parsed) ? parsed : null);
+        }
         let response = await fetch(initialUrl);
         if (!response.ok && initialUrl !== resolvedUrl) {
           response = await fetch(resolvedUrl);
@@ -1584,6 +1594,7 @@ function PrintServiceContent() {
       setDragActive(false);
       const file = event.dataTransfer.files?.[0];
       if (file) {
+        setSourcePrice(null);
         void handleFile(file);
       }
     },
@@ -1593,6 +1604,7 @@ function PrintServiceContent() {
   const handleFilePick = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
+      setSourcePrice(null);
       void handleFile(file);
     }
     event.currentTarget.value = "";
@@ -1612,6 +1624,7 @@ function PrintServiceContent() {
       uploadId: uploadedMedia?.id ?? "",
       uploadUrl: uploadedMedia?.url,
       uploadName: pendingFile?.name ?? uploadedMedia?.filename,
+      sourcePrice: typeof sourcePrice === "number" ? sourcePrice : undefined,
       technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
       material,
       quality: quality === "pro" ? "0.05mm" : "0.1mm",
