@@ -3783,6 +3783,7 @@ function Experience({
     onReady,
   }: ExperienceProps) {
   const [isMobile, setIsMobile] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [modelBounds, setModelBounds] = useState<ModelBounds | null>(null);
   const [lockedScale, setLockedScale] = useState<number | null>(null);
   const lastModelUrlRef = useRef<string | null>(null);
@@ -3866,16 +3867,31 @@ function Experience({
     event.stopPropagation();
   };
 
+  const handlePointerDown = (event: { stopPropagation: () => void }) => {
+    stopPropagation(event);
+    setIsDragging(true);
+  };
+
+  const handlePointerUp = (event: { stopPropagation: () => void }) => {
+    stopPropagation(event);
+    setIsDragging(false);
+  };
+
   return (
     <Canvas
       camera={{ position: [5, 5, 5], fov: 42, near: 0.1, far: 1000 }}
       dpr={dpr}
       className="h-full w-full"
       gl={glConfig}
-      style={{ touchAction: "none" }}
-      onPointerDown={stopPropagation}
+      style={{
+        touchAction: "none",
+        cursor: isMobile ? "default" : isDragging ? "grabbing" : "grab",
+      }}
+      onPointerDown={handlePointerDown}
       onPointerMove={stopPropagation}
-      onPointerUp={stopPropagation}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
       onWheel={stopPropagation}
     >
       <CameraFitter

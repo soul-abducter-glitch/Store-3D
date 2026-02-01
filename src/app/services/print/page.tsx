@@ -415,13 +415,12 @@ const PrintBed = () => {
 const PrintScene = ({
   model,
   controlsRef,
-  autoRotate,
 }: {
   model: Object3D | null;
   controlsRef: MutableRefObject<any | null>;
-  autoRotate: boolean;
 }) => {
   const [isMobile, setIsMobile] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -446,6 +445,16 @@ const PrintScene = ({
     event.stopPropagation();
   };
 
+  const handlePointerDown = (event: { stopPropagation: () => void }) => {
+    stopPropagation(event);
+    setIsDragging(true);
+  };
+
+  const handlePointerUp = (event: { stopPropagation: () => void }) => {
+    stopPropagation(event);
+    setIsDragging(false);
+  };
+
   return (
     <Canvas
       shadows={enableShadows}
@@ -456,11 +465,13 @@ const PrintScene = ({
       style={{
         touchAction: isMobile ? "none" : "none",
         pointerEvents: "auto",
+        cursor: isMobile ? "default" : isDragging ? "grabbing" : "grab",
       }}
-      onPointerDown={stopPropagation}
+      onPointerDown={handlePointerDown}
       onPointerMove={stopPropagation}
-      onPointerUp={stopPropagation}
-      onPointerCancel={stopPropagation}
+      onPointerUp={handlePointerUp}
+      onPointerCancel={handlePointerUp}
+      onPointerLeave={handlePointerUp}
       onWheel={stopPropagation}
     >
       <ambientLight intensity={isMobile ? 0.85 : 0.7} />
@@ -502,8 +513,6 @@ const PrintScene = ({
         enableDamping
         target={[0, 80, 0]}
         ref={controlsRef}
-        autoRotate={autoRotate}
-        autoRotateSpeed={autoRotate ? (isMobile ? 0.6 : 0.8) : 0}
       />
     </Canvas>
   );
@@ -515,7 +524,6 @@ function PrintServiceContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<any | null>(null);
   const prefillRef = useRef(false);
-  const [autoRotateEnabled, setAutoRotateEnabled] = useState(false);
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -1815,9 +1823,6 @@ function PrintServiceContent() {
     controls.update?.();
   }, []);
 
-  const toggleAutoRotate = useCallback(() => {
-    setAutoRotateEnabled((prev) => !prev);
-  }, []);
 
   const handleAuthSuccess = () => {
     setIsLoggedIn(true);
@@ -1916,11 +1921,7 @@ function PrintServiceContent() {
             onDrop={handleDrop}
           >
             <div className="relative h-full">
-              <PrintScene
-                model={modelObject}
-                controlsRef={controlsRef}
-                autoRotate={autoRotateEnabled}
-              />
+              <PrintScene model={modelObject} controlsRef={controlsRef} />
             </div>
 
             <div className="absolute left-4 top-1/2 z-20 flex -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
@@ -1944,19 +1945,11 @@ function PrintServiceContent() {
             </div>
 
             {modelObject && (
-              <button
-                type="button"
-                onClick={toggleAutoRotate}
-                className={`absolute left-1/2 top-[46%] z-20 flex h-12 w-12 -translate-x-1/2 items-center justify-center rounded-full border backdrop-blur transition sm:hidden ${
-                  autoRotateEnabled
-                    ? "border-[#2ED1FF]/70 bg-[#0b1014]/80 text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)]"
-                    : "border-white/20 bg-black/50 text-white/70 hover:border-[#2ED1FF]/60 hover:text-white"
-                }`}
-                aria-label="Toggle auto rotate"
-                aria-pressed={autoRotateEnabled}
-              >
-                <RotateCw className="h-5 w-5" />
-              </button>
+              <div className="pointer-events-none absolute left-1/2 top-[44%] z-20 flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-2 sm:hidden">
+                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-white/20 bg-black/40 text-white/70 shadow-[0_0_14px_rgba(46,209,255,0.25)]">
+                  <RotateCw className="h-5 w-5" />
+                </div>
+              </div>
             )}
 
             {!modelObject && (
