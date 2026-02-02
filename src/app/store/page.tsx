@@ -423,9 +423,15 @@ const resolveProductThumbnail = (
     if (url && /\.(png|jpe?g|webp|gif|avif)$/i.test(url)) {
       return url;
     }
+    const filename = typeof value.filename === "string" ? value.filename : null;
+    if (filename && /\.(png|jpe?g|webp|gif|avif)$/i.test(filename)) {
+      return buildProxyUrl(filename);
+    }
   }
-  if (typeof value === "string" && /\.(png|jpe?g|webp|gif|avif)$/i.test(value)) {
-    return value;
+  if (typeof value === "string") {
+    if (/\.(png|jpe?g|webp|gif|avif)$/i.test(value)) {
+      return isExternalUrl(value) ? value : buildProxyUrl(value);
+    }
   }
   const normalized = normalizeThumbKey(fallbackKey);
   if (normalized) {
