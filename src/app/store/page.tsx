@@ -162,7 +162,6 @@ type ProductDoc = {
   rawModel?: MediaDoc | string | null;
   paintedModel?: MediaDoc | string | null;
   thumbnail?: MediaDoc | string | null;
-  thumbnailUrl?: string | null;
 };
 
 type CatalogProduct = {
@@ -402,7 +401,18 @@ const resolveMediaId = (value?: MediaDoc | string | null) => {
   return null;
 };
 
-const resolveProductThumbnail = (value: MediaDoc | string | null | undefined) => {
+const normalizeThumbKey = (value?: string | null) => {
+  if (!value) return null;
+  return value
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "")
+    .replace(/\s+/g, "_");
+};
+
+const resolveProductThumbnail = (
+  value: MediaDoc | string | null | undefined,
+  fallbackKey?: string | null
+) => {
   if (value && typeof value === "object") {
     const thumbnail = typeof value.thumbnail === "string" ? value.thumbnail : null;
     if (thumbnail) {
@@ -415,6 +425,10 @@ const resolveProductThumbnail = (value: MediaDoc | string | null | undefined) =>
   }
   if (typeof value === "string" && /\.(png|jpe?g|webp|gif|avif)$/i.test(value)) {
     return value;
+  }
+  const normalized = normalizeThumbKey(fallbackKey);
+  if (normalized) {
+    return `/catalog/${normalized}.jpg`;
   }
   return buildProductPlaceholder();
 };
@@ -1234,7 +1248,8 @@ export default function Home() {
       const printTime = product.printTime ?? null;
       const scale = product.scale ?? null;
       const thumbnailUrl = resolveProductThumbnail(
-        product.thumbnail ?? product.thumbnailUrl ?? null
+        product.thumbnail ?? null,
+        product.slug ?? product.name ?? null
       );
 
       return {
