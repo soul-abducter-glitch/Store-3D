@@ -417,7 +417,7 @@ const resolveProductThumbnail = (
   if (value && typeof value === "object") {
     const thumbnail = typeof value.thumbnail === "string" ? value.thumbnail : null;
     if (thumbnail) {
-      return thumbnail;
+      return isExternalUrl(thumbnail) ? thumbnail : `/media/${thumbnail}`;
     }
     const url = typeof value.url === "string" ? value.url : null;
     if (url && /\.(png|jpe?g|webp|gif|avif)$/i.test(url)) {
@@ -425,12 +425,12 @@ const resolveProductThumbnail = (
     }
     const filename = typeof value.filename === "string" ? value.filename : null;
     if (filename && /\.(png|jpe?g|webp|gif|avif)$/i.test(filename)) {
-      return buildProxyUrl(filename);
+      return `/media/${filename}`;
     }
   }
   if (typeof value === "string") {
     if (/\.(png|jpe?g|webp|gif|avif)$/i.test(value)) {
-      return isExternalUrl(value) ? value : buildProxyUrl(value);
+      return isExternalUrl(value) ? value : `/media/${value}`;
     }
   }
   const normalized = normalizeThumbKey(fallbackKey);
