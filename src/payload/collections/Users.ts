@@ -61,7 +61,7 @@ export const Users: CollectionConfig = {
       name: "name",
       type: "text",
       label: "Имя",
-      validate: (value) => {
+      validate: (value: unknown) => {
         const name = typeof value === "string" ? value.trim() : "";
         if (!name) {
           return "Имя обязательно.";
