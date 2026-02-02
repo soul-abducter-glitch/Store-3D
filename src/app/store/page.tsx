@@ -1946,12 +1946,22 @@ export default function Home() {
       if (!response.ok) {
         throw new Error(`Logout failed: ${response.status}`);
       }
+    } catch (error) {
+      console.error("Logout failed:", error);
+    } finally {
+      try {
+        await fetch("/api/auth/logout", {
+          method: "POST",
+          credentials: "include",
+          cache: "no-store",
+        });
+      } catch {
+        // ignore secondary logout errors
+      }
       setUserProfile(null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("auth-updated"));
       }
-    } catch (error) {
-      console.error("Logout failed:", error);
     }
   };
 
