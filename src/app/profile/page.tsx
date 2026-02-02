@@ -254,6 +254,7 @@ export default function ProfilePage() {
   useEffect(() => {
     fetch(`${apiBase}/api/users/me?depth=2`, {
       credentials: "include",
+      cache: "no-store",
     })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
@@ -268,7 +269,7 @@ export default function ProfilePage() {
 
   useEffect(() => {
     const refetchUser = () => {
-      fetch(`${apiBase}/api/users/me?depth=2`, { credentials: "include" })
+      fetch(`${apiBase}/api/users/me?depth=2`, { credentials: "include", cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => setUser(data?.user || data?.doc || null))
         .catch(() => null);
@@ -347,10 +348,16 @@ export default function ProfilePage() {
       await fetch(`${apiBase}/api/users/logout`, {
         method: "POST",
         credentials: "include",
+        cache: "no-store",
       });
-      window.location.reload();
     } catch (error) {
       console.error("Logout failed:", error);
+    } finally {
+      setUser(null);
+      setLoading(false);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth-updated"));
+      }
     }
   };
 
@@ -582,6 +589,7 @@ export default function ProfilePage() {
           </div>
           <div className="flex gap-3">
             <button
+              type="button"
               onClick={handleLogout}
               className="flex items-center gap-2 rounded-full border border-white/10 bg-red-500/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
             >

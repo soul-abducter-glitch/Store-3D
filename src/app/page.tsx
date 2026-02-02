@@ -82,9 +82,9 @@ export default function Home() {
     return () => window.removeEventListener("storage", handleStorage);
   }, []);
 
-  useEffect(() => {
+  const fetchUser = useCallback(() => {
     const controller = new AbortController();
-    const fetchUser = async () => {
+    const run = async () => {
       try {
         const response = await fetch("/api/users/me", {
           signal: controller.signal,
@@ -120,9 +120,21 @@ export default function Home() {
         setAuthStatus("AUTH_STATUS: GUEST");
       }
     };
-    fetchUser();
+    run();
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    const cleanup = fetchUser();
+    const handleAuthUpdate = () => {
+      fetchUser();
+    };
+    window.addEventListener("auth-updated", handleAuthUpdate);
+    return () => {
+      cleanup?.();
+      window.removeEventListener("auth-updated", handleAuthUpdate);
+    };
+  }, [fetchUser]);
 
   const handleCartClick = useCallback(() => {
     if (isAuthenticated) {

@@ -877,7 +877,7 @@ export default function Home() {
     formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
 
   const refreshUser = useCallback(() => {
-    fetch(`${apiBase}/api/users/me`, { credentials: "include" })
+    fetch(`${apiBase}/api/users/me`, { credentials: "include", cache: "no-store" })
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         const user = data?.user ?? data?.doc ?? null;
@@ -1059,7 +1059,13 @@ export default function Home() {
   }, [cartItems]);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
     refreshUser();
+    const handleAuthUpdate = () => refreshUser();
+    window.addEventListener("auth-updated", handleAuthUpdate);
+    return () => window.removeEventListener("auth-updated", handleAuthUpdate);
   }, [refreshUser]);
 
   useEffect(() => {
@@ -1935,11 +1941,15 @@ export default function Home() {
       await fetch(`${apiBase}/api/users/logout`, {
         method: "POST",
         credentials: "include",
+        cache: "no-store",
       });
     } catch (error) {
       console.error("Logout failed:", error);
     } finally {
       setUserProfile(null);
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth-updated"));
+      }
     }
   };
 

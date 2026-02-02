@@ -120,6 +120,9 @@ export default function AuthForm({
         }
       }
 
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new Event("auth-updated"));
+      }
       onSuccess?.();
       if (redirectOnSuccess) {
         window.location.assign(resolveRedirect());
