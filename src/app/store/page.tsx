@@ -1557,6 +1557,9 @@ export default function Home() {
     const params = new URLSearchParams();
     params.set("model", proxyUrl);
     params.set("name", product.name ?? "model");
+    if (product.thumbnailUrl && !product.thumbnailUrl.startsWith("data:")) {
+      params.set("thumb", product.thumbnailUrl);
+    }
     params.set("source", "digital");
     if (product.techKey) {
       params.set("tech", product.techKey);

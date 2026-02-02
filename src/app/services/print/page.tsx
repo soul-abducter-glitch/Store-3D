@@ -525,6 +525,8 @@ function PrintServiceContent() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const controlsRef = useRef<any | null>(null);
   const prefillRef = useRef(false);
+  const [sourceName, setSourceName] = useState<string | null>(null);
+  const [sourceThumb, setSourceThumb] = useState<string | null>(null);
   const [modelObject, setModelObject] = useState<Object3D | null>(null);
   const [metrics, setMetrics] = useState<ModelMetrics | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -756,6 +758,10 @@ function PrintServiceContent() {
     async (file: File) => {
       const lower = file.name.toLowerCase();
       console.log("File detected:", file.name, file.type);
+      const label = file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").trim();
+      if (label) {
+        setSourceName(label);
+      }
       const hasExtension = ACCEPTED_EXTENSIONS.some((ext) => lower.endsWith(ext));
       const hasMimeType = file.type ? ACCEPTED_TYPES.includes(file.type) : false;
       if (!hasExtension && !hasMimeType) {
@@ -769,6 +775,7 @@ function PrintServiceContent() {
       setMetrics(null);
       setTechnologyLocked(false);
       setModelObject(null);
+      setSourceThumb(null);
       clearRetryTimer();
       setUploadAttempt(1);
       setPendingFile(null);
@@ -860,6 +867,7 @@ function PrintServiceContent() {
     const mediaIdParam = searchParams.get("mediaId");
     const techParam = searchParams.get("tech");
     const priceParam = searchParams.get("price");
+    const thumbParam = searchParams.get("thumb");
     const resolvedUrl =
       modelParam.startsWith("http://") ||
       modelParam.startsWith("https://") ||
@@ -867,6 +875,18 @@ function PrintServiceContent() {
       modelParam.startsWith("data:")
         ? modelParam
         : `${window.location.origin}${modelParam.startsWith("/") ? modelParam : `/${modelParam}`}`;
+
+    if (thumbParam) {
+      const resolvedThumb =
+        thumbParam.startsWith("http://") ||
+        thumbParam.startsWith("https://") ||
+        thumbParam.startsWith("data:") ||
+        thumbParam.startsWith("blob:") ||
+        thumbParam.startsWith("/")
+          ? thumbParam
+          : `${window.location.origin}${thumbParam.startsWith("/") ? thumbParam : `/${thumbParam}`}`;
+      setSourceThumb(resolvedThumb);
+    }
     const proxyCandidate =
       resolvedUrl.startsWith("http") ? buildProxyUrlFromSource(resolvedUrl) : null;
     const initialUrl = proxyCandidate ?? resolvedUrl;
@@ -911,6 +931,9 @@ function PrintServiceContent() {
         const filename = hasExtension ? rawName : `${rawName}.glb`;
         const fileType = blob.type || "model/gltf-binary";
         const file = new File([blob], filename, { type: fileType });
+        if (nameParam) {
+          setSourceName(nameParam);
+        }
         if (techParam) {
           const normalized = techParam.toLowerCase();
           if (normalized.includes("fdm") || normalized.includes("plastic")) {
@@ -1702,13 +1725,13 @@ function PrintServiceContent() {
   const buildCartItem = () => ({
     id: `custom-print:${uploadedMedia?.id ?? "pending"}`,
     productId: serviceProductId ?? "",
-    name: "Печать на заказ",
+    name: sourceName ? `Печать: ${sourceName}` : "Печать на заказ",
     formatKey: "physical" as const,
     formatLabel: "Печатная модель",
     priceLabel: `${formatPrice(price)} ₽`,
     priceValue: Math.round(price),
     quantity: 1,
-    thumbnailUrl: buildCartThumbnail("Печать"),
+    thumbnailUrl: sourceThumb ?? buildCartThumbnail("Печать"),
     customPrint: {
       uploadId: uploadedMedia?.id ?? "",
       uploadUrl: uploadedMedia?.url,
