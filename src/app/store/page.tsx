@@ -44,6 +44,7 @@ import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
 import { ORDER_STATUS_UNREAD_KEY } from "@/lib/orderStatus";
 import { useFavorites, type FavoriteItem } from "@/lib/favorites";
+import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 
 type TechMode = "SLA Resin" | "FDM Plastic";
 type ModelBounds = {
@@ -820,6 +821,7 @@ export default function Home() {
   const [isWorkshopOpen, setWorkshopOpen] = useState(false);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [userProfile, setUserProfile] = useState<any | null>(null);
+  const [userReady, setUserReady] = useState(false);
   const [modelRetryKey, setModelRetryKey] = useState(0);
   const [modelErrorCount, setModelErrorCount] = useState(0);
   const [heroModelReady, setHeroModelReady] = useState(false);
@@ -829,6 +831,7 @@ export default function Home() {
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
+  const cartLoadedKeyRef = useRef<string | null>(null);
   const heroSectionRef = useRef<HTMLDivElement | null>(null);
   const heroEntranceRef = useRef<HTMLDivElement | null>(null);
   const showPortalHero = false;
@@ -857,6 +860,10 @@ export default function Home() {
   const previousRenderModeRef = useRef<RenderMode>("final");
   const zoomAnimationRef = useRef<number | null>(null);
   const apiBase = "";
+  const cartStorageKey = useMemo(
+    () => getCartStorageKey(userReady ? userProfile?.id : null),
+    [userProfile?.id, userReady]
+  );
 
   useEffect(() => {
     setIsMounted(true);
@@ -885,6 +892,9 @@ export default function Home() {
       })
       .catch(() => {
         setUserProfile(null);
+      })
+      .finally(() => {
+        setUserReady(true);
       });
   }, [apiBase]);
 
@@ -1020,22 +1030,16 @@ export default function Home() {
     if (typeof window === "undefined") {
       return;
     }
-    const stored = window.localStorage.getItem("store3d_cart");
-    if (!stored) {
+    if (!userReady) {
       return;
     }
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        const normalized = parsed
-          .map((item) => normalizeStoredItem(item))
-          .filter((item): item is CartItem => Boolean(item));
-        setCartItems(normalized);
-      }
-    } catch {
-      setCartItems([]);
-    }
-  }, []);
+    const parsed = readCartStorage(cartStorageKey, { migrateLegacy: true });
+    const normalized = parsed
+      .map((item) => normalizeStoredItem(item))
+      .filter((item): item is CartItem => Boolean(item));
+    setCartItems(normalized);
+    cartLoadedKeyRef.current = cartStorageKey;
+  }, [cartStorageKey, userReady]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1055,8 +1059,14 @@ export default function Home() {
     if (typeof window === "undefined") {
       return;
     }
-    window.localStorage.setItem("store3d_cart", JSON.stringify(cartItems));
-  }, [cartItems]);
+    if (!userReady) {
+      return;
+    }
+    if (cartLoadedKeyRef.current !== cartStorageKey) {
+      return;
+    }
+    writeCartStorage(cartStorageKey, cartItems);
+  }, [cartItems, cartStorageKey, userReady]);
 
   useEffect(() => {
     if (typeof window === "undefined") {

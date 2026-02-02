@@ -38,6 +38,7 @@ import {
   ArrowLeft,
   ArrowRight,
 } from "lucide-react";
+import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -568,8 +569,13 @@ function PrintServiceContent() {
   const [isAdding, setIsAdding] = useState(false);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [userId, setUserId] = useState<string | null>(null);
   const [technologyLocked, setTechnologyLocked] = useState(false);
   const apiBase = "";
+  const cartStorageKey = useMemo(
+    () => getCartStorageKey(isLoggedIn ? userId : null),
+    [isLoggedIn, userId]
+  );
   const isUploadBusy =
     uploadStatus === "uploading" || uploadStatus === "analyzing" || uploadStatus === "finalizing";
   const canStartUpload = Boolean(pendingFile) && uploadStatus === "pending";
@@ -676,8 +682,12 @@ function PrintServiceContent() {
       .then((data) => {
         const user = data?.user ?? data?.doc ?? null;
         setIsLoggedIn(Boolean(user?.id));
+        setUserId(user?.id ? String(user.id) : null);
       })
-      .catch(() => setIsLoggedIn(false));
+      .catch(() => {
+        setIsLoggedIn(false);
+        setUserId(null);
+      });
   }, [apiBase]);
 
   const previewMaterials = useMemo(
@@ -1766,9 +1776,7 @@ function PrintServiceContent() {
 
   const commitCartItem = (cartItem: ReturnType<typeof buildCartItem>) => {
     try {
-      const stored =
-        typeof window !== "undefined" ? window.localStorage.getItem("store3d_cart") : null;
-      const parsed = stored ? JSON.parse(stored) : [];
+      const parsed = readCartStorage(cartStorageKey, { migrateLegacy: true });
       const items = Array.isArray(parsed) ? parsed : [];
       const existingIndex = items.findIndex((item: any) => item.id === cartItem.id);
       if (existingIndex >= 0) {
@@ -1776,8 +1784,7 @@ function PrintServiceContent() {
       } else {
         items.push(cartItem);
       }
-      window.localStorage.setItem("store3d_cart", JSON.stringify(items));
-      window.dispatchEvent(new CustomEvent("cart-updated"));
+      writeCartStorage(cartStorageKey, items);
       return true;
     } catch {
       return false;

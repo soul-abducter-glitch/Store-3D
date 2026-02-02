@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { motion, useMotionValue, useSpring } from "framer-motion";
 import { ChevronDown, Heart, Printer, ShoppingCart, Sparkles, User } from "lucide-react";
 import { useFavorites } from "@/lib/favorites";
+import { LEGACY_CART_KEY, getCartStorageKey, readCartStorage } from "@/lib/cartStorage";
 
 const HERO_PORTAL_IMAGE = "/backgrounds/prtal.png";
 const HERO_PORTAL_MASK = "/backgrounds/portal_glow_mask_soft_score_blur.png";
@@ -24,10 +25,13 @@ export default function Home() {
   const [userLabel, setUserLabel] = useState("ВХОД");
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authStatus, setAuthStatus] = useState("AUTH_STATUS: GUEST");
+  const [userId, setUserId] = useState<string | null>(null);
+  const [authReady, setAuthReady] = useState(false);
   const heroParallaxX = useMotionValue(0);
   const heroParallaxY = useMotionValue(0);
   const heroParallaxXSpring = useSpring(heroParallaxX, { stiffness: 80, damping: 18, mass: 0.4 });
   const heroParallaxYSpring = useSpring(heroParallaxY, { stiffness: 80, damping: 18, mass: 0.4 });
+  const cartStorageKey = useMemo(() => getCartStorageKey(userId), [userId]);
   const heroParticles = useMemo(() => {
     const rand = createSeededRandom(9021);
     return Array.from({ length: 28 }, (_, index) => {
@@ -62,25 +66,25 @@ export default function Home() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
+    if (!authReady) return;
     const readCart = () => {
-      try {
-        const raw = window.localStorage.getItem("store3d_cart");
-        if (!raw) return 0;
-        const parsed = JSON.parse(raw);
-        return Array.isArray(parsed) ? parsed.length : 0;
-      } catch {
-        return 0;
-      }
+      const parsed = readCartStorage(cartStorageKey, { migrateLegacy: true });
+      return Array.isArray(parsed) ? parsed.length : 0;
     };
     setCartCount(readCart());
     const handleStorage = (event: StorageEvent) => {
-      if (event.key === "store3d_cart") {
+      if (event.key === cartStorageKey || event.key === LEGACY_CART_KEY) {
         setCartCount(readCart());
       }
     };
+    const handleCartUpdated = () => setCartCount(readCart());
     window.addEventListener("storage", handleStorage);
-    return () => window.removeEventListener("storage", handleStorage);
-  }, []);
+    window.addEventListener("cart-updated", handleCartUpdated);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("cart-updated", handleCartUpdated);
+    };
+  }, [authReady, cartStorageKey]);
 
   const fetchUser = useCallback(() => {
     const controller = new AbortController();
@@ -95,6 +99,8 @@ export default function Home() {
           setIsAuthenticated(false);
           setUserLabel("ВХОД");
           setAuthStatus("AUTH_STATUS: GUEST");
+          setUserId(null);
+          setAuthReady(true);
           return;
         }
         const data = await response.json();
@@ -103,6 +109,8 @@ export default function Home() {
           setIsAuthenticated(false);
           setUserLabel("ВХОД");
           setAuthStatus("AUTH_STATUS: GUEST");
+          setUserId(null);
+          setAuthReady(true);
           return;
         }
         const label =
@@ -114,10 +122,14 @@ export default function Home() {
         setIsAuthenticated(true);
         setUserLabel(label.toUpperCase());
         setAuthStatus("AUTH_STATUS: AUTHENTICATED");
+        setUserId(String(user.id));
+        setAuthReady(true);
       } catch {
         setIsAuthenticated(false);
         setUserLabel("ВХОД");
         setAuthStatus("AUTH_STATUS: GUEST");
+        setUserId(null);
+        setAuthReady(true);
       }
     };
     run();

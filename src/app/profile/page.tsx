@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -16,6 +16,7 @@ import {
   User,
 } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
+import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 import {
   ORDER_PROGRESS_STEPS,
   ORDER_STATUS_UNREAD_KEY,
@@ -176,6 +177,7 @@ export default function ProfilePage() {
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
   const apiBase = "";
+  const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -183,38 +185,24 @@ export default function ProfilePage() {
     }
 
     const syncCart = () => {
-      const stored = window.localStorage.getItem("store3d_cart");
-      if (!stored) {
-        setCartItems([]);
-        return;
-      }
-
-      try {
-        const parsed = JSON.parse(stored);
-        if (Array.isArray(parsed)) {
-          const normalized = parsed
-            .map((item) => normalizeStoredItem(item))
-            .filter((item): item is CartItem => Boolean(item));
-          setCartItems(normalized);
-          return;
-        }
-      } catch {
-        setCartItems([]);
-      }
+      const parsed = readCartStorage(cartStorageKey, { migrateLegacy: Boolean(user?.id) });
+      const normalized = parsed
+        .map((item) => normalizeStoredItem(item))
+        .filter((item): item is CartItem => Boolean(item));
+      setCartItems(normalized);
     };
 
     syncCart();
     const handleCartUpdated = () => syncCart();
     window.addEventListener("cart-updated", handleCartUpdated);
     return () => window.removeEventListener("cart-updated", handleCartUpdated);
-  }, []);
+  }, [cartStorageKey, user?.id]);
 
   const removeFromCart = (id: string) => {
     setCartItems((prev) => {
       const next = prev.filter((item) => item.id !== id);
       if (typeof window !== "undefined") {
-        window.localStorage.setItem("store3d_cart", JSON.stringify(next));
-        window.dispatchEvent(new CustomEvent("cart-updated"));
+        writeCartStorage(cartStorageKey, next);
       }
       return next;
     });
@@ -230,8 +218,7 @@ export default function ProfilePage() {
         })
         .filter((item) => item.quantity > 0);
       if (typeof window !== "undefined") {
-        window.localStorage.setItem("store3d_cart", JSON.stringify(next));
-        window.dispatchEvent(new CustomEvent("cart-updated"));
+        writeCartStorage(cartStorageKey, next);
       }
       return next;
     });

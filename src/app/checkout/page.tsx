@@ -22,6 +22,7 @@ import {
   normalizeCityInput,
   normalizeNameInput,
 } from "@/lib/cities";
+import { getCartStorageKey, readCartStorage, removeCartStorage } from "@/lib/cartStorage";
 
 type CartItem = {
   id: string;
@@ -228,6 +229,7 @@ const CheckoutPage = () => {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartReady, setCartReady] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [userReady, setUserReady] = useState(false);
   const [step, setStep] = useState<CheckoutStep>("form");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("card");
@@ -259,6 +261,10 @@ const CheckoutPage = () => {
   const cityRef = useRef<HTMLInputElement>(null);
   const addressRef = useRef<HTMLTextAreaElement>(null);
   const apiBase = "";
+  const cartStorageKey = useMemo(
+    () => getCartStorageKey(userReady ? userId : null),
+    [userId, userReady]
+  );
   
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";
@@ -270,26 +276,16 @@ const CheckoutPage = () => {
     if (typeof window === "undefined") {
       return;
     }
-    const stored = window.localStorage.getItem("store3d_cart");
-    if (!stored) {
-      setCartReady(true);
+    if (!userReady) {
       return;
     }
-
-    try {
-      const parsed = JSON.parse(stored);
-      if (Array.isArray(parsed)) {
-        const normalized = parsed
-          .map((item) => normalizeStoredItem(item))
-          .filter((item): item is CartItem => Boolean(item));
-        setCartItems(normalized);
-      }
-    } catch {
-      setCartItems([]);
-    } finally {
-      setCartReady(true);
-    }
-  }, []);
+    const parsed = readCartStorage(cartStorageKey, { migrateLegacy: true });
+    const normalized = parsed
+      .map((item) => normalizeStoredItem(item))
+      .filter((item): item is CartItem => Boolean(item));
+    setCartItems(normalized);
+    setCartReady(true);
+  }, [cartStorageKey, userReady]);
 
   useEffect(() => {
     if (!cartReady) {
@@ -311,6 +307,9 @@ const CheckoutPage = () => {
       })
       .catch(() => {
         setUserId(null);
+      })
+      .finally(() => {
+        setUserReady(true);
       });
   }, [apiBase]);
 
@@ -802,8 +801,7 @@ const CheckoutPage = () => {
       }
       
       if (typeof window !== "undefined") {
-        window.localStorage.removeItem("store3d_cart");
-        window.dispatchEvent(new CustomEvent("cart-updated"));
+        removeCartStorage(cartStorageKey);
         window.dispatchEvent(new Event("orders-updated"));
       }
       setCartItems([]);
