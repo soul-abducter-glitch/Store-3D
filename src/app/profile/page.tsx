@@ -2,7 +2,18 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, Download, LogOut, Package, Settings, ShoppingCart, Trash2, User } from "lucide-react";
+import {
+  ArrowLeft,
+  Download,
+  LogOut,
+  Package,
+  Plus,
+  Minus,
+  Settings,
+  ShoppingCart,
+  Trash2,
+  User,
+} from "lucide-react";
 import AuthForm from "@/components/AuthForm";
 import {
   ORDER_PROGRESS_STEPS,
@@ -199,6 +210,23 @@ export default function ProfilePage() {
   const removeFromCart = (id: string) => {
     setCartItems((prev) => {
       const next = prev.filter((item) => item.id !== id);
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem("store3d_cart", JSON.stringify(next));
+        window.dispatchEvent(new CustomEvent("cart-updated"));
+      }
+      return next;
+    });
+  };
+
+  const updateCartQuantity = (id: string, delta: number) => {
+    setCartItems((prev) => {
+      const next = prev
+        .map((item) => {
+          if (item.id !== id) return item;
+          const nextQty = Math.max(0, item.quantity + delta);
+          return { ...item, quantity: nextQty };
+        })
+        .filter((item) => item.quantity > 0);
       if (typeof window !== "undefined") {
         window.localStorage.setItem("store3d_cart", JSON.stringify(next));
         window.dispatchEvent(new CustomEvent("cart-updated"));
@@ -631,31 +659,70 @@ export default function ProfilePage() {
             ) : (
               cartItems.map((item) => {
                 const lineTotal = formatPrice(item.priceValue * item.quantity);
+                const resolvedThumb =
+                  typeof item.thumbnailUrl === "string"
+                    ? item.thumbnailUrl
+                    : buildCartThumbnail(item.name);
                 return (
                   <div
                     key={item.id}
                     className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3 sm:justify-between"
                   >
-                    <div className="flex-1">
-                      <p className="text-sm font-semibold text-white">{item.name}</p>
-                      <p className="text-xs text-white/60">
-                        {item.formatLabel} x{item.quantity}
-                      </p>
+                    <div className="flex w-full items-center gap-3 sm:w-auto">
+                      <div className="h-14 w-14 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
+                        <img
+                          src={resolvedThumb}
+                          alt={item.name}
+                          className="h-full w-full object-cover"
+                          onError={(event) => {
+                            const img = event.currentTarget;
+                            img.onerror = null;
+                            img.src = buildCartThumbnail(item.name);
+                          }}
+                        />
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-sm font-semibold text-white">{item.name}</p>
+                        <p className="text-xs text-white/60">{item.formatLabel}</p>
+                      </div>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm font-semibold text-white">{lineTotal} ₽</p>
-                      <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                        {item.priceLabel} ₽
-                      </p>
+                    <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
+                      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1">
+                        <button
+                          type="button"
+                          aria-label="Decrease quantity"
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 transition hover:text-white"
+                          onClick={() => updateCartQuantity(item.id, -1)}
+                        >
+                          <Minus className="h-3 w-3" />
+                        </button>
+                        <span className="min-w-[24px] text-center text-xs font-semibold text-white">
+                          {item.quantity}
+                        </span>
+                        <button
+                          type="button"
+                          aria-label="Increase quantity"
+                          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 transition hover:text-white"
+                          onClick={() => updateCartQuantity(item.id, 1)}
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-sm font-semibold text-white">{lineTotal} ₽</p>
+                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
+                          {item.priceLabel} ₽
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        aria-label="Remove item"
+                        className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+                        onClick={() => removeFromCart(item.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
                     </div>
-                    <button
-                      type="button"
-                      aria-label="Remove item"
-                      className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
-                      onClick={() => removeFromCart(item.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
                   </div>
                 );
               })
