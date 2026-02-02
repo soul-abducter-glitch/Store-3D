@@ -86,7 +86,11 @@ export default function Home() {
     const controller = new AbortController();
     const fetchUser = async () => {
       try {
-        const response = await fetch("/api/users/me", { signal: controller.signal, cache: "no-store" });
+        const response = await fetch("/api/users/me", {
+          signal: controller.signal,
+          cache: "no-store",
+          credentials: "include",
+        });
         if (!response.ok) {
           setIsAuthenticated(false);
           setUserLabel("ВХОД");
@@ -94,17 +98,18 @@ export default function Home() {
           return;
         }
         const data = await response.json();
-        if (!data?.id) {
+        const user = data?.user ?? data?.doc ?? data ?? null;
+        if (!user?.id) {
           setIsAuthenticated(false);
           setUserLabel("ВХОД");
           setAuthStatus("AUTH_STATUS: GUEST");
           return;
         }
         const label =
-          typeof data?.name === "string"
-            ? data.name
-            : typeof data?.email === "string"
-              ? data.email.split("@")[0]
+          typeof user?.name === "string"
+            ? user.name
+            : typeof user?.email === "string"
+              ? user.email.split("@")[0]
               : "NEO";
         setIsAuthenticated(true);
         setUserLabel(label.toUpperCase());
@@ -126,6 +131,10 @@ export default function Home() {
     }
     router.push("/profile?from=checkout");
   }, [isAuthenticated, router]);
+
+  const profileButtonClass = isAuthenticated
+    ? "relative flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-white/80 transition hover:border-[#2ED1FF]/70 hover:text-white group"
+    : "relative flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/70 hover:text-white group";
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white font-[var(--font-inter)]">
@@ -194,10 +203,15 @@ export default function Home() {
             <button
               type="button"
               onClick={() => router.push("/profile")}
-              className="relative flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/70 hover:text-white group"
+              className={profileButtonClass}
               aria-label="Авторизация"
             >
               <User className="h-4 w-4" />
+              {isAuthenticated && (
+                <span className="hidden text-[9px] uppercase tracking-[0.3em] text-white/70 sm:inline">
+                  {userLabel}
+                </span>
+              )}
               <span className="hero-tooltip">{isAuthenticated ? "Профиль" : "Войти"}</span>
             </button>
           </div>
