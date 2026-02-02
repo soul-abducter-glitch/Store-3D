@@ -77,6 +77,7 @@ const normalizeProduct = (doc: any) => ({
   rawModel: pickMedia(doc?.rawModel ?? null),
   paintedModel: pickMedia(doc?.paintedModel ?? null),
   thumbnail: pickMedia(doc?.thumbnail ?? null),
+  thumbnailUrl: doc?.thumbnailUrl ?? null,
 });
 
 export async function GET(request: Request) {

@@ -162,6 +162,7 @@ type ProductDoc = {
   rawModel?: MediaDoc | string | null;
   paintedModel?: MediaDoc | string | null;
   thumbnail?: MediaDoc | string | null;
+  thumbnailUrl?: string | null;
 };
 
 type CatalogProduct = {
@@ -1232,7 +1233,9 @@ export default function Home() {
         typeof product.modelScale === "number" ? product.modelScale : null;
       const printTime = product.printTime ?? null;
       const scale = product.scale ?? null;
-      const thumbnailUrl = resolveProductThumbnail(product.thumbnail ?? null);
+      const thumbnailUrl = resolveProductThumbnail(
+        product.thumbnail ?? product.thumbnailUrl ?? null
+      );
 
       return {
         id: String(product.id ?? product.name ?? ""),

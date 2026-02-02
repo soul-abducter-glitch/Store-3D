@@ -224,5 +224,12 @@ export const Products: CollectionConfig = {
       type: "upload",
       relationTo: "media",
     },
+    {
+      name: "thumbnailUrl",
+      type: "text",
+      admin: {
+        description: "Необязательно. Например: /catalog/warrior_sultan.jpg",
+      },
+    },
   ],
 };
