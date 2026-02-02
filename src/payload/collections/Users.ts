@@ -1,14 +1,14 @@
-import type { Access, CollectionConfig } from "payload";
+п»їimport type { Access, CollectionConfig } from "payload";
 
-const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
-const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
+const NAME_REGEX = /^[A-Za-zРђ-РЇР°-СЏРЃС‘][A-Za-zРђ-РЇР°-СЏРЃС‘\s'-]{1,49}$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-zРђ-РЇР°-СЏРЃС‘])(?=.*\d)(?=.*[^A-Za-zРђ-РЇР°-СЏРЃС‘\d]).{8,}$/;
 
 const validatePassword = (value: unknown) => {
   if (typeof value !== "string" || !value) {
-    return "Пароль обязателен.";
+    return "РџР°СЂРѕР»СЊ РѕР±СЏР·Р°С‚РµР»РµРЅ.";
   }
   if (!PASSWORD_REGEX.test(value)) {
-    return "Пароль: минимум 8 символов, буквы, цифры и спецсимвол.";
+    return "РџР°СЂРѕР»СЊ: РјРёРЅРёРјСѓРј 8 СЃРёРјРІРѕР»РѕРІ, Р±СѓРєРІС‹, С†РёС„СЂС‹ Рё СЃРїРµС†СЃРёРјРІРѕР».";
   }
   return true;
 };
@@ -60,14 +60,14 @@ export const Users: CollectionConfig = {
     {
       name: "name",
       type: "text",
-      label: "Имя",
+      label: "РРјСЏ",
       validate: (value) => {
         const name = typeof value === "string" ? value.trim() : "";
         if (!name) {
-          return "Имя обязательно.";
+          return "РРјСЏ РѕР±СЏР·Р°С‚РµР»СЊРЅРѕ.";
         }
         if (!NAME_REGEX.test(name)) {
-          return "Имя: только буквы, пробелы, дефис или апостроф.";
+          return "РРјСЏ: С‚РѕР»СЊРєРѕ Р±СѓРєРІС‹, РїСЂРѕР±РµР»С‹, РґРµС„РёСЃ РёР»Рё Р°РїРѕСЃС‚СЂРѕС„.";
         }
         return true;
       },
@@ -75,11 +75,11 @@ export const Users: CollectionConfig = {
     {
       name: "shippingAddress",
       type: "textarea",
-      label: "Адрес доставки",
+      label: "РђРґСЂРµСЃ РґРѕСЃС‚Р°РІРєРё",
     },
     {
       name: "purchasedProducts",
-      label: "Купленные модели",
+      label: "РљСѓРїР»РµРЅРЅС‹Рµ РјРѕРґРµР»Рё",
       type: "relationship",
       relationTo: "products",
       hasMany: true,
