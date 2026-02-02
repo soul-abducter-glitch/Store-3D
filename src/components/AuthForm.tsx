@@ -6,6 +6,9 @@ import { mergeGuestCartIntoUser } from "@/lib/cartStorage";
 
 type AuthMode = "login" | "register";
 
+const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
+
 type AuthFormProps = {
   onSuccess?: () => void;
   redirectOnSuccess?: boolean;
@@ -104,6 +107,16 @@ export default function AuthForm({
       } else {
         if (!trimmedName) {
           setError("Имя обязательно.");
+          setSubmitting(false);
+          return;
+        }
+        if (!NAME_REGEX.test(trimmedName)) {
+          setError("Имя: только буквы, пробелы, дефис или апостроф.");
+          setSubmitting(false);
+          return;
+        }
+        if (!PASSWORD_REGEX.test(password)) {
+          setError("Пароль: минимум 8 символов, буквы, цифры и спецсимвол.");
           setSubmitting(false);
           return;
         }
