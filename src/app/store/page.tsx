@@ -1938,18 +1938,20 @@ export default function Home() {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${apiBase}/api/users/logout`, {
+      const response = await fetch(`${apiBase}/api/users/logout`, {
         method: "POST",
         credentials: "include",
         cache: "no-store",
       });
-    } catch (error) {
-      console.error("Logout failed:", error);
-    } finally {
+      if (!response.ok) {
+        throw new Error(`Logout failed: ${response.status}`);
+      }
       setUserProfile(null);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("auth-updated"));
       }
+    } catch (error) {
+      console.error("Logout failed:", error);
     }
   };
 

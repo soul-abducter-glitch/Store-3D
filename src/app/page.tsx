@@ -113,7 +113,7 @@ export default function Home() {
               : "NEO";
         setIsAuthenticated(true);
         setUserLabel(label.toUpperCase());
-        setAuthStatus("AUTH_STATUS: NEO_LOGGED_IN");
+        setAuthStatus("AUTH_STATUS: AUTHENTICATED");
       } catch {
         setIsAuthenticated(false);
         setUserLabel("ВХОД");

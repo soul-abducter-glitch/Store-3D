@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useEffect, useState, type FormEvent } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -163,6 +164,7 @@ const resolveMediaUrl = (value?: any) => {
 };
 
 export default function ProfilePage() {
+  const router = useRouter();
   const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "settings">("orders");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
@@ -345,19 +347,22 @@ export default function ProfilePage() {
 
   const handleLogout = async () => {
     try {
-      await fetch(`${apiBase}/api/users/logout`, {
+      const response = await fetch(`${apiBase}/api/users/logout`, {
         method: "POST",
         credentials: "include",
         cache: "no-store",
       });
-    } catch (error) {
-      console.error("Logout failed:", error);
-    } finally {
+      if (!response.ok) {
+        throw new Error(`Logout failed: ${response.status}`);
+      }
       setUser(null);
       setLoading(false);
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("auth-updated"));
       }
+      router.push("/");
+    } catch (error) {
+      console.error("Logout failed:", error);
     }
   };
 
