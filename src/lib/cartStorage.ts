@@ -58,3 +58,42 @@ export const removeCartStorage = (key: string) => {
   window.localStorage.removeItem(key);
   window.dispatchEvent(new CustomEvent("cart-updated"));
 };
+
+export const mergeGuestCartIntoUser = (userId: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const guestKey = getCartStorageKey(null);
+  const userKey = getCartStorageKey(userId);
+  const guestItems = readCartStorage(guestKey, { migrateLegacy: true });
+  if (!Array.isArray(guestItems) || guestItems.length === 0) {
+    return;
+  }
+  const userItems = readCartStorage(userKey);
+  const merged = Array.isArray(userItems) ? [...userItems] : [];
+  guestItems.forEach((item: any) => {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+    const id = typeof item.id === "string" ? item.id : "";
+    if (!id) {
+      merged.push(item);
+      return;
+    }
+    const existingIndex = merged.findIndex((entry: any) => entry?.id === id);
+    if (existingIndex >= 0) {
+      const existing = merged[existingIndex];
+      const existingQty = typeof existing?.quantity === "number" ? existing.quantity : 1;
+      const incomingQty = typeof item.quantity === "number" ? item.quantity : 1;
+      merged[existingIndex] = {
+        ...existing,
+        quantity: existingQty + incomingQty,
+      };
+    } else {
+      merged.push(item);
+    }
+  });
+  writeCartStorage(userKey, merged);
+  removeCartStorage(guestKey);
+  window.localStorage.removeItem(LEGACY_CART_KEY);
+};

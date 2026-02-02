@@ -1,7 +1,8 @@
 ﻿ "use client";
 
- import { useState, type FormEvent } from "react";
- import { useSearchParams } from "next/navigation";
+import { useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
+import { mergeGuestCartIntoUser } from "@/lib/cartStorage";
 
 type AuthMode = "login" | "register";
 
@@ -69,6 +70,23 @@ export default function AuthForm({
     const trimmedName = name.trim();
 
     try {
+      const syncGuestCart = async () => {
+        try {
+          const meResponse = await fetch(`${apiBase}/api/users/me`, {
+            credentials: "include",
+            cache: "no-store",
+          });
+          if (!meResponse.ok) return;
+          const data = await meResponse.json();
+          const user = data?.user ?? data?.doc ?? null;
+          if (user?.id) {
+            mergeGuestCartIntoUser(String(user.id));
+          }
+        } catch {
+          // ignore merge failures
+        }
+      };
+
       if (mode === "login") {
         const response = await fetch(`${apiBase}/api/users/login`, {
           method: "POST",
@@ -82,6 +100,7 @@ export default function AuthForm({
           setSubmitting(false);
           return;
         }
+        await syncGuestCart();
       } else {
         if (!trimmedName) {
           setError("Имя обязательно.");
@@ -118,6 +137,7 @@ export default function AuthForm({
           setSubmitting(false);
           return;
         }
+        await syncGuestCart();
       }
 
       if (typeof window !== "undefined") {
