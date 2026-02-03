@@ -58,12 +58,22 @@ const isAllowedContentType = (extension: string, value: string) => {
   return allowed.includes(value);
 };
 
-const getS3Client = () => {
-  const endpoint = process.env.S3_ENDPOINT || "";
-  const region = process.env.S3_REGION || "us-east-1";
-  const accessKeyId = process.env.S3_ACCESS_KEY_ID || "";
-  const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY || "";
+const getUploadConfig = () => {
+  const endpoint = (process.env.S3_UPLOAD_ENDPOINT || process.env.S3_ENDPOINT || "").replace(
+    /\/$/,
+    ""
+  );
+  const region = process.env.S3_UPLOAD_REGION || process.env.S3_REGION || "us-east-1";
+  const accessKeyId =
+    process.env.S3_UPLOAD_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID || "";
+  const secretAccessKey =
+    process.env.S3_UPLOAD_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY || "";
+  const bucket = process.env.S3_UPLOAD_BUCKET || process.env.S3_BUCKET || "";
+  return { endpoint, region, accessKeyId, secretAccessKey, bucket };
+};
 
+const getS3Client = () => {
+  const { endpoint, region, accessKeyId, secretAccessKey } = getUploadConfig();
   return new S3Client({
     region,
     endpoint: endpoint || undefined,
@@ -73,7 +83,7 @@ const getS3Client = () => {
 };
 
 const buildPublicUrl = (bucket: string, key: string) => {
-  const endpoint = (process.env.S3_ENDPOINT || "").replace(/\/$/, "");
+  const endpoint = getUploadConfig().endpoint;
   return `${endpoint}/${bucket}/${key}`;
 };
 
@@ -105,7 +115,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const bucket = process.env.S3_BUCKET || "";
+    const bucket = getUploadConfig().bucket;
     if (!bucket) {
       return NextResponse.json(
         { success: false, error: "S3 bucket is not configured." },

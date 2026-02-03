@@ -18,6 +18,12 @@ const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID;
 const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
 const s3Bucket = process.env.S3_BUCKET;
 const s3Endpoint = process.env.S3_ENDPOINT;
+const s3PublicAccessKeyId = process.env.S3_PUBLIC_ACCESS_KEY_ID || s3AccessKeyId;
+const s3PublicSecretAccessKey =
+  process.env.S3_PUBLIC_SECRET_ACCESS_KEY || s3SecretAccessKey;
+const s3PublicBucket = process.env.S3_PUBLIC_BUCKET || s3Bucket;
+const s3PublicEndpoint = process.env.S3_PUBLIC_ENDPOINT || s3Endpoint;
+const s3PublicRegion = process.env.S3_PUBLIC_REGION || process.env.S3_REGION || "us-east-1";
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -257,12 +263,12 @@ if (!databaseURL) {
   throw new Error("DATABASE_URL is missing");
 }
 
-if (!s3AccessKeyId || !s3SecretAccessKey || !s3Bucket || !s3Endpoint) {
+if (!s3PublicAccessKeyId || !s3PublicSecretAccessKey || !s3PublicBucket || !s3PublicEndpoint) {
   console.warn("[WARN] S3 credentials missing. File uploads may fail.");
-  console.warn("S3_ACCESS_KEY_ID:", s3AccessKeyId ? "OK" : "MISSING");
-  console.warn("S3_SECRET_ACCESS_KEY:", s3SecretAccessKey ? "OK" : "MISSING");
-  console.warn("S3_BUCKET:", s3Bucket ? "OK" : "MISSING");
-  console.warn("S3_ENDPOINT:", s3Endpoint ? "OK" : "MISSING");
+  console.warn("S3_PUBLIC_ACCESS_KEY_ID:", s3PublicAccessKeyId ? "OK" : "MISSING");
+  console.warn("S3_PUBLIC_SECRET_ACCESS_KEY:", s3PublicSecretAccessKey ? "OK" : "MISSING");
+  console.warn("S3_PUBLIC_BUCKET:", s3PublicBucket ? "OK" : "MISSING");
+  console.warn("S3_PUBLIC_ENDPOINT:", s3PublicEndpoint ? "OK" : "MISSING");
 }
 
 export default buildConfig({
@@ -298,21 +304,21 @@ export default buildConfig({
   editor: lexicalEditor({}),
   plugins: [
     s3Storage({
-      bucket: s3Bucket || "",
+      bucket: s3PublicBucket || "",
       config: {
         credentials: {
-          accessKeyId: s3AccessKeyId || "",
-          secretAccessKey: s3SecretAccessKey || "",
+          accessKeyId: s3PublicAccessKeyId || "",
+          secretAccessKey: s3PublicSecretAccessKey || "",
         },
-        endpoint: s3Endpoint,
-        region: process.env.S3_REGION || "us-east-1",
+        endpoint: s3PublicEndpoint,
+        region: s3PublicRegion,
         forcePathStyle: true,
       },
       collections: {
         media: {
           prefix: "media",
           generateFileURL: ({ filename, prefix }) => {
-            return `${s3Endpoint}/${s3Bucket}/${prefix ? prefix + "/" : ""}${filename}`;
+            return `${s3PublicEndpoint}/${s3PublicBucket}/${prefix ? prefix + "/" : ""}${filename}`;
           },
         },
       },

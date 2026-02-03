@@ -68,6 +68,9 @@ const UPLOAD_RETRY_MAX_MS = 10_000;
 const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
 const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
+const PUBLIC_MEDIA_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
+  .trim()
+  .replace(/\/$/, "");
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
 const ACCEPTED_TYPES = [
@@ -137,7 +140,18 @@ const formatSpeed = (bytesPerSecond: number) => {
 
 const buildProxyUrlFromSource = (value: string) => {
   const normalized = value.split("?")[0] ?? value;
-  const filename = normalized.replace(/\\/g, "/").split("/").pop();
+  if (PUBLIC_MEDIA_BASE_URL && normalized.toLowerCase().startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
+    return null;
+  }
+  const clean = normalized.replace(/\\/g, "/");
+  const lower = clean.toLowerCase();
+  const marker = "/media/";
+  const idx = lower.indexOf(marker);
+  if (idx >= 0) {
+    const key = clean.slice(idx + 1);
+    return key ? `/api/media-file/${encodeURIComponent(key)}` : null;
+  }
+  const filename = clean.split("/").pop();
   if (!filename) return null;
   return `/api/media-file/${encodeURIComponent(filename)}`;
 };

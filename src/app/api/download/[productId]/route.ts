@@ -31,11 +31,13 @@ type UserResponse = {
   };
 };
 
-const bucket = process.env.S3_BUCKET;
-const endpoint = process.env.S3_ENDPOINT;
-const accessKeyId = process.env.S3_ACCESS_KEY_ID;
-const secretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
-const region = process.env.S3_REGION || "us-east-1";
+const bucket = process.env.S3_PUBLIC_BUCKET || process.env.S3_BUCKET;
+const endpoint = process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT;
+const accessKeyId =
+  process.env.S3_PUBLIC_ACCESS_KEY_ID || process.env.S3_ACCESS_KEY_ID;
+const secretAccessKey =
+  process.env.S3_PUBLIC_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY;
+const region = process.env.S3_PUBLIC_REGION || process.env.S3_REGION || "us-east-1";
 const prefix = "media";
 
 const client =

@@ -68,8 +68,17 @@ const resolveMimeType = (filename: string, fallback?: string) => {
   return fallback || "application/octet-stream";
 };
 
+const getUploadConfig = () => {
+  const endpoint = (process.env.S3_UPLOAD_ENDPOINT || process.env.S3_ENDPOINT || "").replace(
+    /\/$/,
+    ""
+  );
+  const bucket = process.env.S3_UPLOAD_BUCKET || process.env.S3_BUCKET || "";
+  return { endpoint, bucket };
+};
+
 const buildPublicUrl = (bucket: string, key: string) => {
-  const endpoint = (process.env.S3_ENDPOINT || "").replace(/\/$/, "");
+  const endpoint = getUploadConfig().endpoint;
   return `${endpoint}/${bucket}/${key}`;
 };
 
@@ -184,7 +193,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const bucket = process.env.S3_BUCKET || "";
+    const bucket = getUploadConfig().bucket;
     if (!bucket) {
       return NextResponse.json(
         { success: false, error: "S3 bucket is not configured." },

@@ -55,6 +55,9 @@ type ModelBounds = {
 
 const HERO_PORTAL_IMAGE = "/backgrounds/prtal.png";
 const HERO_PORTAL_MASK = "/backgrounds/portal_glow_mask_soft_score_blur.png";
+const PUBLIC_MEDIA_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
+  .trim()
+  .replace(/\/$/, "");
 
 const estimatePrintTime = (
   bounds: ModelBounds | null,
@@ -336,7 +339,18 @@ const buildProxyUrl = (filename: string) =>
 
 const buildProxyUrlFromSource = (value?: string | null) => {
   if (!value) return null;
-  const filename = extractFilename(value);
+  if (PUBLIC_MEDIA_BASE_URL && value.toLowerCase().startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
+    return null;
+  }
+  const normalized = value.split("?")[0] ?? value;
+  const lower = normalized.toLowerCase();
+  const marker = "/media/";
+  const idx = lower.indexOf(marker);
+  if (idx >= 0) {
+    const key = normalized.slice(idx + 1);
+    return key ? buildProxyUrl(key) : null;
+  }
+  const filename = extractFilename(normalized);
   return filename ? buildProxyUrl(filename) : null;
 };
 
@@ -351,6 +365,12 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
       if (filename && isGltfAsset(filename)) {
         return value;
       }
+      if (isExternalUrl(value) && PUBLIC_MEDIA_BASE_URL) {
+        const lower = value.toLowerCase();
+        if (lower.startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
+          return value;
+        }
+      }
       return filename ? buildProxyUrl(filename) : value;
     }
     return value;
@@ -359,10 +379,16 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
   const url = typeof value.url === "string" ? value.url : null;
   if (url) {
     const filename = extractFilename(url);
-    if (filename && isModelAsset(filename) && !isGltfAsset(filename)) {
-      return buildProxyUrl(filename);
-    }
     if (isExternalUrl(url)) {
+      if (PUBLIC_MEDIA_BASE_URL) {
+        const lower = url.toLowerCase();
+        if (lower.startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
+          return url;
+        }
+      }
+      if (filename && isModelAsset(filename) && !isGltfAsset(filename)) {
+        return buildProxyUrl(filename);
+      }
       return url;
     }
     if (url.startsWith("/")) {
