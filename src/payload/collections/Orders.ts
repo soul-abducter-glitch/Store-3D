@@ -388,6 +388,8 @@ export const Orders: CollectionConfig = {
           type: "select",
           options: [
             { label: "СДЭК", value: "cdek" },
+            { label: "Яндекс.Доставка", value: "yandex" },
+            { label: "OZON Rocket", value: "ozon" },
             { label: "Почта России", value: "pochta" },
             { label: "Самовывоз", value: "pickup" },
           ],
