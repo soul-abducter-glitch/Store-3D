@@ -467,6 +467,9 @@ const CheckoutPage = () => {
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
     setForm((prev) => ({ ...prev, [field]: event.target.value }));
+    if (submitError) {
+      setSubmitError(null);
+    }
     if (field in fieldErrors) {
       const key = field as keyof typeof fieldErrors;
       setFieldErrors((prev) =>
@@ -1004,7 +1007,7 @@ const CheckoutPage = () => {
                         onChange={handleInputChange("address")}
                         required={hasPhysical}
                         rows={3}
-                        placeholder="Город, дом, квартира"
+                        placeholder="Улица, дом, квартира"
                         aria-invalid={Boolean(fieldErrors.address)}
                         aria-describedby={fieldErrors.address ? "checkout-address-error" : undefined}
                         className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
