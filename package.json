@@ -13,7 +13,8 @@
     "start": "next start",
     "start:admin": "set NEXT_PUBLIC_MODE=admin && set NEXT_PUBLIC_SERVER_URL=http://localhost:3001 && set NEXT_PUBLIC_CORS_URL=http://localhost:3001 && set BUILD_ID=admin && set PORT=3001 && next start",
     "start:frontend": "set NEXT_PUBLIC_MODE=frontend && set NEXT_PUBLIC_SERVER_URL=http://localhost:3000 && set NEXT_PUBLIC_CORS_URL=http://localhost:3000 && set BUILD_ID=frontend && set PORT=3000 && next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@payloadcms/db-postgres": "^3.69.0",
@@ -33,11 +34,14 @@
     "three": "^0.169.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.1",
     "@types/node": "^20.17.10",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "autoprefixer": "^10.4.20",
     "concurrently": "^8.2.2",
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^15.5.9",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
     "ts-node": "^10.9.2",

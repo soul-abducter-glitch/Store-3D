@@ -381,7 +381,11 @@ const FeedCard = ({ id, title, price, tech, verified }: { id: string, title: str
     </div>
     <div className="space-y-3">
       <div className="flex justify-between items-start">
-        <span className="text-[9px] font-mono text-white/20 uppercase tracking-widest">{tech} // {id}</span>
+        <span className="text-[9px] font-mono text-white/20 uppercase tracking-widest">
+          {tech}
+          {" // "}
+          {id}
+        </span>
         <span className="text-xs font-bold text-white/80 font-mono">{price}</span>
       </div>
       <h4 className="text-md font-bold tracking-tight uppercase group-hover:text-cyber-blue transition-colors duration-300">{title}</h4>
