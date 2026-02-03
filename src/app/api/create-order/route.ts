@@ -322,6 +322,28 @@ export async function POST(request: NextRequest) {
     if ((baseData as any)?.customer && customerEmail) {
       (baseData as any).customer.email = customerEmail;
     }
+    let resolvedUserId: string | null = null;
+    if (customerEmail) {
+      try {
+        const userResult = await payload.find({
+          collection: "users",
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          where: {
+            email: {
+              equals: customerEmail,
+            },
+          },
+        });
+        const userDoc = userResult?.docs?.[0];
+        if (userDoc?.id) {
+          resolvedUserId = String(userDoc.id);
+        }
+      } catch {
+        resolvedUserId = null;
+      }
+    }
     const rawCustomerName =
       typeof (baseData as any)?.customer?.name === "string"
         ? (baseData as any).customer.name
@@ -372,6 +394,9 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
+    }
+    if (resolvedUserId && !(orderData as any).user) {
+      (orderData as any).user = resolvedUserId;
     }
 
     const productCache = new Map<string, any>();
