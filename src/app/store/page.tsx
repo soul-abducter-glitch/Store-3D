@@ -433,10 +433,6 @@ const resolveProductThumbnail = (
       return isExternalUrl(value) ? value : `/media/${value}`;
     }
   }
-  const normalized = normalizeThumbKey(fallbackKey);
-  if (normalized) {
-    return `/catalog/${normalized}.jpg`;
-  }
   return buildProductPlaceholder();
 };
 
