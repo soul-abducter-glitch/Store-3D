@@ -347,13 +347,10 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
 
   if (typeof value === "string") {
     if (isModelAsset(value)) {
-      if (isGltfAsset(value)) {
-        return value;
-      }
-      if (isExternalUrl(value)) {
-        return value;
-      }
       const filename = extractFilename(value);
+      if (filename && isGltfAsset(filename)) {
+        return value;
+      }
       return filename ? buildProxyUrl(filename) : value;
     }
     return value;
@@ -361,6 +358,10 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
 
   const url = typeof value.url === "string" ? value.url : null;
   if (url) {
+    const filename = extractFilename(url);
+    if (filename && isModelAsset(filename) && !isGltfAsset(filename)) {
+      return buildProxyUrl(filename);
+    }
     if (isExternalUrl(url)) {
       return url;
     }
