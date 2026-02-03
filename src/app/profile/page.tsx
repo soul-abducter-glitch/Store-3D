@@ -482,13 +482,9 @@ export default function ProfilePage() {
     setOrdersError(null);
 
     try {
-      const response = await fetch(`${apiBase}/api/orders/${orderId}`, {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-        },
+      const response = await fetch(`${apiBase}/api/orders/${orderId}/cancel`, {
+        method: "POST",
         credentials: "include",
-        body: JSON.stringify({ status: "cancelled" }),
       });
 
       if (!response.ok) {
