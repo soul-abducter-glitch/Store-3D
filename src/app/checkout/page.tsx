@@ -383,20 +383,12 @@ const CheckoutPage = () => {
             .filter((id: string | null): id is string => Boolean(id))
         );
         
-        console.log('=== Product Validation Debug ===');
-        console.log('Cart items:', items.map(item => ({ id: item.id, productId: item.productId, name: item.name })));
-        console.log('Valid product IDs from DB:', Array.from(validIds));
-        
         const invalidProducts = items.filter(
           (item) => !validIds.has(resolveCartProductId(item))
         );
-        console.log('Invalid products:', invalidProducts.map(item => ({ productId: item.productId, name: item.name })));
-        console.log('=== End Debug ===');
-        
         return { valid: invalidProducts.length === 0, invalidProducts };
       }
     } catch (error) {
-      console.error("Product validation failed:", error);
     }
 
     return { valid: false, invalidProducts: items };
@@ -688,8 +680,6 @@ const CheckoutPage = () => {
       for (const item of cartItems) {
         const productId = resolveCartProductId(item);
         const productIdStr = typeof productId === "string" ? productId.trim() : "";
-        console.log("Processing item:", item.name, "productId:", productId, "productIdStr:", productIdStr);
-        
         if (!productIdStr) {
           setSubmitError("Ошибка: Товар не найден.");
           setStep("form");
@@ -719,7 +709,6 @@ const CheckoutPage = () => {
         });
       }
       
-      console.log("Final items array for payload:", JSON.stringify(items, null, 2));
 
       const payload: Record<string, any> = {
         items,
@@ -744,12 +733,6 @@ const CheckoutPage = () => {
         payload.shipping = shippingPayload;
       }
 
-      // Debug payload for validation
-      console.log("=== Checkout Payload Debug ===");
-      console.log("Payload structure:", JSON.stringify(payload, null, 2));
-      console.log("Items array:", JSON.stringify(items, null, 2));
-      console.log("Orders API URL:", ordersApiUrl);
-      console.log("============================");
 
       // Add timeout to fetch request
       const timeoutPromise = new Promise<never>((_, reject) => {
@@ -770,8 +753,6 @@ const CheckoutPage = () => {
 
       if (!response.ok) {
         const errorText = await response.text().catch(() => "");
-        console.error("Order creation failed", response.status, errorText);
-        
         // Try to parse as JSON for detailed error messages
         let errorMessage = errorText || "Order creation failed.";
         try {
@@ -829,17 +810,8 @@ const CheckoutPage = () => {
         ? `/checkout/success?orderId=${encodeURIComponent(createdOrderId)}`
         : "/checkout/success";
       
-      console.log("=== Redirecting to success page ===");
-      console.log("Success URL:", successUrl);
-      console.log("Created Order ID:", createdOrderId);
-      
       router.push(successUrl);
     } catch (error) {
-      console.error("=== Order submission error ===");
-      console.error("Error details:", error);
-      console.error("Error message:", error instanceof Error ? error.message : "Unknown error");
-      console.error("==============================");
-      
       const message =
         error instanceof Error && error.message
           ? error.message

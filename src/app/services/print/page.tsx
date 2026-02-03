@@ -67,9 +67,6 @@ const UPLOAD_RETRY_BASE_MS = 2000;
 const UPLOAD_RETRY_MAX_MS = 10_000;
 const SERVER_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 const MULTIPART_THRESHOLD_BYTES = 10 * 1024 * 1024;
-const DEFAULT_UPLOAD_DEBUG_ENABLED = process.env.NEXT_PUBLIC_UPLOAD_DEBUG === "1";
-const DEBUG_STORAGE_KEY = "store3d_upload_debug";
-const BUILD_TAG = "2026-02-01-ee73e22";
 const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
@@ -143,14 +140,6 @@ const buildProxyUrlFromSource = (value: string) => {
   const filename = normalized.replace(/\\/g, "/").split("/").pop();
   if (!filename) return null;
   return `/api/media-file/${encodeURIComponent(filename)}`;
-};
-
-const buildUploadLogLine = (message: string, data?: Record<string, unknown>) => {
-  const time = new Date().toLocaleTimeString("ru-RU", { hour12: false });
-  if (!data) {
-    return `[${time}] ${message}`;
-  }
-  return `[${time}] ${message} ${JSON.stringify(data)}`;
 };
 
 const buildProgressBar = (progress: number) => {
@@ -544,8 +533,6 @@ function PrintServiceContent() {
   const [uploadAttempt, setUploadAttempt] = useState(1);
   const [uploadRetryInMs, setUploadRetryInMs] = useState<number | null>(null);
   const [sourcePrice, setSourcePrice] = useState<number | null>(null);
-  const [uploadDebug, setUploadDebug] = useState<string[]>([]);
-  const [uploadDebugEnabled, setUploadDebugEnabled] = useState(DEFAULT_UPLOAD_DEBUG_ENABLED);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadStartRef = useRef<number | null>(null);
   const lastProgressRef = useRef<{ time: number; loaded: number } | null>(null);
@@ -599,14 +586,6 @@ function PrintServiceContent() {
     if (typeof window === "undefined") return;
     const ua = navigator.userAgent || "";
     setIsMobileUa(/android|iphone|ipad|ipod|iemobile|mobile/i.test(ua));
-  }, []);
-
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const stored = window.localStorage.getItem(DEBUG_STORAGE_KEY);
-    if (stored === "1") {
-      setUploadDebugEnabled(true);
-    }
   }, []);
 
   const clearRetryTimer = useCallback(() => {
@@ -797,7 +776,6 @@ function PrintServiceContent() {
   const handleFile = useCallback(
     async (file: File) => {
       const lower = file.name.toLowerCase();
-      console.log("File detected:", file.name, file.type);
       const label = file.name.replace(/\.[a-z0-9]+$/i, "").replace(/[_-]+/g, " ").trim();
       if (label) {
         setSourceName(label);
@@ -823,12 +801,10 @@ function PrintServiceContent() {
       setUploadElapsedMs(0);
       setUploadEtaMs(null);
       setUploadStalled(false);
-      setUploadDebug([]);
       setUploadError(null);
       setUploadStatus("analyzing");
       setUploadProgress(0);
       setPreviewScale(1);
-      console.log("Analyzing file:", file.name);
 
       try {
         let object: Object3D | null = null;
@@ -884,8 +860,6 @@ function PrintServiceContent() {
         centerAndGroundModel(object);
         setModelObject(object);
         setMetrics(nextMetrics);
-        console.log("Analysis complete:", nextMetrics);
-        console.log("Model units:", unit);
       } catch (error) {
         setUploadError("Не удалось разобрать файл.");
         setUploadStatus("idle");
@@ -1020,20 +994,7 @@ function PrintServiceContent() {
     void loadPreset();
   }, [handleFile, searchParams, showError, showSuccess, isMobileUa, fetchMediaById]);
 
-  const pushUploadLog = useCallback((message: string, data?: Record<string, unknown>) => {
-    if (!uploadDebugEnabled) {
-      return;
-    }
-    setUploadDebug((prev) => {
-      const next = [...prev, buildUploadLogLine(message, data)];
-      return next.slice(-10);
-    });
-    if (data) {
-      console.info("[upload]", message, data);
-      return;
-    }
-    console.info("[upload]", message);
-  }, [uploadDebugEnabled]);
+  const pushUploadLog = useCallback((_message: string, _data?: Record<string, unknown>) => {}, []);
 
   const waitForRetryDelay = useCallback((delayMs: number) => {
     if (delayMs <= 0) {
@@ -1067,7 +1028,6 @@ function PrintServiceContent() {
     setUploadElapsedMs(0);
     setUploadEtaMs(null);
     setUploadStalled(false);
-    setUploadDebug([]);
     clearRetryTimer();
     setUploadAttempt(1);
     uploadStartRef.current = Date.now();
@@ -1313,11 +1273,6 @@ function PrintServiceContent() {
 
     const existingUpload = await resolveExistingUpload(file);
     if (existingUpload?.id) {
-      console.log("Using existing upload record:", {
-        id: existingUpload.id,
-        filename: existingUpload.filename,
-        url: existingUpload.url,
-      });
       setUploadedMedia({
         id: String(existingUpload.id),
         url: existingUpload.url,
@@ -1350,7 +1305,6 @@ function PrintServiceContent() {
       stallAbortArmedRef.current = false;
 
       const uploadStartedAt = Date.now();
-      const uploadMeta = { name: file.name, type: file.type, size: file.size };
       let phase: "upload" | "finalize" = "upload";
 
       if (attempt > 1) {
@@ -1363,7 +1317,6 @@ function PrintServiceContent() {
           return;
         }
 
-        console.log("Uploading file via presigned URL:", uploadMeta);
         pushUploadLog("presign-request");
 
         const presignController = new AbortController();
@@ -1386,7 +1339,6 @@ function PrintServiceContent() {
         } finally {
           window.clearTimeout(presignTimeout);
         }
-        console.log("Presign response status:", presignResponse.status);
         pushUploadLog("presign-response", { status: presignResponse.status });
 
         if (!presignResponse.ok) {
@@ -1394,13 +1346,11 @@ function PrintServiceContent() {
           try {
             const errorData = await presignResponse.json();
             errorMessage = errorData?.error || errorData?.message || errorMessage;
-            console.warn("Presign error response:", errorData);
           } catch {
             const fallbackText = await presignResponse.text().catch(() => "");
             if (fallbackText) {
               errorMessage = fallbackText;
             }
-            console.warn("Presign error response (text):", fallbackText);
           }
           throw new Error(errorMessage);
         }
@@ -1525,13 +1475,11 @@ function PrintServiceContent() {
           try {
             const errorData = await completeResponse.json();
             errorMessage = errorData?.error || errorData?.message || errorMessage;
-            console.warn("Complete error response:", errorData);
           } catch {
             const fallbackText = await completeResponse.text().catch(() => "");
             if (fallbackText) {
               errorMessage = fallbackText;
             }
-            console.warn("Complete error response (text):", fallbackText);
           }
           throw new Error(errorMessage);
         }
@@ -1540,9 +1488,6 @@ function PrintServiceContent() {
         pushUploadLog("complete-response", {
           status: completeResponse.status,
           id: completeData?.doc?.id,
-        });
-        console.log("Upload success payload:", completeData, {
-          ms: Date.now() - uploadStartedAt,
         });
         if (!completeData?.doc?.id) {
           throw new Error("Upload failed");
@@ -1562,11 +1507,6 @@ function PrintServiceContent() {
         uploadXhrRef.current = null;
         let errorCode = (error as any)?.code;
         if ((error as any)?.name === "AbortError") {
-          console.warn("Upload aborted (timeout)", {
-            ...uploadMeta,
-            ms: Date.now() - uploadStartedAt,
-            phase,
-          });
           if (phase === "finalize") {
             const existing = await resolveExistingUpload(file);
             if (existing?.id) {
@@ -1600,8 +1540,8 @@ function PrintServiceContent() {
             setUploadStatus("finalizing");
             await uploadViaServer();
             return;
-          } catch (fallbackError) {
-            console.error("Server upload fallback failed", fallbackError);
+          } catch {
+            // keep fallback silent to avoid noisy logs
           }
         }
 
@@ -1645,22 +1585,6 @@ function PrintServiceContent() {
           error instanceof Error && error.message
             ? error.message
             : "Не удалось загрузить файл в систему.";
-        const errorInfo =
-          error instanceof Error
-            ? {
-                name: error.name,
-                message: error.message,
-                stack: error.stack,
-                details: (error as any)?.details,
-              }
-            : { error };
-        console.error("Upload failed", {
-          name: file.name,
-          size: file.size,
-          type: file.type,
-          ms: Date.now() - uploadStartedAt,
-          ...errorInfo,
-        });
         setUploadError(message);
         setUploadStatus("pending");
         return;
@@ -1687,25 +1611,6 @@ function PrintServiceContent() {
   }, [modelObject, previewMaterials, previewMode]);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    if (window.location.search.includes("uploadDebug=1")) {
-      setUploadDebugEnabled(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (!uploadDebugEnabled) return;
-    setUploadDebug((prev) => {
-      if (prev.some((line) => line.includes("build"))) {
-        return prev;
-      }
-      return [...prev, buildUploadLogLine("build", { tag: BUILD_TAG })].slice(-10);
-    });
-  }, [uploadDebugEnabled]);
-
-  useEffect(() => {
     if (uploadStatus !== "uploading") {
       setUploadStalled(false);
       clearRetryTimer();
@@ -1722,12 +1627,6 @@ function PrintServiceContent() {
         setUploadStalled(true);
         if (!lastStallLoggedRef.current) {
           lastStallLoggedRef.current = true;
-          if (uploadDebugEnabled) {
-            setUploadDebug((prev) =>
-              [...prev, buildUploadLogLine("upload-stalled")].slice(-10)
-            );
-            console.info("[upload]", "upload-stalled");
-          }
         }
         if (
           !isMobileUa &&
@@ -1745,7 +1644,7 @@ function PrintServiceContent() {
       }
     }, 1000);
     return () => window.clearInterval(interval);
-  }, [uploadStatus, uploadDebugEnabled, clearRetryTimer, isMobileUa]);
+  }, [uploadStatus, clearRetryTimer, isMobileUa]);
 
   const handleDrop = useCallback(
     (event: DragEvent<HTMLDivElement>) => {
