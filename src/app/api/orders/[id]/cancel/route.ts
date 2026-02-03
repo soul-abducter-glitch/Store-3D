@@ -45,7 +45,7 @@ const isWithinCancelWindow = (createdAt?: unknown) => {
 
 export async function POST(
   request: NextRequest,
-  { params }: { params: { id?: string } }
+  { params }: { params: { id: string } }
 ) {
   const orderId = params?.id ? String(params.id) : "";
   if (!orderId) {
