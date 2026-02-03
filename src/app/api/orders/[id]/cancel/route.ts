@@ -57,11 +57,25 @@ export async function POST(
   }
 
   const payload = await getPayload();
-  const authHeaders = new Headers(request.headers);
+  const siteUrl = (
+    process.env.NEXT_PUBLIC_SERVER_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    request.nextUrl.origin ||
+    "http://localhost:3000"
+  )
+    .trim()
+    .replace(/\/$/, "");
+  const cookie = request.headers.get("cookie") || "";
   let authUser: any = null;
   try {
-    const authResult = await payload.auth({ headers: authHeaders });
-    authUser = authResult?.user ?? null;
+    const response = await fetch(`${siteUrl}/api/users/me?depth=0`, {
+      headers: cookie ? { cookie } : undefined,
+      cache: "no-store",
+    });
+    if (response.ok) {
+      const data = await response.json();
+      authUser = data?.user ?? data?.doc ?? null;
+    }
   } catch {
     authUser = null;
   }
@@ -132,7 +146,6 @@ export async function POST(
       overrideAccess: true,
       req: {
         user: authUser ?? undefined,
-        headers: authHeaders,
       },
     });
 
