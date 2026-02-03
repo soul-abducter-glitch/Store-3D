@@ -112,6 +112,12 @@ const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'.-]{1,49}$/;
 const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\s.,\\-\\/№]{3,120}$/;
 
+const normalizeAddressInput = (value: string) =>
+  value
+    .replace(/[–—]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+
 const validateCustomerName = (value?: string) => {
   if (!value) return false;
   const trimmed = value.trim();
@@ -322,28 +328,6 @@ export async function POST(request: NextRequest) {
     if ((baseData as any)?.customer && customerEmail) {
       (baseData as any).customer.email = customerEmail;
     }
-    let resolvedUserId: string | null = null;
-    if (customerEmail) {
-      try {
-        const userResult = await payload.find({
-          collection: "users",
-          depth: 0,
-          limit: 1,
-          overrideAccess: true,
-          where: {
-            email: {
-              equals: customerEmail,
-            },
-          },
-        });
-        const userDoc = userResult?.docs?.[0];
-        if (userDoc?.id) {
-          resolvedUserId = String(userDoc.id);
-        }
-      } catch {
-        resolvedUserId = null;
-      }
-    }
     const rawCustomerName =
       typeof (baseData as any)?.customer?.name === "string"
         ? (baseData as any).customer.name
@@ -367,6 +351,10 @@ export async function POST(request: NextRequest) {
         typeof (baseData as any)?.shipping?.address === "string"
           ? (baseData as any).shipping.address
           : "";
+      const normalizedAddress = normalizeAddressInput(rawAddress);
+      if ((baseData as any)?.shipping) {
+        (baseData as any).shipping.address = normalizedAddress;
+      }
       if (!validateCity(rawCity)) {
         return NextResponse.json(
           {
@@ -385,7 +373,7 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-      if (!validateAddress(rawAddress)) {
+      if (!validateAddress(normalizedAddress)) {
         return NextResponse.json(
           {
             success: false,
@@ -394,9 +382,6 @@ export async function POST(request: NextRequest) {
           { status: 400 }
         );
       }
-    }
-    if (resolvedUserId && !(orderData as any).user) {
-      (orderData as any).user = resolvedUserId;
     }
 
     const productCache = new Map<string, any>();
