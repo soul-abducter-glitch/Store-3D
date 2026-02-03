@@ -43,9 +43,10 @@ const isWithinCancelWindow = (createdAt?: unknown) => {
   return Date.now() - createdAtMs <= CANCEL_WINDOW_MINUTES * 60 * 1000;
 };
 
-type Params = { params: { id?: string } };
-
-export async function POST(request: NextRequest, { params }: Params) {
+export async function POST(
+  request: NextRequest,
+  { params }: { params: { id?: string } }
+) {
   const orderId = params?.id ? String(params.id) : "";
   if (!orderId) {
     return NextResponse.json(
