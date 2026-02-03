@@ -57,14 +57,7 @@ export async function POST(
   }
 
   const payload = await getPayload();
-  const siteUrl = (
-    process.env.NEXT_PUBLIC_SERVER_URL ||
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    request.nextUrl.origin ||
-    "http://localhost:3000"
-  )
-    .trim()
-    .replace(/\/$/, "");
+  const siteUrl = request.nextUrl.origin;
   const cookie = request.headers.get("cookie") || "";
   let authUser: any = null;
   try {
