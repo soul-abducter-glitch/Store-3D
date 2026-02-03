@@ -553,6 +553,15 @@ function PrintServiceContent() {
   const lastStallLoggedRef = useRef(false);
   const stallAbortArmedRef = useRef(false);
   const retryTimerRef = useRef<number | null>(null);
+  const defaultSettingsRef = useRef<{
+    technology: TechMode;
+    material: string;
+    quality: QualityKey;
+  }>({
+    technology: "sla",
+    material: materialsByTech.sla[0].label,
+    quality: "standard",
+  });
   const [isMobileUa, setIsMobileUa] = useState(false);
   const [uploadedMedia, setUploadedMedia] = useState<{
     id: string;
@@ -564,6 +573,7 @@ function PrintServiceContent() {
   const [quality, setQuality] = useState<QualityKey>("standard");
   const [previewMode, setPreviewMode] = useState<PreviewMode>("hologram");
   const [previewModeAuto, setPreviewModeAuto] = useState(true);
+  const [settingsAuto, setSettingsAuto] = useState(true);
   const [previewScale, setPreviewScale] = useState(1);
   const [serviceProductId, setServiceProductId] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
@@ -659,6 +669,26 @@ function PrintServiceContent() {
     }
     setPreviewMode(technology === "sla" ? "resin" : "plastic");
   }, [previewModeAuto, technology]);
+
+  const applyDefaultSettings = useCallback(() => {
+    const defaults = defaultSettingsRef.current;
+    setTechnology(defaults.technology);
+    setMaterial(defaults.material);
+    setQuality(defaults.quality);
+    setPreviewModeAuto(true);
+  }, []);
+
+  useEffect(() => {
+    if (!modelObject) {
+      return;
+    }
+    defaultSettingsRef.current = {
+      technology,
+      material,
+      quality,
+    };
+    setSettingsAuto(true);
+  }, [modelObject]);
 
   useEffect(() => {
     fetch(`${apiBase}/api/products?where[slug][equals]=custom-print-service&limit=1`, {
@@ -946,11 +976,19 @@ function PrintServiceContent() {
         }
         if (techParam) {
           const normalized = techParam.toLowerCase();
-          if (normalized.includes("fdm") || normalized.includes("plastic")) {
-            setTechnology("fdm");
-          } else if (normalized.includes("sla") || normalized.includes("resin")) {
-            setTechnology("sla");
-          }
+          const nextTech =
+            normalized.includes("fdm") || normalized.includes("plastic") ? "fdm" : "sla";
+          const nextMaterial =
+            materialsByTech[nextTech][0]?.label ?? materialsByTech.sla[0].label;
+          setTechnology(nextTech);
+          setMaterial(nextMaterial);
+          setQuality("standard");
+          defaultSettingsRef.current = {
+            technology: nextTech,
+            material: nextMaterial,
+            quality: "standard",
+          };
+          setSettingsAuto(true);
           setTechnologyLocked(true);
         } else {
           setTechnologyLocked(false);
@@ -2154,7 +2192,7 @@ function PrintServiceContent() {
                 <div className="grid grid-cols-2 gap-2 rounded-full bg-white/5 p-1">
                   <button
                     type="button"
-                    disabled={technologyLocked}
+                    disabled={technologyLocked || settingsAuto}
                     className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] disabled:cursor-not-allowed disabled:opacity-60 ${
                       technology === "sla"
                         ? "bg-white/15 text-white"
@@ -2166,7 +2204,7 @@ function PrintServiceContent() {
                   </button>
                   <button
                     type="button"
-                    disabled={technologyLocked}
+                    disabled={technologyLocked || settingsAuto}
                     className={`rounded-full px-3 py-2 text-[10px] uppercase tracking-[0.2em] disabled:cursor-not-allowed disabled:opacity-60 ${
                       technology === "fdm"
                         ? "bg-white/15 text-white"
@@ -2177,11 +2215,15 @@ function PrintServiceContent() {
                     FDM Plastic
                   </button>
                 </div>
-                {technologyLocked && (
+                {technologyLocked ? (
                   <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
                     Технология зафиксирована для этой модели.
                   </p>
-                )}
+                ) : settingsAuto ? (
+                  <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
+                    Чтобы сменить технологию, переведите режим в ручной.
+                  </p>
+                ) : null}
               </div>
 
               <div className="space-y-3">
@@ -2193,18 +2235,35 @@ function PrintServiceContent() {
                   <button
                     type="button"
                     className={`flex h-7 w-12 items-center rounded-full border border-white/20 p-1 transition ${
-                      previewModeAuto ? "bg-[#2ED1FF]/40" : "bg-white/5"
+                      settingsAuto ? "bg-[#2ED1FF]/40" : "bg-white/5"
                     }`}
-                    onClick={() => setPreviewModeAuto((prev) => !prev)}
+                    onClick={() => {
+                      setSettingsAuto((prev) => {
+                        const next = !prev;
+                        if (next) {
+                          applyDefaultSettings();
+                        }
+                        return next;
+                      });
+                    }}
                   >
                     <span
                       className={`block h-4 w-4 rounded-full bg-[#2ED1FF] transition ${
-                        previewModeAuto ? "translate-x-5" : "translate-x-0"
+                        settingsAuto ? "translate-x-5" : "translate-x-0"
                       }`}
                     />
                   </button>
                   <span>Ручной</span>
                 </div>
+                {settingsAuto ? (
+                  <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
+                    В авто применяются параметры модели. Ручной режим откроет выбор.
+                  </p>
+                ) : (
+                  <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
+                    Выбирайте технологию и материалы вручную.
+                  </p>
+                )}
                 <p className="text-[9px] uppercase tracking-[0.25em] text-white/40">
                   Визуализация
                 </p>
@@ -2246,7 +2305,8 @@ function PrintServiceContent() {
                     <button
                       key={option.label}
                       type="button"
-                      className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition ${
+                      disabled={settingsAuto}
+                      className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition disabled:cursor-not-allowed disabled:opacity-60 ${
                         material === option.label
                           ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
                           : "border-white/10 bg-white/5 text-white/60 hover:text-white"
@@ -2269,7 +2329,8 @@ function PrintServiceContent() {
                     <button
                       key={option.key}
                       type="button"
-                      className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition ${
+                      disabled={settingsAuto}
+                      className={`w-full rounded-2xl border px-4 py-3 text-left text-xs uppercase tracking-[0.2em] transition disabled:cursor-not-allowed disabled:opacity-60 ${
                         quality === option.key
                           ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
                           : "border-white/10 bg-white/5 text-white/60 hover:text-white"
