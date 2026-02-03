@@ -210,6 +210,14 @@ const collectDigitalProductIds = (items: Array<{ format?: string; product?: unkn
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayload();
+    let authUser: any = null;
+    const authHeaders = request.headers;
+    try {
+      const authResult = await payload.auth({ headers: request.headers });
+      authUser = authResult?.user ?? null;
+    } catch {
+      authUser = null;
+    }
     const data = await request.json();
     const baseData =
       data && typeof data === "object"
@@ -297,6 +305,7 @@ export async function POST(request: NextRequest) {
       paymentMethod,
       customFile: incomingCustomFile ?? undefined,
       technicalSpecs: incomingSpecs,
+      ...(authUser?.id ? { user: authUser.id } : {}),
     };
 
     if (!orderData.customFile || !orderData.technicalSpecs) {
@@ -525,6 +534,13 @@ export async function POST(request: NextRequest) {
       collection: "orders",
       data: orderData,
       overrideAccess: false, // Use normal access control
+      req:
+        authUser || authHeaders
+          ? {
+              user: authUser ?? undefined,
+              headers: authHeaders,
+            }
+          : undefined,
     });
 
     try {

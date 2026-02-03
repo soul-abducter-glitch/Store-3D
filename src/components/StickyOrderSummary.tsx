@@ -96,6 +96,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
         </div>
 
         <button
+          type="button"
           onClick={onCheckout}
           disabled={isProcessing || items.length === 0}
           className="mt-6 w-full rounded-full bg-white px-4 py-3 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60"

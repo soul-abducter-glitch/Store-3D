@@ -22,6 +22,7 @@ interface DeliveryCardProps {
 const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect }) => {
   return (
     <button
+      type="button"
       onClick={() => onSelect(option.id)}
       className={`
         w-full min-w-0 text-left rounded-2xl border-2 p-4 transition-all duration-300 backdrop-blur-xl sm:p-6
