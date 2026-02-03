@@ -108,9 +108,9 @@ const normalizePaymentMethod = (value?: string) => {
   return "card";
 };
 
-const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'-]{1,49}$/;
-const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\\s'.-]{1,49}$/;
-const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\\s.,\\-\\/№]{3,120}$/;
+const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
+const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'.-]{1,49}$/;
+const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\s.,\\-\\/№]{3,120}$/;
 
 const validateCustomerName = (value?: string) => {
   if (!value) return false;

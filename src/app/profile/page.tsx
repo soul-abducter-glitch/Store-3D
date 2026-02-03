@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Download,
@@ -63,6 +64,15 @@ const formatPrice = (value?: number) => {
     return "N/A";
   }
   return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const CANCEL_WINDOW_MINUTES = 30;
+
+const isWithinCancelWindow = (createdAt?: string) => {
+  if (!createdAt) return false;
+  const createdAtMs = new Date(createdAt).getTime();
+  if (!Number.isFinite(createdAtMs)) return false;
+  return Date.now() - createdAtMs <= CANCEL_WINDOW_MINUTES * 60 * 1000;
 };
 
 const buildCartThumbnail = (label: string) => {
@@ -451,7 +461,10 @@ export default function ProfilePage() {
       return false;
     }
     const key = normalizeOrderStatus(order?.status);
-    return key !== "ready" && key !== "completed" && key !== "cancelled";
+    if (key === "ready" || key === "completed" || key === "cancelled") {
+      return false;
+    }
+    return isWithinCancelWindow(order?.createdAt);
   };
 
   const handleCancelOrder = async (orderId: string) => {
@@ -479,7 +492,13 @@ export default function ProfilePage() {
       });
 
       if (!response.ok) {
-        throw new Error("Failed to cancel order");
+        const errorBody = await response.json().catch(() => null);
+        const errorMessage =
+          errorBody?.errors?.[0]?.message ||
+          errorBody?.message ||
+          errorBody?.error ||
+          "Не удалось отменить заказ.";
+        throw new Error(errorMessage);
       }
 
       setOrders((prev) =>
@@ -488,8 +507,13 @@ export default function ProfilePage() {
         )
       );
       window.dispatchEvent(new Event("orders-updated"));
-    } catch {
-      setOrdersError("Не удалось отменить заказ.");
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось отменить заказ. Отмена доступна в течение 30 минут после оформления.";
+      toast.error(message, { className: "sonner-toast" });
+      setOrdersError(null);
     } finally {
       setCancelingOrderId(null);
     }

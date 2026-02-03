@@ -140,6 +140,21 @@ const normalizePaymentMethod = (value?: string) => {
   return "card";
 };
 
+const CANCEL_WINDOW_MINUTES = 30;
+
+const resolveCreatedAtMs = (value?: unknown) => {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  const ms = date.getTime();
+  return Number.isFinite(ms) ? ms : null;
+};
+
+const isWithinCancelWindow = (createdAt?: unknown) => {
+  const createdAtMs = resolveCreatedAtMs(createdAt);
+  if (!createdAtMs) return false;
+  return Date.now() - createdAtMs <= CANCEL_WINDOW_MINUTES * 60 * 1000;
+};
+
 export const Orders: CollectionConfig = {
   slug: "orders",
   admin: {
@@ -178,6 +193,19 @@ export const Orders: CollectionConfig = {
             (prevStatus === "ready" || prevStatus === "completed")
           ) {
             throw new Error("Нельзя отменить заказ после статуса <Готов к выдаче>.");
+          }
+          if (nextStatus === "cancelled" && !privileged) {
+            const originalItems = Array.isArray(originalDoc?.items) ? originalDoc.items : [];
+            const hasPhysical =
+              originalItems.length > 0
+                ? originalItems.some((item: any) => !isDigitalFormat(item?.format))
+                : false;
+            if (!hasPhysical) {
+              throw new Error("Цифровые заказы нельзя отменить.");
+            }
+            if (!isWithinCancelWindow(originalDoc?.createdAt)) {
+              throw new Error("Отмена доступна в течение 30 минут после оформления.");
+            }
           }
         }
 
