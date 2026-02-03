@@ -2249,7 +2249,7 @@ function PrintServiceContent() {
                   >
                     <span
                       className={`block h-4 w-4 rounded-full bg-[#2ED1FF] transition ${
-                        settingsAuto ? "translate-x-5" : "translate-x-0"
+                        settingsAuto ? "translate-x-0" : "translate-x-5"
                       }`}
                     />
                   </button>
