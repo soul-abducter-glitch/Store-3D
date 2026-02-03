@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayloadHMR } from "@payloadcms/next/utilities";
 
 import payloadConfig from "../../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
+import { importMap } from "../../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
