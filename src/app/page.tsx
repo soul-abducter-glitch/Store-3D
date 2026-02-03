@@ -1,6 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMouseEvent } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, useMotionValue, useSpring } from "framer-motion";
 import { ChevronDown, Heart, Printer, ShoppingCart, Sparkles, User } from "lucide-react";
@@ -344,16 +345,19 @@ export default function Home() {
           >
             Премиальный маркетплейс 3D-активов. Коллекционные изделия и цифровые файлы для печати. От концепта до физического объекта.
           </motion.p>
-          <motion.button
-            type="button"
-            onClick={() => router.push("/store")}
+          <motion.div
             className="mt-10 flex flex-col items-center gap-2 text-xs uppercase tracking-[0.35em] text-white/70 transition hover:text-white"
             animate={{ y: [0, 6, 0] }}
             transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
           >
-            <span>В МАГАЗИН</span>
-            <ChevronDown className="h-5 w-5 text-[#2ED1FF]" />
-          </motion.button>
+            <Link
+              href="/store"
+              className="flex flex-col items-center gap-2 text-xs uppercase tracking-[0.35em] text-white/70 transition hover:text-white touch-manipulation"
+            >
+              <span>В МАГАЗИН</span>
+              <ChevronDown className="h-5 w-5 text-[#2ED1FF]" />
+            </Link>
+          </motion.div>
         </div>
       </section>
     </div>
