@@ -57,10 +57,10 @@ export async function POST(
   }
 
   const payload = await getPayload();
-  const headerEntries = Object.fromEntries(request.headers);
+  const authHeaders = new Headers(request.headers);
   let authUser: any = null;
   try {
-    const authResult = await payload.auth({ headers: headerEntries });
+    const authResult = await payload.auth({ headers: authHeaders });
     authUser = authResult?.user ?? null;
   } catch {
     authUser = null;
@@ -132,7 +132,7 @@ export async function POST(
       overrideAccess: true,
       req: {
         user: authUser ?? undefined,
-        headers: headerEntries,
+        headers: authHeaders,
       },
     });
 
