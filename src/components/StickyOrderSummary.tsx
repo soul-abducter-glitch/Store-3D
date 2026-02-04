@@ -1,7 +1,7 @@
 'use client';
 
-import React from 'react';
-import { Package, Truck, CreditCard } from 'lucide-react';
+import React, { useState } from 'react';
+import { Package, Truck, CreditCard, ChevronDown } from 'lucide-react';
 
 interface CartItem {
   id: string;
@@ -18,6 +18,7 @@ interface StickyOrderSummaryProps {
   deliveryCost: number;
   total: number;
   onCheckout: () => void;
+  canCheckout?: boolean;
   isProcessing?: boolean;
 }
 
@@ -27,10 +28,14 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   deliveryCost,
   total,
   onCheckout,
+  canCheckout = true,
   isProcessing = false,
 }) => {
   const formatPrice = (value: number) => new Intl.NumberFormat('ru-RU').format(value);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const discount = 0;
+  const canPay = canCheckout && !isProcessing && items.length > 0;
 
   return (
     <div className="w-full min-w-0 lg:sticky lg:top-24">
@@ -58,29 +63,50 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                 <p className="text-xs text-white/60">{item.formatLabel}</p>
                 <p className="text-xs text-white/50">x{item.quantity}</p>
               </div>
-              <div className="shrink-0 text-right text-xs font-semibold text-white sm:text-sm">
+              <div className="shrink-0 text-right text-xs font-semibold text-white tabular-nums sm:text-sm">
                 {formatPrice(item.priceValue * item.quantity)}?
               </div>
             </div>
           ))}
         </div>
-
         <div className="space-y-2.5 border-t border-white/10 pt-3">
-          <div className="flex items-center justify-between text-sm text-white/80">
-            <span className="flex items-center gap-2">
-              <Package className="h-4 w-4" />
-              Товары
-            </span>
-            <span className="font-medium">{formatPrice(subtotal)}?</span>
-          </div>
+          <button
+            type="button"
+            onClick={() => setDetailsOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:text-white"
+          >
+            Подробности
+            <ChevronDown
+              className={`h-4 w-4 transition ${detailsOpen ? "rotate-180 text-white" : "text-white/50"}`}
+            />
+          </button>
 
-          {deliveryCost > 0 && (
-            <div className="flex items-center justify-between text-sm text-white/80">
-              <span className="flex items-center gap-2">
-                <Truck className="h-4 w-4" />
-                Доставка
-              </span>
-              <span className="font-medium">{formatPrice(deliveryCost)}?</span>
+          {detailsOpen && (
+            <div className="space-y-2 text-sm text-white/80">
+              <div className="flex items-center justify-between">
+                <span className="flex items-center gap-2">
+                  <Package className="h-4 w-4" />
+                  Товары
+                </span>
+                <span className="font-medium tabular-nums">{formatPrice(subtotal)}?</span>
+              </div>
+
+              {deliveryCost > 0 && (
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2">
+                    <Truck className="h-4 w-4" />
+                    Доставка
+                  </span>
+                  <span className="font-medium tabular-nums">{formatPrice(deliveryCost)}?</span>
+                </div>
+              )}
+
+              {discount > 0 && (
+                <div className="flex items-center justify-between text-emerald-300">
+                  <span>Скидка</span>
+                  <span className="font-medium tabular-nums">-{formatPrice(discount)}?</span>
+                </div>
+              )}
             </div>
           )}
 
@@ -89,7 +115,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               <CreditCard className="h-5 w-5" />
               Итого
             </span>
-            <span className="text-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.35)]">
+            <span className="text-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.35)] tabular-nums">
               {formatPrice(total)}?
             </span>
           </div>
@@ -98,7 +124,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
         <button
           type="button"
           onClick={onCheckout}
-          disabled={isProcessing || items.length === 0}
+          disabled={!canPay}
           className="mt-5 w-full rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isProcessing ? (
@@ -121,3 +147,4 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 };
 
 export default StickyOrderSummary;
+

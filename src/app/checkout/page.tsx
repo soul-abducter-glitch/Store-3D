@@ -448,6 +448,14 @@ const CheckoutPage = () => {
     [hasPhysical, form.shippingMethod, paymentMethod, isPaymentStep]
   );
 
+  const formValidation = useMemo(() => getFormErrors(), [getFormErrors]);
+  const canCheckout =
+    formValidation.isValid &&
+    cartItems.length > 0 &&
+    Boolean(userId) &&
+    step === "form" &&
+    !submitLock;
+
   const focusField = useCallback((field: keyof typeof fieldErrors) => {
     const ref =
       field === "name"
@@ -460,6 +468,88 @@ const CheckoutPage = () => {
     ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     ref.current?.focus?.();
   }, []);
+
+  const getFormErrors = useCallback(() => {
+    const errors: typeof fieldErrors = {};
+    let submitError: string | null = null;
+    let firstErrorField: keyof typeof fieldErrors | null = null;
+
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const city = form.city.trim();
+    const address = normalizeAddressInput(form.address);
+
+    if (!name || !email) {
+      submitError = "Заполните имя и email.";
+      if (!name) {
+        errors.name = "Укажите имя.";
+      }
+      if (!email) {
+        errors.email = "Укажите email.";
+      }
+      firstErrorField = !name ? "name" : "email";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    if (!NAME_REGEX.test(name)) {
+      submitError = "Имя может содержать только буквы, пробелы, дефис и апостроф.";
+      errors.name = "Разрешены только буквы, пробел, дефис и апостроф.";
+      firstErrorField = "name";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    const normalizedName = normalizeNameInput(name);
+    if (KNOWN_CITY_SET.has(normalizedName)) {
+      submitError = "Имя не должно быть названием города.";
+      errors.name = "Укажите имя, а не город.";
+      firstErrorField = "name";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    if (hasPhysical && (!city || !address)) {
+      submitError = "Укажите город и адрес доставки.";
+      if (!city) {
+        errors.city = "Укажите город.";
+      }
+      if (!address) {
+        errors.address = "Укажите адрес.";
+      }
+      firstErrorField = !city ? "city" : "address";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    if (hasPhysical) {
+      if (!CITY_REGEX.test(city)) {
+        submitError = "Город может содержать только буквы, пробелы, точку и дефис.";
+        errors.city = "Разрешены только буквы, пробел, точка и дефис.";
+        firstErrorField = "city";
+        return { errors, submitError, firstErrorField, isValid: false };
+      }
+      const normalizedCity = normalizeCityInput(city);
+      if (!KNOWN_CITY_SET.has(normalizedCity)) {
+        submitError = "Город должен быть реальным. Выберите из списка.";
+        errors.city = "Выберите город из списка.";
+        firstErrorField = "city";
+        return { errors, submitError, firstErrorField, isValid: false };
+      }
+      if (normalizedName === normalizedCity) {
+        submitError = "Имя и город не должны совпадать.";
+        errors.city = "Город не должен совпадать с именем.";
+        firstErrorField = "city";
+        return { errors, submitError, firstErrorField, isValid: false };
+      }
+      if (!ADDRESS_REGEX.test(address)) {
+        submitError =
+          "Адрес может содержать только буквы, цифры, пробел, запятую, точку, дефис, слэш и №.";
+        errors.address =
+          "Разрешены буквы, цифры, пробел, запятая, точка, дефис, слэш и №.";
+        firstErrorField = "address";
+        return { errors, submitError, firstErrorField, isValid: false };
+      }
+    }
+
+    return { errors, submitError, firstErrorField, isValid: true };
+  }, [form, hasPhysical]);
 
   const handleInputChange = (field: keyof typeof form) => (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
@@ -567,78 +657,24 @@ const CheckoutPage = () => {
       return;
     }
 
+    const { errors, submitError: validationError, firstErrorField, isValid } = getFormErrors();
+    setFieldErrors(errors);
+    if (!isValid) {
+      if (validationError) {
+        setSubmitError(validationError);
+      }
+      if (firstErrorField) {
+        focusField(firstErrorField);
+      }
+      return;
+    }
+
     const name = form.name.trim();
     const email = form.email.trim();
     const city = form.city.trim();
     const address = normalizeAddressInput(form.address);
     const zipCode = form.zipCode.trim();
     const shippingMethod = form.shippingMethod;
-
-    setFieldErrors({});
-    if (!name || !email) {
-      setSubmitError("Заполните имя и email.");
-      setFieldErrors({
-        name: !name ? "Укажите имя." : undefined,
-        email: !email ? "Укажите email." : undefined,
-      });
-      focusField(!name ? "name" : "email");
-      return;
-    }
-    if (!NAME_REGEX.test(name)) {
-      setSubmitError("Имя может содержать только буквы, пробелы, дефис и апостроф.");
-      setFieldErrors({ name: "Разрешены только буквы, пробел, дефис и апостроф." });
-      focusField("name");
-      return;
-    }
-    const normalizedName = normalizeNameInput(name);
-    if (KNOWN_CITY_SET.has(normalizedName)) {
-      setSubmitError("Имя не должно быть названием города.");
-      setFieldErrors({ name: "Укажите имя, а не город." });
-      focusField("name");
-      return;
-    }
-
-    if (hasPhysical && (!city || !address)) {
-      setSubmitError("Укажите город и адрес доставки.");
-      setFieldErrors({
-        city: !city ? "Укажите город." : undefined,
-        address: !address ? "Укажите адрес." : undefined,
-      });
-      focusField(!city ? "city" : "address");
-      return;
-    }
-    if (hasPhysical) {
-      if (!CITY_REGEX.test(city)) {
-        setSubmitError("Город может содержать только буквы, пробелы, точку и дефис.");
-        setFieldErrors({ city: "Разрешены только буквы, пробел, точка и дефис." });
-        focusField("city");
-        return;
-      }
-      const normalizedCity = normalizeCityInput(city);
-      if (!KNOWN_CITY_SET.has(normalizedCity)) {
-        setSubmitError("Город должен быть реальным. Выберите из списка.");
-        setFieldErrors({ city: "Выберите город из списка." });
-        focusField("city");
-        return;
-      }
-      if (normalizedName === normalizedCity) {
-        setSubmitError("Имя и город не должны совпадать.");
-        setFieldErrors({ city: "Город не должен совпадать с именем." });
-        focusField("city");
-        return;
-      }
-      if (!ADDRESS_REGEX.test(address)) {
-        setSubmitError(
-          "Адрес может содержать только буквы, цифры, пробелы, запятую, точку, дефис, слэш и №."
-        );
-        setFieldErrors({
-          address:
-            "Разрешены буквы, цифры, пробел, запятая, точка, дефис, слэш и №.",
-        });
-        focusField("address");
-        return;
-      }
-    }
 
     if (!userId) {
       setSubmitError("Войдите или зарегистрируйтесь, чтобы завершить заказ.");
@@ -1094,11 +1130,12 @@ const CheckoutPage = () => {
                   deliveryCost={deliveryCost}
                   total={grandTotal}
                   onCheckout={() => formRef.current?.requestSubmit()}
+                  canCheckout={canCheckout}
                   isProcessing={isProcessing}
                 />
                 {!userId && (
                   <p className="mt-3 text-xs text-white/60">
-                    Войдите, чтобы сохранить заказ.
+                    Войдите, чтобы оплатить заказ.
 
                     <Link href="/profile" className="text-white underline underline-offset-4">
                       Перейти в профиль
