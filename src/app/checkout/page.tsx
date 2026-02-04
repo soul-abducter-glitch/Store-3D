@@ -988,6 +988,7 @@ const CheckoutPage = () => {
           <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
             <CardElement
               options={{
+                hidePostalCode: true,
                 style: {
                   base: {
                     color: "#E5E7EB",
