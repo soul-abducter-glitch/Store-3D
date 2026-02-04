@@ -14,7 +14,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
-import type { StripeCardElementChangeEvent } from "@stripe/stripe-js";
+import type { StripeCardElement, StripeCardElementChangeEvent } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import CheckoutStepper from "@/components/CheckoutStepper";
 import DeliveryCard, { deliveryOptions } from "@/components/DeliveryCard";
@@ -920,6 +920,7 @@ const CheckoutPage = () => {
     const [localError, setLocalError] = useState<string | null>(null);
     const [cardReady, setCardReady] = useState(false);
     const [cardComplete, setCardComplete] = useState(false);
+    const cardElementRef = useRef<StripeCardElement | null>(null);
     const testCards = STRIPE_TEST_CARDS;
 
     const handleStripePay = async () => {
@@ -927,7 +928,7 @@ const CheckoutPage = () => {
         setLocalError("Stripe еще загружается. Попробуйте снова.");
         return;
       }
-      const card = elements.getElement(CardElement);
+      const card = cardElementRef.current ?? elements.getElement(CardElement);
       if (!card) {
         setLocalError("Форма карты еще загружается. Попробуйте снова.");
         return;
@@ -1000,7 +1001,10 @@ const CheckoutPage = () => {
                   invalid: { color: "#FDA4AF" },
                 },
               }}
-              onReady={() => setCardReady(true)}
+              onReady={(element) => {
+                cardElementRef.current = element;
+                setCardReady(true);
+              }}
               onChange={(event: StripeCardElementChangeEvent) => {
                 setCardComplete(event.complete);
                 if (event.error?.message) {
@@ -1041,7 +1045,7 @@ const CheckoutPage = () => {
         <button
           type="button"
           onClick={handleStripePay}
-          disabled={paymentLoading || !stripe || !cardReady || !cardComplete}
+          disabled={paymentLoading || !stripe || !cardReady}
           className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
         >
           {paymentLoading
