@@ -921,7 +921,14 @@ const CheckoutPage = () => {
     const [cardReady, setCardReady] = useState(false);
     const [cardComplete, setCardComplete] = useState(false);
     const cardElementRef = useRef<StripeCardElement | null>(null);
+    const [cardElementKey, setCardElementKey] = useState(0);
     const testCards = STRIPE_TEST_CARDS;
+    const resetCardElement = useCallback(() => {
+      cardElementRef.current = null;
+      setCardReady(false);
+      setCardComplete(false);
+      setCardElementKey((prev) => prev + 1);
+    }, []);
 
     const handleStripePay = async () => {
       if (!stripe || !elements || !cardReady) {
@@ -952,7 +959,15 @@ const CheckoutPage = () => {
         });
 
         if (result.error) {
-          setLocalError(result.error.message || "Ошибка оплаты.");
+          const message = result.error.message || "Ошибка оплаты.";
+          if (message.toLowerCase().includes("element")) {
+            resetCardElement();
+            setLocalError(
+              "Форма карты перезапущена. Введите данные карты заново и повторите оплату."
+            );
+          } else {
+            setLocalError(message);
+          }
           setPaymentLoading(false);
           return;
         }
@@ -987,6 +1002,7 @@ const CheckoutPage = () => {
           </label>
           <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
             <CardElement
+              key={cardElementKey}
               options={{
                 hidePostalCode: true,
                 style: {
@@ -1035,6 +1051,13 @@ const CheckoutPage = () => {
               ))}
             </div>
           </details>
+          <button
+            type="button"
+            className="mt-3 w-full rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/30 hover:text-white"
+            onClick={resetCardElement}
+          >
+            Перезагрузить форму карты
+          </button>
         </div>
 
         {localError && (
