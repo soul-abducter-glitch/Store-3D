@@ -80,6 +80,27 @@ const formatPriceValue = (value?: number) => {
   return new Intl.NumberFormat("ru-RU").format(value);
 };
 
+const clampDescription = (value: string, maxLength = 160) => {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, Math.max(0, maxLength - 1)).trim()}…`;
+};
+
+const buildSeoDescription = (product: ProductDoc) => {
+  const base = richTextToPlain(product.description).trim();
+  if (base) {
+    return clampDescription(base);
+  }
+
+  const title = product.name ?? "3D‑модель";
+  const format = product.format ?? "Цифровой STL";
+  const tech = product.technology ? `, технология: ${product.technology}` : "";
+  const price = typeof product.price === "number" ? ` Цена: ₽${product.price}.` : "";
+  const fallback = `${title} — ${format}${tech}.${price}`.trim();
+  return clampDescription(fallback);
+};
+
 const richTextToPlain = (value: unknown): string => {
   if (!value) return "";
   if (typeof value === "string") return value;
@@ -164,9 +185,7 @@ export async function generateMetadata({
   }
 
   const title = product.name ?? "3D-STORE";
-  const description =
-    richTextToPlain(product.description).trim() ||
-    "3D model available in the 3D-STORE marketplace.";
+  const description = buildSeoDescription(product);
   const imageUrl = resolveImageUrl(product.thumbnail) ?? "/backgrounds/bg_lab.png";
   const canonical = `/product/${product.slug ?? resolvedParams.slug}`;
 
