@@ -240,6 +240,194 @@ const STRIPE_TEST_CARDS = [
   { number: "4000 0000 0000 9995", label: "Недостаточно средств" },
 ];
 
+type StripePaymentFormProps = {
+  orderId: string;
+  clientSecret: string;
+  customerName: string;
+  customerEmail: string;
+  paymentLoading: boolean;
+  onSetPaymentLoading: (value: boolean) => void;
+  onConfirmPayment: (orderId: string, paymentIntentId: string) => Promise<unknown>;
+  onPaid: (orderId: string) => void;
+  onClearStageError?: () => void;
+};
+
+const StripePaymentForm = ({
+  orderId,
+  clientSecret,
+  customerName,
+  customerEmail,
+  paymentLoading,
+  onSetPaymentLoading,
+  onConfirmPayment,
+  onPaid,
+  onClearStageError,
+}: StripePaymentFormProps) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [cardReady, setCardReady] = useState(false);
+  const [cardComplete, setCardComplete] = useState(false);
+  const cardElementRef = useRef<StripeCardElement | null>(null);
+  const [cardElementKey, setCardElementKey] = useState(0);
+  const testCards = STRIPE_TEST_CARDS;
+
+  const resetCardElement = useCallback(() => {
+    cardElementRef.current = null;
+    setCardReady(false);
+    setCardComplete(false);
+    setCardElementKey((prev) => prev + 1);
+  }, []);
+
+  const reportElementError = useCallback(
+    (message?: string) => {
+      const text = message || "Ошибка оплаты.";
+      if (text.toLowerCase().includes("element")) {
+        resetCardElement();
+        setLocalError(
+          "Форма карты перезапущена. Введите данные карты заново и повторите оплату."
+        );
+      } else {
+        setLocalError(text);
+      }
+    },
+    [resetCardElement]
+  );
+
+  const handleStripePay = async () => {
+    if (!stripe || !elements || !cardReady) {
+      setLocalError("Stripe еще загружается. Попробуйте снова.");
+      return;
+    }
+    const card = elements.getElement(CardElement);
+    if (!card) {
+      setLocalError("Форма карты еще загружается. Попробуйте снова.");
+      return;
+    }
+    if (!cardComplete) {
+      setLocalError("Заполните данные карты полностью.");
+      return;
+    }
+    onSetPaymentLoading(true);
+    onClearStageError?.();
+    setLocalError(null);
+    try {
+      const result = await stripe.confirmCardPayment(clientSecret, {
+        payment_method: {
+          card,
+          billing_details: {
+            name: customerName,
+            email: customerEmail,
+          },
+        },
+      });
+
+      if (result.error) {
+        reportElementError(result.error.message || "Ошибка оплаты.");
+        onSetPaymentLoading(false);
+        return;
+      }
+
+      const intentId = result.paymentIntent?.id;
+      if (!intentId) {
+        setLocalError("Не удалось получить данные платежа.");
+        onSetPaymentLoading(false);
+        return;
+      }
+
+      await onConfirmPayment(orderId, intentId);
+      onPaid(orderId);
+    } catch (error) {
+      reportElementError(error instanceof Error ? error.message : "Не удалось подтвердить оплату.");
+    } finally {
+      onSetPaymentLoading(false);
+    }
+  };
+
+  return (
+    <div className="mx-auto mt-6 w-full max-w-[420px] space-y-4 text-left">
+      <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+        <label className="mb-2 block text-xs uppercase tracking-[0.3em] text-white/50">
+          Данные карты
+        </label>
+        <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+          <CardElement
+            key={cardElementKey}
+            options={{
+              hidePostalCode: true,
+              style: {
+                base: {
+                  color: "#E5E7EB",
+                  fontSize: "14px",
+                  fontFamily: "var(--font-jetbrains-mono), sans-serif",
+                  letterSpacing: "0.02em",
+                  "::placeholder": {
+                    color: "rgba(226,232,240,0.5)",
+                  },
+                },
+                invalid: { color: "#FDA4AF" },
+              },
+            }}
+            onReady={(element) => {
+              cardElementRef.current = element;
+              setCardReady(true);
+            }}
+            onChange={(event: StripeCardElementChangeEvent) => {
+              setCardComplete(event.complete);
+              if (event.error?.message) {
+                setLocalError(event.error.message);
+              } else if (localError) {
+                setLocalError(null);
+              }
+            }}
+          />
+        </div>
+        <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
+          Тестовый режим Stripe
+        </p>
+        <p className="mt-1 text-[11px] text-white/50">
+          Любой будущий срок, любой CVC.
+        </p>
+        <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70">
+          <summary className="cursor-pointer text-[11px] uppercase tracking-[0.3em] text-white/60">
+            Тестовые карты
+          </summary>
+          <div className="mt-2 space-y-2">
+            {testCards.map((card) => (
+              <div key={card.number} className="flex items-center justify-between gap-3">
+                <span className="font-mono text-[11px] text-white/80">{card.number}</span>
+                <span className="text-[11px] text-white/50">{card.label}</span>
+              </div>
+            ))}
+          </div>
+        </details>
+        <button
+          type="button"
+          className="mt-3 w-full rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/30 hover:text-white"
+          onClick={resetCardElement}
+        >
+          Перезагрузить форму карты
+        </button>
+      </div>
+
+      {localError && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {localError}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handleStripePay}
+        disabled={paymentLoading || !stripe || !cardReady}
+        className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {paymentLoading ? "Оплата..." : !cardReady ? "Загрузка формы..." : "Оплатить"}
+      </button>
+    </div>
+  );
+};
+
 const CheckoutPage = () => {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -904,184 +1092,6 @@ const CheckoutPage = () => {
     }
   };
 
-  const StripePaymentForm = ({
-    orderId,
-    clientSecret,
-    customerName,
-    customerEmail,
-  }: {
-    orderId: string;
-    clientSecret: string;
-    customerName: string;
-    customerEmail: string;
-  }) => {
-    const stripe = useStripe();
-    const elements = useElements();
-    const [localError, setLocalError] = useState<string | null>(null);
-    const [cardReady, setCardReady] = useState(false);
-    const [cardComplete, setCardComplete] = useState(false);
-    const cardElementRef = useRef<StripeCardElement | null>(null);
-    const [cardElementKey, setCardElementKey] = useState(0);
-    const testCards = STRIPE_TEST_CARDS;
-    const resetCardElement = useCallback(() => {
-      cardElementRef.current = null;
-      setCardReady(false);
-      setCardComplete(false);
-      setCardElementKey((prev) => prev + 1);
-    }, []);
-
-    const handleStripePay = async () => {
-      if (!stripe || !elements || !cardReady) {
-        setLocalError("Stripe еще загружается. Попробуйте снова.");
-        return;
-      }
-      const card = cardElementRef.current ?? elements.getElement(CardElement);
-      if (!card) {
-        setLocalError("Форма карты еще загружается. Попробуйте снова.");
-        return;
-      }
-      if (!cardComplete) {
-        setLocalError("Заполните данные карты полностью.");
-        return;
-      }
-      setPaymentLoading(true);
-      setPaymentStageError(null);
-      setLocalError(null);
-      try {
-        const result = await stripe.confirmCardPayment(clientSecret, {
-          payment_method: {
-            card,
-            billing_details: {
-              name: customerName,
-              email: customerEmail,
-            },
-          },
-        });
-
-        if (result.error) {
-          const message = result.error.message || "Ошибка оплаты.";
-          if (message.toLowerCase().includes("element")) {
-            resetCardElement();
-            setLocalError(
-              "Форма карты перезапущена. Введите данные карты заново и повторите оплату."
-            );
-          } else {
-            setLocalError(message);
-          }
-          setPaymentLoading(false);
-          return;
-        }
-
-        const intentId = result.paymentIntent?.id;
-        if (!intentId) {
-          setLocalError("Не удалось получить данные платежа.");
-          setPaymentLoading(false);
-          return;
-        }
-
-        await confirmStripePayment(orderId, intentId);
-
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("orders-updated"));
-        }
-        router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
-      } catch (error) {
-        setLocalError(
-          error instanceof Error ? error.message : "Не удалось подтвердить оплату."
-        );
-      } finally {
-        setPaymentLoading(false);
-      }
-    };
-
-    return (
-      <div className="mx-auto mt-6 w-full max-w-[420px] space-y-4 text-left">
-        <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
-          <label className="mb-2 block text-xs uppercase tracking-[0.3em] text-white/50">
-            Данные карты
-          </label>
-          <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
-            <CardElement
-              key={cardElementKey}
-              options={{
-                hidePostalCode: true,
-                style: {
-                  base: {
-                    color: "#E5E7EB",
-                    fontSize: "14px",
-                    fontFamily: "var(--font-jetbrains-mono), sans-serif",
-                    letterSpacing: "0.02em",
-                    "::placeholder": {
-                      color: "rgba(226,232,240,0.5)",
-                    },
-                  },
-                  invalid: { color: "#FDA4AF" },
-                },
-              }}
-              onReady={(element) => {
-                cardElementRef.current = element;
-                setCardReady(true);
-              }}
-              onChange={(event: StripeCardElementChangeEvent) => {
-                setCardComplete(event.complete);
-                if (event.error?.message) {
-                  setLocalError(event.error.message);
-                } else if (localError) {
-                  setLocalError(null);
-                }
-              }}
-            />
-          </div>
-          <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
-            Тестовый режим Stripe
-          </p>
-          <p className="mt-1 text-[11px] text-white/50">
-            Любой будущий срок, любой CVC.
-          </p>
-          <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70">
-            <summary className="cursor-pointer text-[11px] uppercase tracking-[0.3em] text-white/60">
-              Тестовые карты
-            </summary>
-            <div className="mt-2 space-y-2">
-              {testCards.map((card) => (
-                <div key={card.number} className="flex items-center justify-between gap-3">
-                  <span className="font-mono text-[11px] text-white/80">{card.number}</span>
-                  <span className="text-[11px] text-white/50">{card.label}</span>
-                </div>
-              ))}
-            </div>
-          </details>
-          <button
-            type="button"
-            className="mt-3 w-full rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/30 hover:text-white"
-            onClick={resetCardElement}
-          >
-            Перезагрузить форму карты
-          </button>
-        </div>
-
-        {localError && (
-          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
-            {localError}
-          </div>
-        )}
-
-        <button
-          type="button"
-          onClick={handleStripePay}
-          disabled={paymentLoading || !stripe || !cardReady}
-          className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          {paymentLoading
-            ? "Оплата..."
-            : !cardReady
-              ? "Загрузка формы..."
-              : "Оплатить"}
-        </button>
-      </div>
-    );
-  };
-
   return (
     <div className="min-h-screen bg-[#050505] text-white">
       <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
@@ -1414,6 +1424,16 @@ const CheckoutPage = () => {
                         clientSecret={paymentClientSecret}
                         customerName={form.name.trim() || "Покупатель"}
                         customerEmail={form.email.trim()}
+                        paymentLoading={paymentLoading}
+                        onSetPaymentLoading={setPaymentLoading}
+                        onConfirmPayment={confirmStripePayment}
+                        onPaid={(orderId) => {
+                          if (typeof window !== "undefined") {
+                            window.dispatchEvent(new Event("orders-updated"));
+                          }
+                          router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
+                        }}
+                        onClearStageError={() => setPaymentStageError(null)}
                       />
                     </Elements>
                   ) : (
