@@ -61,6 +61,10 @@ type PurchasedProduct = {
 
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
+const DEBUG_ERROR_EMAILS = (process.env.NEXT_PUBLIC_DEBUG_ERROR_EMAILS || "")
+  .split(",")
+  .map((entry) => entry.trim().toLowerCase())
+  .filter(Boolean);
 
 const formatPrice = (value?: number) => {
   if (typeof value !== "number" || Number.isNaN(value)) {
@@ -410,14 +414,25 @@ export default function ProfilePage() {
       setSettingsSuccess(null);
     };
 
-  const getErrorMessage = async (response: Response) => {
+  const getErrorMessage = async (response: Response, email?: string | null) => {
     try {
       const data = await response.json();
       console.error("Profile update error:", data);
+      const showDetails =
+        process.env.NEXT_PUBLIC_DEBUG_ERRORS === "true" ||
+        (email ? DEBUG_ERROR_EMAILS.includes(email.toLowerCase()) : false);
+      if (showDetails) {
+        return (
+          data?.errors?.[0]?.data?.errors?.[0]?.message ||
+          data?.errors?.[0]?.message ||
+          data?.message ||
+          "Request failed."
+        );
+      }
     } catch {
       // ignore parsing errors
     }
-    return "Не удалось сохранить изменения.";
+    return "Не удалось сохранить изменения. Проверьте данные и попробуйте снова.";
   };
 
   const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -490,7 +505,7 @@ export default function ProfilePage() {
       });
 
       if (!response.ok) {
-        const message = await getErrorMessage(response);
+        const message = await getErrorMessage(response, trimmedEmail);
         throw new Error(message);
       }
 
