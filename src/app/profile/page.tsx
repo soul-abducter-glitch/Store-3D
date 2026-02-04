@@ -59,6 +59,9 @@ type PurchasedProduct = {
   slug?: string;
 };
 
+const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
+const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
+
 const formatPrice = (value?: number) => {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "N/A";
@@ -185,6 +188,16 @@ export default function ProfilePage() {
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartItemCount, setCartItemCount] = useState(0);
   const [settingsSaving, setSettingsSaving] = useState(false);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
+  const [settingsForm, setSettingsForm] = useState({
+    name: "",
+    email: "",
+    shippingAddress: "",
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
@@ -265,6 +278,21 @@ export default function ProfilePage() {
         setLoading(false);
       });
   }, [apiBase]);
+
+  useEffect(() => {
+    if (!user) {
+      return;
+    }
+    setSettingsForm((prev) => ({
+      ...prev,
+      name: typeof user.name === "string" ? user.name : "",
+      email: typeof user.email === "string" ? user.email : "",
+      shippingAddress: typeof user.shippingAddress === "string" ? user.shippingAddress : "",
+      currentPassword: "",
+      newPassword: "",
+      confirmPassword: "",
+    }));
+  }, [user]);
 
   useEffect(() => {
     const refetchUser = () => {
@@ -373,10 +401,122 @@ export default function ProfilePage() {
     }
   };
 
-  const handleSettingsSubmit = (event: FormEvent<HTMLFormElement>) => {
+  const handleSettingsChange =
+    (field: keyof typeof settingsForm) =>
+    (event: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
+      const value = event.target.value;
+      setSettingsForm((prev) => ({ ...prev, [field]: value }));
+      setSettingsError(null);
+      setSettingsSuccess(null);
+    };
+
+  const getErrorMessage = async (response: Response) => {
+    try {
+      const data = await response.json();
+      return (
+        data?.errors?.[0]?.data?.errors?.[0]?.message ||
+        data?.errors?.[0]?.message ||
+        data?.message ||
+        "Request failed."
+      );
+    } catch {
+      return "Request failed.";
+    }
+  };
+
+  const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (settingsSaving || !user?.id) {
+      return;
+    }
+
     setSettingsSaving(true);
-    setTimeout(() => setSettingsSaving(false), 900);
+    setSettingsError(null);
+    setSettingsSuccess(null);
+
+    const trimmedName = settingsForm.name.trim();
+    const trimmedEmail = settingsForm.email.trim();
+    const trimmedAddress = settingsForm.shippingAddress.trim();
+    const currentPassword = settingsForm.currentPassword;
+    const newPassword = settingsForm.newPassword;
+    const confirmPassword = settingsForm.confirmPassword;
+
+    try {
+      if (!trimmedName) {
+        throw new Error("Имя обязательно.");
+      }
+      if (!NAME_REGEX.test(trimmedName)) {
+        throw new Error("Имя: только буквы, пробелы, дефис или апостроф.");
+      }
+      if (!trimmedEmail) {
+        throw new Error("Email обязателен.");
+      }
+
+      if (newPassword || confirmPassword || currentPassword) {
+        if (!currentPassword) {
+          throw new Error("Введите текущий пароль.");
+        }
+        if (!newPassword) {
+          throw new Error("Введите новый пароль.");
+        }
+        if (newPassword !== confirmPassword) {
+          throw new Error("Пароли не совпадают.");
+        }
+        if (!PASSWORD_REGEX.test(newPassword)) {
+          throw new Error("Пароль: минимум 8 символов, буквы, цифры и спецсимвол.");
+        }
+
+        const verifyResponse = await fetch(`${apiBase}/api/users/login`, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: trimmedEmail, password: currentPassword }),
+        });
+        if (!verifyResponse.ok) {
+          throw new Error("Текущий пароль неверный.");
+        }
+      }
+
+      const payload: Record<string, any> = {
+        name: trimmedName,
+        email: trimmedEmail,
+        shippingAddress: trimmedAddress,
+      };
+      if (newPassword) {
+        payload.password = newPassword;
+      }
+
+      const response = await fetch(`${apiBase}/api/users/${encodeURIComponent(String(user.id))}`, {
+        method: "PATCH",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!response.ok) {
+        const message = await getErrorMessage(response);
+        throw new Error(message);
+      }
+
+      const data = await response.json();
+      const updatedUser = data?.doc ?? data ?? null;
+      if (updatedUser) {
+        setUser(updatedUser);
+      }
+      setSettingsForm((prev) => ({
+        ...prev,
+        currentPassword: "",
+        newPassword: "",
+        confirmPassword: "",
+      }));
+      setSettingsSuccess("Данные профиля обновлены.");
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "Не удалось сохранить изменения.";
+      setSettingsError(message);
+    } finally {
+      setSettingsSaving(false);
+    }
   };
 
   const formatDate = (value?: string) => {
@@ -994,11 +1134,22 @@ export default function ProfilePage() {
           {activeTab === "settings" && (
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
               <form className="space-y-6" onSubmit={handleSettingsSubmit}>
+                {settingsError && (
+                  <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                    {settingsError}
+                  </div>
+                )}
+                {settingsSuccess && (
+                  <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
+                    {settingsSuccess}
+                  </div>
+                )}
                 <div className="space-y-2">
                   <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
                   <input
                     type="text"
-                    defaultValue={user.name || "Демо пользователь"}
+                    value={settingsForm.name}
+                    onChange={handleSettingsChange("name")}
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
@@ -1007,7 +1158,8 @@ export default function ProfilePage() {
                   <label className="text-xs uppercase tracking-[0.3em] text-white/50">Email</label>
                   <input
                     type="email"
-                    defaultValue={user.email || "demo@example.com"}
+                    value={settingsForm.email}
+                    onChange={handleSettingsChange("email")}
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
@@ -1017,11 +1169,26 @@ export default function ProfilePage() {
                     Адрес доставки
                   </label>
                   <textarea
-                    defaultValue={user.shippingAddress || "Город, улица, дом, квартира"}
+                    value={settingsForm.shippingAddress}
+                    onChange={handleSettingsChange("shippingAddress")}
                     className="min-h[90px] w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
                 </div>
 
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-[0.3em] text-white/50">
+                    Текущий пароль
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Введите текущий пароль"
+                    value={settingsForm.currentPassword}
+                    onChange={handleSettingsChange("currentPassword")}
+                    autoComplete="current-password"
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                  />
+                </div>
+                
                 <div className="space-y-2">
                   <label className="text-xs uppercase tracking-[0.3em] text-white/50">
                     Новый пароль
@@ -1029,6 +1196,25 @@ export default function ProfilePage() {
                   <input
                     type="password"
                     placeholder="Введите новый пароль"
+                    value={settingsForm.newPassword}
+                    onChange={handleSettingsChange("newPassword")}
+                    autoComplete="new-password"
+                    className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                  />
+                  <p className="text-[11px] text-white/40">
+                    Минимум 8 символов, буквы, цифры и спецсимвол.
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-xs uppercase tracking-[0.3em] text-white/50">
+                    Повторите пароль
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="Повторите новый пароль"
+                    value={settingsForm.confirmPassword}
+                    onChange={handleSettingsChange("confirmPassword")}
                     autoComplete="new-password"
                     className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                   />
