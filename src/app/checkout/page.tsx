@@ -14,6 +14,7 @@ import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
+import type { StripeCardElementChangeEvent } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
 import CheckoutStepper from "@/components/CheckoutStepper";
 import DeliveryCard, { deliveryOptions } from "@/components/DeliveryCard";
@@ -233,6 +234,11 @@ const normalizeAddressInput = (value: string) =>
 
 const stripePublicKey = (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = stripePublicKey ? loadStripe(stripePublicKey) : null;
+const STRIPE_TEST_CARDS = [
+  { number: "4242 4242 4242 4242", label: "Успешная оплата" },
+  { number: "4000 0000 0000 0002", label: "Карта отклонена" },
+  { number: "4000 0000 0000 9995", label: "Недостаточно средств" },
+];
 
 const CheckoutPage = () => {
   const router = useRouter();
@@ -418,6 +424,10 @@ const CheckoutPage = () => {
     }
     return paymentOptions;
   }, [hasDigital, hasPhysical]);
+  const hasAlternativePayment = useMemo(
+    () => availablePaymentOptions.some((option) => option.value !== "card"),
+    [availablePaymentOptions]
+  );
 
   useEffect(() => {
     if (hasDigital && !hasPhysical && paymentMethod !== "card") {
@@ -908,15 +918,22 @@ const CheckoutPage = () => {
     const stripe = useStripe();
     const elements = useElements();
     const [localError, setLocalError] = useState<string | null>(null);
+    const [cardReady, setCardReady] = useState(false);
+    const [cardComplete, setCardComplete] = useState(false);
+    const testCards = STRIPE_TEST_CARDS;
 
     const handleStripePay = async () => {
-      if (!stripe || !elements) {
+      if (!stripe || !elements || !cardReady) {
         setLocalError("Stripe еще загружается. Попробуйте снова.");
         return;
       }
       const card = elements.getElement(CardElement);
       if (!card) {
-        setLocalError("Не удалось загрузить форму карты.");
+        setLocalError("Форма карты еще загружается. Попробуйте снова.");
+        return;
+      }
+      if (!cardComplete) {
+        setLocalError("Заполните данные карты полностью.");
         return;
       }
       setPaymentLoading(true);
@@ -983,11 +1000,36 @@ const CheckoutPage = () => {
                   invalid: { color: "#FDA4AF" },
                 },
               }}
+              onReady={() => setCardReady(true)}
+              onChange={(event: StripeCardElementChangeEvent) => {
+                setCardComplete(event.complete);
+                if (event.error?.message) {
+                  setLocalError(event.error.message);
+                } else if (localError) {
+                  setLocalError(null);
+                }
+              }}
             />
           </div>
           <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
-            Тестовый режим Stripe (карта 4242 4242 4242 4242)
+            Тестовый режим Stripe
           </p>
+          <p className="mt-1 text-[11px] text-white/50">
+            Любой будущий срок, любой CVC.
+          </p>
+          <details className="mt-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 text-xs text-white/70">
+            <summary className="cursor-pointer text-[11px] uppercase tracking-[0.3em] text-white/60">
+              Тестовые карты
+            </summary>
+            <div className="mt-2 space-y-2">
+              {testCards.map((card) => (
+                <div key={card.number} className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-[11px] text-white/80">{card.number}</span>
+                  <span className="text-[11px] text-white/50">{card.label}</span>
+                </div>
+              ))}
+            </div>
+          </details>
         </div>
 
         {localError && (
@@ -999,10 +1041,14 @@ const CheckoutPage = () => {
         <button
           type="button"
           onClick={handleStripePay}
-          disabled={paymentLoading}
+          disabled={paymentLoading || !stripe || !cardReady || !cardComplete}
           className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
         >
-          {paymentLoading ? "Оплата..." : "Оплатить"}
+          {paymentLoading
+            ? "Оплата..."
+            : !cardReady
+              ? "Загрузка формы..."
+              : "Оплатить"}
         </button>
       </div>
     );
@@ -1333,24 +1379,75 @@ const CheckoutPage = () => {
                   </div>
                 )}
                 {isStripeMode && paymentMethod === "card" ? (
-                  stripePromise ? (
-                    paymentClientSecret && pendingOrderId ? (
-                      <Elements stripe={stripePromise}>
-                        <StripePaymentForm
-                          orderId={pendingOrderId}
-                          clientSecret={paymentClientSecret}
-                          customerName={form.name.trim() || "Покупатель"}
-                          customerEmail={form.email.trim()}
-                        />
-                      </Elements>
-                    ) : (
-                      <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                        Не удалось создать платеж. Обновите страницу и попробуйте снова.
-                      </div>
-                    )
+                  stripePromise && paymentClientSecret && pendingOrderId ? (
+                    <Elements stripe={stripePromise}>
+                      <StripePaymentForm
+                        orderId={pendingOrderId}
+                        clientSecret={paymentClientSecret}
+                        customerName={form.name.trim() || "Покупатель"}
+                        customerEmail={form.email.trim()}
+                      />
+                    </Elements>
                   ) : (
-                    <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-                      Stripe не настроен. Добавьте ключи в переменные окружения.
+                    <div className="mx-auto mt-6 w-full max-w-[480px] space-y-4 text-left">
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        {!stripePromise
+                          ? "Stripe не настроен. Добавьте ключи в переменные окружения."
+                          : "Не удалось создать платеж. Обновите страницу и попробуйте снова."}
+                      </div>
+                      <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+                        <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                          Тестовые карты
+                        </p>
+                        <p className="mt-1 text-[11px] text-white/50">
+                          Любой будущий срок, любой CVC.
+                        </p>
+                        <div className="mt-3 space-y-2 text-xs text-white/70">
+                          {STRIPE_TEST_CARDS.map((card) => (
+                            <div key={card.number} className="flex items-center justify-between gap-3">
+                              <span className="font-mono text-[11px] text-white/80">
+                                {card.number}
+                              </span>
+                              <span className="text-[11px] text-white/50">{card.label}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {hasAlternativePayment ? (
+                        <div className="rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-3 text-xs text-white/60">
+                          Можно выбрать другой способ оплаты:
+                          <div className="mt-3 flex flex-wrap gap-2">
+                            {availablePaymentOptions
+                              .filter((option) => option.value !== "card")
+                              .map((option) => (
+                                <button
+                                  key={option.value}
+                                  type="button"
+                                  className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/30 hover:text-white"
+                                  onClick={() => setPaymentMethod(option.value)}
+                                  disabled={paymentLoading}
+                                >
+                                  {option.label}
+                                </button>
+                              ))}
+                          </div>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-white/50">
+                          Для цифровых файлов доступна только оплата картой. Настройте Stripe,
+                          чтобы продолжить.
+                        </p>
+                      )}
+                      <div className="flex flex-wrap justify-center gap-3">
+                        <button
+                          type="button"
+                          className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"
+                          onClick={handleRefreshPaymentIntent}
+                          disabled={paymentLoading}
+                        >
+                          Проверить статус
+                        </button>
+                      </div>
                     </div>
                   )
                 ) : (
