@@ -11,7 +11,20 @@ import { Orders } from "@/payload/collections/Orders";
 import { Products } from "@/payload/collections/Products";
 import { Users } from "@/payload/collections/Users";
 
-const serverURL = (process.env.NEXT_PUBLIC_SERVER_URL || "http://localhost:3000").trim();
+const normalizeOrigin = (value?: string | null) => {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  return trimmed.replace(/\/$/, "");
+};
+const vercelUrl = process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null;
+const vercelBranchUrl = process.env.VERCEL_BRANCH_URL
+  ? `https://${process.env.VERCEL_BRANCH_URL}`
+  : null;
+const serverURL =
+  normalizeOrigin(process.env.NEXT_PUBLIC_SERVER_URL) ||
+  normalizeOrigin(vercelUrl) ||
+  "http://localhost:3000";
 const payloadSecret = process.env.PAYLOAD_SECRET;
 const databaseURL = process.env.DATABASE_URL;
 const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID;
@@ -24,20 +37,17 @@ const s3PublicSecretAccessKey =
 const s3PublicBucket = process.env.S3_PUBLIC_BUCKET || s3Bucket;
 const s3PublicEndpoint = process.env.S3_PUBLIC_ENDPOINT || s3Endpoint;
 const s3PublicRegion = process.env.S3_PUBLIC_REGION || process.env.S3_REGION || "us-east-1";
-const normalizeOrigin = (value?: string | null) => {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  return trimmed.replace(/\/$/, "");
-};
 const allowedOrigins = Array.from(
   new Set(
     [
       "http://localhost:3000",
       "http://localhost:3001",
       process.env.NEXT_PUBLIC_SITE_URL,
-      process.env.NEXT_PUBLIC_SERVER_URL,
+      serverURL,
       process.env.NEXT_PUBLIC_CORS_URL,
+      process.env.NEXT_PUBLIC_FRONTEND_URL,
+      vercelUrl,
+      vercelBranchUrl,
     ]
       .map((origin) => normalizeOrigin(origin))
       .filter((origin): origin is string => Boolean(origin))
