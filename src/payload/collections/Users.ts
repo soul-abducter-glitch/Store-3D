@@ -13,14 +13,29 @@ const validatePassword = (value: unknown) => {
   return true;
 };
 
-const isSelf: Access = ({ req: { user } }) => {
+const normalizeId = (value: unknown) => {
+  if (typeof value === "number") return value;
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (/^\d+$/.test(trimmed)) {
+      return Number.parseInt(trimmed, 10);
+    }
+    return trimmed;
+  }
+  return value;
+};
+
+const isSelf: Access = ({ req: { user }, id }) => {
   if (!user) {
     return false;
   }
-
+  const userId = normalizeId(user.id);
+  if (id) {
+    return String(normalizeId(id)) === String(userId);
+  }
   return {
     id: {
-      equals: user.id,
+      equals: userId,
     },
   };
 };

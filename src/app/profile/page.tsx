@@ -413,15 +413,11 @@ export default function ProfilePage() {
   const getErrorMessage = async (response: Response) => {
     try {
       const data = await response.json();
-      return (
-        data?.errors?.[0]?.data?.errors?.[0]?.message ||
-        data?.errors?.[0]?.message ||
-        data?.message ||
-        "Request failed."
-      );
+      console.error("Profile update error:", data);
     } catch {
-      return "Request failed.";
+      // ignore parsing errors
     }
+    return "Не удалось сохранить изменения.";
   };
 
   const handleSettingsSubmit = async (event: FormEvent<HTMLFormElement>) => {
