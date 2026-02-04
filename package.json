@@ -24,6 +24,8 @@
     "@payloadcms/storage-s3": "^3.69.0",
     "@react-three/drei": "^10.7.7",
     "@react-three/fiber": "^9.5.0",
+    "@stripe/react-stripe-js": "^5.6.0",
+    "@stripe/stripe-js": "^8.7.0",
     "framer-motion": "^11.18.2",
     "lucide-react": "^0.468.0",
     "next": "^15.4.10",
@@ -31,6 +33,7 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "sonner": "^2.0.7",
+    "stripe": "^20.3.0",
     "three": "^0.169.0"
   },
   "devDependencies": {

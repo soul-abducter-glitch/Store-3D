@@ -1,4 +1,5 @@
 import { randomUUID } from "crypto";
+import Stripe from "stripe";
 import { NextResponse, type NextRequest } from "next/server";
 import { getPayloadHMR } from "@payloadcms/next/utilities";
 
@@ -15,11 +16,34 @@ const getPayload = async () =>
 
 const resolvePaymentsMode = () => {
   const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
-  if (raw === "mock" || raw === "live") return raw;
+  if (raw === "mock" || raw === "live" || raw === "stripe") return raw;
   return "off";
 };
 
 const buildIntentId = () => `mock_${randomUUID().slice(0, 12)}`;
+
+const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
+const stripe = stripeSecretKey !== "" ? new Stripe(stripeSecretKey) : null;
+
+const deliveryCostMap: Record<string, number> = {
+  cdek: 200,
+  yandex: 150,
+  ozon: 100,
+  pochta: 250,
+  pickup: 0,
+};
+
+const resolveOrderAmount = (order: any) => {
+  const baseTotal =
+    typeof order?.total === "number" && Number.isFinite(order.total)
+      ? order.total
+      : 0;
+  const shippingMethod =
+    typeof order?.shipping?.method === "string" ? order.shipping.method : "";
+  const deliveryCost = deliveryCostMap[shippingMethod] ?? 0;
+  const total = Math.max(0, baseTotal + deliveryCost);
+  return Math.round(total * 100);
+};
 
 export async function POST(request: NextRequest) {
   try {
@@ -49,6 +73,51 @@ export async function POST(request: NextRequest) {
           orderId,
           paymentStatus: "paid",
           paymentIntentId: order.paymentIntentId ?? null,
+        },
+        { status: 200 }
+      );
+    }
+
+    if (paymentsMode === "stripe") {
+      if (!stripe) {
+        return NextResponse.json(
+          { success: false, error: "Stripe secret key is not configured." },
+          { status: 500 }
+        );
+      }
+      const amount = resolveOrderAmount(order);
+      if (!amount) {
+        return NextResponse.json(
+          { success: false, error: "Order total is invalid." },
+          { status: 400 }
+        );
+      }
+
+      const paymentIntent = await stripe.paymentIntents.create({
+        amount,
+        currency: "rub",
+        receipt_email: order?.customer?.email ?? undefined,
+        metadata: { orderId },
+      });
+
+      await payload.update({
+        collection: "orders",
+        id: orderId,
+        data: {
+          paymentStatus: "pending",
+          paymentProvider: "stripe",
+          paymentIntentId: paymentIntent.id,
+        },
+        overrideAccess: true,
+      });
+
+      return NextResponse.json(
+        {
+          success: true,
+          orderId,
+          paymentStatus: "pending",
+          paymentIntentId: paymentIntent.id,
+          clientSecret: paymentIntent.client_secret,
         },
         { status: 200 }
       );

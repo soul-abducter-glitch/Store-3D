@@ -13,6 +13,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
+import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
+import { loadStripe } from "@stripe/stripe-js";
 import CheckoutStepper from "@/components/CheckoutStepper";
 import DeliveryCard, { deliveryOptions } from "@/components/DeliveryCard";
 import StickyOrderSummary from "@/components/StickyOrderSummary";
@@ -229,6 +231,9 @@ const normalizeAddressInput = (value: string) =>
     .replace(/\s+/g, " ")
     .trim();
 
+const stripePublicKey = (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
+const stripePromise = stripePublicKey ? loadStripe(stripePublicKey) : null;
+
 const CheckoutPage = () => {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -241,11 +246,13 @@ const CheckoutPage = () => {
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
+  const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
   const [paymentStageError, setPaymentStageError] = useState<string | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [submitLock, setSubmitLock] = useState(false);
-  const isPaymentsMock =
-    (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "").toLowerCase() === "mock";
+  const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "off").toLowerCase();
+  const isPaymentsMock = paymentsMode === "mock";
+  const isStripeMode = paymentsMode === "stripe";
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -276,6 +283,7 @@ const CheckoutPage = () => {
   const ordersApiUrl = "/api/create-order";
   const paymentsIntentUrl = "/api/payments/create-intent";
   const paymentsWebhookUrl = "/api/payments/webhook";
+  const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
 
   useEffect(() => {
@@ -631,7 +639,10 @@ const CheckoutPage = () => {
       const nextStatus = String(paymentData?.paymentStatus || "pending");
       const nextIntent =
         typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
+      const nextClientSecret =
+        typeof paymentData?.clientSecret === "string" ? paymentData.clientSecret : null;
       setPaymentIntentId(nextIntent);
+      setPaymentClientSecret(nextClientSecret);
       if (nextStatus === "paid") {
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("orders-updated"));
@@ -650,6 +661,25 @@ const CheckoutPage = () => {
       setPaymentLoading(false);
     }
   }, [pendingOrderId, requestPaymentIntent, router]);
+
+  const confirmStripePayment = useCallback(
+    async (orderId: string, paymentIntentId: string) => {
+      const response = await fetch(paymentsConfirmUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ orderId, paymentIntentId }),
+      });
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new Error(errorText || "Не удалось подтвердить оплату.");
+      }
+      return response.json();
+    },
+    [paymentsConfirmUrl]
+  );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -812,13 +842,18 @@ const CheckoutPage = () => {
       const createdOrderId = responseData?.doc?.id || responseData?.id || null;
       let paymentStatus = "paid";
       let nextIntentId: string | null = null;
+      let nextClientSecret: string | null = null;
       let paymentIntentError: string | null = null;
-      if (createdOrderId) {
+      const shouldRequestPayment =
+        Boolean(createdOrderId) && paymentMethod === "card" && paymentsMode !== "off";
+      if (shouldRequestPayment && createdOrderId) {
         try {
           const paymentData = await requestPaymentIntent(createdOrderId);
           paymentStatus = String(paymentData?.paymentStatus || paymentStatus);
           nextIntentId =
             typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
+          nextClientSecret =
+            typeof paymentData?.clientSecret === "string" ? paymentData.clientSecret : null;
         } catch (error) {
           paymentIntentError =
             error instanceof Error ? error.message : "Не удалось создать платеж.";
@@ -835,6 +870,7 @@ const CheckoutPage = () => {
       if (paymentStatus === "pending" && createdOrderId) {
         setPendingOrderId(createdOrderId);
         setPaymentIntentId(nextIntentId);
+        setPaymentClientSecret(nextClientSecret);
         setPaymentStageError(paymentIntentError);
         setStep("payment");
         setSubmitLock(false);
@@ -856,6 +892,120 @@ const CheckoutPage = () => {
       setStep("form");
       setSubmitLock(false);
     }
+  };
+
+  const StripePaymentForm = ({
+    orderId,
+    clientSecret,
+    customerName,
+    customerEmail,
+  }: {
+    orderId: string;
+    clientSecret: string;
+    customerName: string;
+    customerEmail: string;
+  }) => {
+    const stripe = useStripe();
+    const elements = useElements();
+    const [localError, setLocalError] = useState<string | null>(null);
+
+    const handleStripePay = async () => {
+      if (!stripe || !elements) {
+        setLocalError("Stripe еще загружается. Попробуйте снова.");
+        return;
+      }
+      const card = elements.getElement(CardElement);
+      if (!card) {
+        setLocalError("Не удалось загрузить форму карты.");
+        return;
+      }
+      setPaymentLoading(true);
+      setPaymentStageError(null);
+      setLocalError(null);
+      try {
+        const result = await stripe.confirmCardPayment(clientSecret, {
+          payment_method: {
+            card,
+            billing_details: {
+              name: customerName,
+              email: customerEmail,
+            },
+          },
+        });
+
+        if (result.error) {
+          setLocalError(result.error.message || "Ошибка оплаты.");
+          setPaymentLoading(false);
+          return;
+        }
+
+        const intentId = result.paymentIntent?.id;
+        if (!intentId) {
+          setLocalError("Не удалось получить данные платежа.");
+          setPaymentLoading(false);
+          return;
+        }
+
+        await confirmStripePayment(orderId, intentId);
+
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("orders-updated"));
+        }
+        router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
+      } catch (error) {
+        setLocalError(
+          error instanceof Error ? error.message : "Не удалось подтвердить оплату."
+        );
+      } finally {
+        setPaymentLoading(false);
+      }
+    };
+
+    return (
+      <div className="mx-auto mt-6 w-full max-w-[420px] space-y-4 text-left">
+        <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+          <label className="mb-2 block text-xs uppercase tracking-[0.3em] text-white/50">
+            Данные карты
+          </label>
+          <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+            <CardElement
+              options={{
+                style: {
+                  base: {
+                    color: "#E5E7EB",
+                    fontSize: "14px",
+                    fontFamily: "var(--font-jetbrains-mono), sans-serif",
+                    letterSpacing: "0.02em",
+                    "::placeholder": {
+                      color: "rgba(226,232,240,0.5)",
+                    },
+                  },
+                  invalid: { color: "#FDA4AF" },
+                },
+              }}
+            />
+          </div>
+          <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
+            Тестовый режим Stripe (карта 4242 4242 4242 4242)
+          </p>
+        </div>
+
+        {localError && (
+          <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+            {localError}
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={handleStripePay}
+          disabled={paymentLoading}
+          className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          {paymentLoading ? "Оплата..." : "Оплатить"}
+        </button>
+      </div>
+    );
   };
 
   return (
@@ -1182,36 +1332,59 @@ const CheckoutPage = () => {
                     {paymentStageError}
                   </div>
                 )}
-                <div className="mt-6 flex flex-wrap justify-center gap-3">
-                  {isPaymentsMock && (
+                {isStripeMode && paymentMethod === "card" ? (
+                  stripePromise ? (
+                    paymentClientSecret && pendingOrderId ? (
+                      <Elements stripe={stripePromise}>
+                        <StripePaymentForm
+                          orderId={pendingOrderId}
+                          clientSecret={paymentClientSecret}
+                          customerName={form.name.trim() || "Покупатель"}
+                          customerEmail={form.email.trim()}
+                        />
+                      </Elements>
+                    ) : (
+                      <div className="mt-6 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        Не удалось создать платеж. Обновите страницу и попробуйте снова.
+                      </div>
+                    )
+                  ) : (
+                    <div className="mt-6 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+                      Stripe не настроен. Добавьте ключи в переменные окружения.
+                    </div>
+                  )
+                ) : (
+                  <div className="mt-6 flex flex-wrap justify-center gap-3">
+                    {isPaymentsMock && (
+                      <button
+                        type="button"
+                        className="w-full rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] sm:w-auto sm:text-xs"
+                        onClick={() => handlePaymentSimulation("paid")}
+                        disabled={paymentLoading}
+                      >
+                        Симулировать оплату
+                      </button>
+                    )}
                     <button
                       type="button"
-                      className="w-full rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] sm:w-auto sm:text-xs"
-                      onClick={() => handlePaymentSimulation("paid")}
+                      className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"
+                      onClick={handleRefreshPaymentIntent}
                       disabled={paymentLoading}
                     >
-                      Симулировать оплату
+                      Проверить статус
                     </button>
-                  )}
-                  <button
-                    type="button"
-                    className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"
-                    onClick={handleRefreshPaymentIntent}
-                    disabled={paymentLoading}
-                  >
-                    Проверить статус
-                  </button>
-                  {isPaymentsMock && (
-                    <button
-                      type="button"
-                      className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white sm:w-auto sm:text-xs"
-                      onClick={() => handlePaymentSimulation("failed")}
-                      disabled={paymentLoading}
-                    >
-                      Симулировать отказ
-                    </button>
-                  )}
-                </div>
+                    {isPaymentsMock && (
+                      <button
+                        type="button"
+                        className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white sm:w-auto sm:text-xs"
+                        onClick={() => handlePaymentSimulation("failed")}
+                        disabled={paymentLoading}
+                      >
+                        Симулировать отказ
+                      </button>
+                    )}
+                  </div>
+                )}
                 <div className="mt-6">
                   <Link
                     href="/profile"
