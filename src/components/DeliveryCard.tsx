@@ -25,19 +25,19 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
       type="button"
       onClick={() => onSelect(option.id)}
       className={`
-        w-full min-w-0 text-left rounded-2xl border-2 p-4 transition-all duration-300 backdrop-blur-xl sm:p-6
+        w-full min-w-0 text-left rounded-2xl border-2 p-3.5 transition-all duration-300 backdrop-blur-xl sm:p-5
         ${selected
-          ? "border-[#2ED1FF]/80 bg-[#0b1014] shadow-[0_0_36px_rgba(46,209,255,0.25)]"
+          ? "border-[#2ED1FF]/80 bg-[#0b1014] shadow-[0_0_28px_rgba(46,209,255,0.22)]"
           : "border-white/10 bg-white/[0.03] hover:border-white/20 hover:bg-white/[0.05]"
         }
       `}
     >
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3 sm:gap-4">
           <div
             className={`
               flex h-10 w-10 items-center justify-center rounded-xl sm:h-12 sm:w-12
-              ${selected ? "bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_16px_rgba(46,209,255,0.35)]" : "bg-white/10 text-white/70"}
+              ${selected ? "bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_12px_rgba(46,209,255,0.3)]" : "bg-white/10 text-white/70"}
             `}
           >
             {option.icon}
@@ -69,7 +69,7 @@ const DeliveryCard: React.FC<DeliveryCardProps> = ({ option, selected, onSelect 
               </div>
             </div>
 
-            <div className="mt-3 flex flex-wrap gap-1">
+            <div className="mt-3 flex max-h-16 flex-wrap gap-1 overflow-hidden sm:max-h-none">
               {option.features.map((feature, index) => (
                 <span
                   key={index}

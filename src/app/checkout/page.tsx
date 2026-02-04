@@ -830,7 +830,7 @@ const CheckoutPage = () => {
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1200px] px-6 pb-24 pt-16">
+      <div className="relative z-10 mx-auto max-w-[1200px] px-6 pb-24 pt-10">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
@@ -856,12 +856,12 @@ const CheckoutPage = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.35 }}
-              className="mt-10 grid gap-8 lg:grid-cols-[minmax(0,1fr)_360px]"
+              className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]"
             >
               <div className="hidden lg:col-span-2 md:block">
-                <CheckoutStepper steps={stepperSteps} />
+                <CheckoutStepper steps={stepperSteps} variant="compact" />
               </div>
-              <div className="min-w-0 space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl">
+              <div className="min-w-0 space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                     <ShieldCheck className="h-5 w-5" />
@@ -1117,7 +1117,7 @@ const CheckoutPage = () => {
               className="mt-12 space-y-6"
             >
               <div className="hidden md:block">
-                <CheckoutStepper steps={stepperSteps} />
+                <CheckoutStepper steps={stepperSteps} variant="compact" />
               </div>
               <div className="rounded-[32px] border border-white/10 bg-white/[0.04] px-4 py-8 text-center backdrop-blur-xl sm:px-6 sm:py-10">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">

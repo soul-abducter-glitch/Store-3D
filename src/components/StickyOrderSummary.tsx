@@ -34,19 +34,19 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 
   return (
     <div className="w-full min-w-0 lg:sticky lg:top-24">
-      <div className="w-full min-w-0 rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-6">
-        <div className="mb-5 flex flex-wrap items-center justify-between gap-2 sm:mb-6">
+      <div className="w-full min-w-0 rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2 sm:mb-5">
           <h2 className="text-lg font-semibold text-white">Ваш заказ</h2>
-          <span className="text-xs uppercase tracking-[0.3em] text-white/50">
+          <span className="text-[10px] uppercase tracking-[0.2em] text-white/50">
             {itemCount} позиций
           </span>
         </div>
 
-        <div className="mb-5 max-h-[240px] space-y-3 overflow-y-auto pr-1 sm:mb-6 sm:max-h-[320px]">
+        <div className="mb-4 max-h-[240px] space-y-3 overflow-y-auto pr-1 sm:mb-5 sm:max-h-[320px]">
           {items.map((item) => (
             <div
               key={item.id}
-              className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-2.5 sm:p-3"
+              className="flex items-center gap-2.5 rounded-2xl border border-white/10 bg-white/5 p-2 sm:p-2.5"
             >
               <img
                 src={item.thumbnailUrl}
@@ -65,7 +65,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           ))}
         </div>
 
-        <div className="space-y-3 border-t border-white/10 pt-4">
+        <div className="space-y-2.5 border-t border-white/10 pt-3">
           <div className="flex items-center justify-between text-sm text-white/80">
             <span className="flex items-center gap-2">
               <Package className="h-4 w-4" />
@@ -89,7 +89,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               <CreditCard className="h-5 w-5" />
               Итого
             </span>
-            <span className="text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]">
+            <span className="text-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.35)]">
               {formatPrice(total)}?
             </span>
           </div>
@@ -99,7 +99,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           type="button"
           onClick={onCheckout}
           disabled={isProcessing || items.length === 0}
-          className="mt-6 w-full rounded-full bg-white px-4 py-3 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60"
+          className="mt-5 w-full rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isProcessing ? (
             <div className="flex items-center justify-center gap-2">
@@ -111,7 +111,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           )}
         </button>
 
-        <div className="mt-4 flex items-center justify-center gap-2 text-xs text-white/50">
+        <div className="mt-3 flex items-center justify-center gap-2 text-xs text-white/50">
           <div className="h-2 w-2 rounded-full bg-emerald-400" />
           <span>Безопасная оплата</span>
         </div>
