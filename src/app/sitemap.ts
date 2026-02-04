@@ -8,7 +8,7 @@ const apiBase =
     ""
   );
 
-const routes = ["", "/ai-lab", "/services/print", "/favorites", "/checkout", "/profile"];
+const routes = ["", "/store", "/ai-lab", "/services/print"];
 
 type ProductListResponse = {
   docs?: Array<{ slug?: string | null }>;

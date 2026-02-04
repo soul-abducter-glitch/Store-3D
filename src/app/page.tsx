@@ -10,6 +10,7 @@ import { LEGACY_CART_KEY, getCartStorageKey, readCartStorage } from "@/lib/cartS
 
 const HERO_PORTAL_IMAGE = "/backgrounds/prtal.png";
 const HERO_PORTAL_MASK = "/backgrounds/portal_glow_mask_soft_score_blur.png";
+const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000").replace(/\/$/, "");
 
 const createSeededRandom = (seed: number) => {
   let value = seed;
@@ -161,8 +162,33 @@ export default function Home() {
     ? "relative flex h-10 items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 text-white/80 transition hover:border-[#2ED1FF]/70 hover:text-white group"
     : "relative flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/70 hover:text-white group";
 
+  const structuredData = [
+    {
+      "@context": "https://schema.org",
+      "@type": "Organization",
+      name: "3D-STORE",
+      url: siteUrl,
+      logo: `${siteUrl}/icon.svg`,
+    },
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      name: "3D-STORE",
+      url: siteUrl,
+      potentialAction: {
+        "@type": "SearchAction",
+        target: `${siteUrl}/store?query={search_term_string}`,
+        "query-input": "required name=search_term_string",
+      },
+    },
+  ];
+
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white font-[var(--font-inter)]">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }}
+      />
       <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-25" />
       <header className="fixed left-0 right-0 top-0 z-20">
         <div className="mx-auto flex max-w-[1400px] items-center justify-between px-4 py-4 sm:px-6">
