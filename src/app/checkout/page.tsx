@@ -448,27 +448,6 @@ const CheckoutPage = () => {
     [hasPhysical, form.shippingMethod, paymentMethod, isPaymentStep]
   );
 
-  const formValidation = useMemo(() => getFormErrors(), [getFormErrors]);
-  const canCheckout =
-    formValidation.isValid &&
-    cartItems.length > 0 &&
-    Boolean(userId) &&
-    step === "form" &&
-    !submitLock;
-
-  const focusField = useCallback((field: keyof typeof fieldErrors) => {
-    const ref =
-      field === "name"
-        ? nameRef
-        : field === "email"
-          ? emailRef
-          : field === "city"
-            ? cityRef
-            : addressRef;
-    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
-    ref.current?.focus?.();
-  }, []);
-
   const getFormErrors = useCallback(() => {
     const errors: typeof fieldErrors = {};
     let submitError: string | null = null;
@@ -550,6 +529,27 @@ const CheckoutPage = () => {
 
     return { errors, submitError, firstErrorField, isValid: true };
   }, [form, hasPhysical]);
+
+  const formValidation = useMemo(() => getFormErrors(), [getFormErrors]);
+  const canCheckout =
+    formValidation.isValid &&
+    cartItems.length > 0 &&
+    Boolean(userId) &&
+    step === "form" &&
+    !submitLock;
+
+  const focusField = useCallback((field: keyof typeof fieldErrors) => {
+    const ref =
+      field === "name"
+        ? nameRef
+        : field === "email"
+          ? emailRef
+          : field === "city"
+            ? cityRef
+            : addressRef;
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    ref.current?.focus?.();
+  }, []);
 
   const handleInputChange = (field: keyof typeof form) => (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
