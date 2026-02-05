@@ -455,7 +455,74 @@ const formatExpiry = (digits: string) => {
 };
 
 const detectCardBrand = (digits: string) =>
-  CARD_BRANDS.find((brand) => brand.pattern.test(digits))?.label ?? "КАРТА";
+  CARD_BRANDS.find((brand) => brand.pattern.test(digits)) ?? { key: "generic", label: "КАРТА" };
+
+const CardBrandIcon = ({ brandKey }: { brandKey: string }) => {
+  if (brandKey === "visa") {
+    return (
+      <svg
+        viewBox="0 0 72 40"
+        className="h-6 w-10 rounded-md"
+        aria-hidden="true"
+      >
+        <rect width="72" height="40" rx="8" fill="#1A4FA3" />
+        <text
+          x="36"
+          y="25"
+          textAnchor="middle"
+          fontSize="14"
+          fontFamily="Arial, sans-serif"
+          fontWeight="700"
+          fill="#FFFFFF"
+        >
+          VISA
+        </text>
+      </svg>
+    );
+  }
+  if (brandKey === "mastercard") {
+    return (
+      <svg
+        viewBox="0 0 72 40"
+        className="h-6 w-10 rounded-md"
+        aria-hidden="true"
+      >
+        <rect width="72" height="40" rx="8" fill="#111827" />
+        <circle cx="30" cy="20" r="10" fill="#EB001B" />
+        <circle cx="42" cy="20" r="10" fill="#F79E1B" />
+      </svg>
+    );
+  }
+  if (brandKey === "mir") {
+    return (
+      <svg
+        viewBox="0 0 72 40"
+        className="h-6 w-10 rounded-md"
+        aria-hidden="true"
+      >
+        <rect width="72" height="40" rx="8" fill="#0F172A" />
+        <rect x="6" y="10" width="60" height="20" rx="6" fill="#1E293B" />
+        <text
+          x="36"
+          y="25"
+          textAnchor="middle"
+          fontSize="14"
+          fontFamily="Arial, sans-serif"
+          fontWeight="700"
+          fill="#22D3EE"
+        >
+          МИР
+        </text>
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 72 40" className="h-6 w-10 rounded-md" aria-hidden="true">
+      <rect width="72" height="40" rx="8" fill="#0B0F19" />
+      <rect x="6" y="12" width="60" height="16" rx="6" fill="#1F2937" />
+    </svg>
+  );
+};
 
 const validateExpiry = (digits: string) => {
   if (digits.length < 4) return "Введите срок действия.";
@@ -482,7 +549,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
   const [cvcDigits, setCvcDigits] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const brandLabel = detectCardBrand(cardNumberDigits);
+  const brandInfo = detectCardBrand(cardNumberDigits);
   const expiryError = validateExpiry(expDigits);
   const cardNumberValid = cardNumberDigits.length === 16;
   const cvcValid = cvcDigits.length >= 3;
@@ -514,21 +581,26 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
             Данные карты
           </label>
           <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
-            {brandLabel}
+            {brandInfo.label}
           </span>
         </div>
         <div className="space-y-3">
-          <input
-            type="text"
-            value={formatCardNumber(cardNumberDigits)}
-            onChange={(event) => {
-              setLocalError(null);
-              setCardNumberDigits(normalizeDigits(event.target.value).slice(0, 16));
-            }}
-            placeholder="Номер карты"
-            inputMode="numeric"
-            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
-          />
+          <div className="relative">
+            <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2">
+              <CardBrandIcon brandKey={brandInfo.key} />
+            </div>
+            <input
+              type="text"
+              value={formatCardNumber(cardNumberDigits)}
+              onChange={(event) => {
+                setLocalError(null);
+                setCardNumberDigits(normalizeDigits(event.target.value).slice(0, 16));
+              }}
+              placeholder="Номер карты"
+              inputMode="numeric"
+              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pl-16 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+            />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <input
               type="text"
