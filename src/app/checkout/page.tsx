@@ -556,7 +556,9 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
   const expiryError = validateExpiry(expDigits);
   const cardNumberValid = cardNumberDigits.length === 16;
   const cvcValid = cvcDigits.length >= 3;
-  const isFormValid = cardNumberValid && !expiryError && cvcValid;
+  const cardNumberError = cardNumberDigits.length > 0 && !cardNumberValid;
+  const expiryFieldError = expDigits.length === 4 && Boolean(expiryError);
+  const cvcError = cvcDigits.length > 0 && !cvcValid;
 
   const handlePay = async () => {
     onClearStageError?.();
@@ -605,7 +607,11 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               }}
               placeholder="Номер карты"
               inputMode="numeric"
-              className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 pl-16 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+              className={`w-full rounded-xl border bg-white/5 px-4 py-3 pl-16 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                cardNumberError || (localError && !cardNumberValid)
+                  ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                  : "border-white/10"
+              }`}
             />
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -619,7 +625,11 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               }}
               placeholder="MM / YY"
               inputMode="numeric"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+              className={`rounded-xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                expiryFieldError || (localError && Boolean(expiryError))
+                  ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                  : "border-white/10"
+              }`}
             />
             <input
               ref={cvcRef}
@@ -631,7 +641,11 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               }}
               placeholder="CVC"
               inputMode="numeric"
-              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+              className={`rounded-xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                cvcError || (localError && !cvcValid)
+                  ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                  : "border-white/10"
+              }`}
             />
           </div>
           {expDigits.length === 4 && expiryError && (
@@ -1833,7 +1847,55 @@ const CheckoutPage = () => {
                     </div>
                   )
                 ) : (
-                  <div className="mt-6 flex flex-wrap justify-center gap-3">
+                  <div className="mt-6 flex flex-col items-center gap-4">
+                    {isPaymentsMock && paymentMethod !== "card" && (
+                      <div className="w-full max-w-[480px] rounded-3xl border border-white/10 bg-black/40 p-5 text-left">
+                        {paymentMethod === "sbp" ? (
+                          <>
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                                Оплата по СБП
+                              </p>
+                              <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF]">
+                                QR
+                              </span>
+                            </div>
+                            <div className="mt-4 flex flex-col items-center gap-4 md:flex-row">
+                              <div className="flex h-40 w-40 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[11px] text-white/60">
+                                QR-код
+                              </div>
+                              <div className="flex-1 space-y-2 text-sm text-white/70">
+                                <p>Отсканируйте QR-код в банковском приложении.</p>
+                                <p className="text-xs text-white/50">
+                                  Оплатите в течение 10 минут, затем вернитесь сюда.
+                                </p>
+                                <div className="flex flex-wrap gap-2">
+                                  {["Сбер", "Тинькофф", "Альфа", "ВТБ", "Газпромбанк"].map(
+                                    (bank) => (
+                                      <span
+                                        key={bank}
+                                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70"
+                                      >
+                                        {bank}
+                                      </span>
+                                    )
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                              Оплата при получении
+                            </p>
+                            <p className="mt-3 text-sm text-white/70">
+                              Мы подготовим заказ и свяжемся с вами для уточнения деталей.
+                            </p>
+                          </>
+                        )}
+                      </div>
+                    )}
                     {isPaymentsMock && paymentMethod !== "card" && (
                       <button
                         type="button"
@@ -1841,7 +1903,11 @@ const CheckoutPage = () => {
                         onClick={() => handlePaymentSimulation("paid")}
                         disabled={paymentLoading}
                       >
-                        Завершить заказ
+                        {paymentLoading
+                          ? "Оплата..."
+                          : paymentMethod === "sbp"
+                            ? "Оплатил(а)"
+                            : "Подтвердить заказ"}
                       </button>
                     )}
                     {isStripeMode && (
