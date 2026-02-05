@@ -434,27 +434,72 @@ type MockCardFormProps = {
   onClearStageError?: () => void;
 };
 
+const CARD_BRANDS = [
+  { key: "visa", label: "VISA", pattern: /^4/ },
+  { key: "mastercard", label: "MASTERCARD", pattern: /^(5[1-5]|2[2-7])/ },
+  { key: "mir", label: "МИР", pattern: /^220[0-4]|^220[5-8]|^2209/ },
+];
+
+const normalizeDigits = (value: string) => value.replace(/[^\d]/g, "");
+
+const formatCardNumber = (digits: string) => {
+  const trimmed = digits.slice(0, 16);
+  const groups = trimmed.match(/.{1,4}/g);
+  return groups ? groups.join(" ") : "";
+};
+
+const formatExpiry = (digits: string) => {
+  const trimmed = digits.slice(0, 4);
+  if (trimmed.length <= 2) return trimmed;
+  return `${trimmed.slice(0, 2)} / ${trimmed.slice(2)}`;
+};
+
+const detectCardBrand = (digits: string) =>
+  CARD_BRANDS.find((brand) => brand.pattern.test(digits))?.label ?? "КАРТА";
+
+const validateExpiry = (digits: string) => {
+  if (digits.length < 4) return "Введите срок действия.";
+  const month = Number(digits.slice(0, 2));
+  const year = Number(digits.slice(2, 4));
+  if (!Number.isFinite(month) || month < 1 || month > 12) {
+    return "Введите корректный месяц.";
+  }
+  const now = new Date();
+  const currentYear = now.getFullYear() % 100;
+  const currentMonth = now.getMonth() + 1;
+  if (year < currentYear || (year === currentYear && month < currentMonth)) {
+    return "Срок действия карты истёк.";
+  }
+  if (year > currentYear + 20) {
+    return "Слишком далёкий срок действия.";
+  }
+  return null;
+};
+
 const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardFormProps) => {
-  const [cardNumber, setCardNumber] = useState("");
-  const [exp, setExp] = useState("");
-  const [cvc, setCvc] = useState("");
+  const [cardNumberDigits, setCardNumberDigits] = useState("");
+  const [expDigits, setExpDigits] = useState("");
+  const [cvcDigits, setCvcDigits] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
 
-  const normalizeDigits = (value: string) => value.replace(/[^\d]/g, "");
+  const brandLabel = detectCardBrand(cardNumberDigits);
+  const expiryError = validateExpiry(expDigits);
+  const cardNumberValid = cardNumberDigits.length === 16;
+  const cvcValid = cvcDigits.length >= 3;
+  const isFormValid = cardNumberValid && !expiryError && cvcValid;
 
   const handlePay = async () => {
     onClearStageError?.();
-    const digits = normalizeDigits(cardNumber);
-    if (digits.length < 12) {
-      setLocalError("Введите номер карты.");
+    if (!cardNumberValid) {
+      setLocalError("Введите 16 цифр номера карты.");
       return;
     }
-    if (!exp.trim()) {
-      setLocalError("Введите срок действия.");
+    if (expiryError) {
+      setLocalError(expiryError);
       return;
     }
-    if (normalizeDigits(cvc).length < 3) {
-      setLocalError("Введите CVC.");
+    if (!cvcValid) {
+      setLocalError("Введите корректный CVC.");
       return;
     }
     setLocalError(null);
@@ -464,14 +509,22 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
   return (
     <div className="mx-auto mt-6 w-full max-w-[420px] space-y-4 text-left">
       <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
-        <label className="mb-2 block text-xs uppercase tracking-[0.3em] text-white/50">
-          Данные карты
-        </label>
+        <div className="mb-2 flex items-center justify-between gap-3">
+          <label className="text-xs uppercase tracking-[0.3em] text-white/50">
+            Данные карты
+          </label>
+          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
+            {brandLabel}
+          </span>
+        </div>
         <div className="space-y-3">
           <input
             type="text"
-            value={cardNumber}
-            onChange={(event) => setCardNumber(event.target.value)}
+            value={formatCardNumber(cardNumberDigits)}
+            onChange={(event) => {
+              setLocalError(null);
+              setCardNumberDigits(normalizeDigits(event.target.value).slice(0, 16));
+            }}
             placeholder="Номер карты"
             inputMode="numeric"
             className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
@@ -479,16 +532,22 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
           <div className="grid grid-cols-2 gap-3">
             <input
               type="text"
-              value={exp}
-              onChange={(event) => setExp(event.target.value)}
+              value={formatExpiry(expDigits)}
+              onChange={(event) => {
+                setLocalError(null);
+                setExpDigits(normalizeDigits(event.target.value).slice(0, 4));
+              }}
               placeholder="MM / YY"
               inputMode="numeric"
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
             />
             <input
               type="text"
-              value={cvc}
-              onChange={(event) => setCvc(event.target.value)}
+              value={cvcDigits}
+              onChange={(event) => {
+                setLocalError(null);
+                setCvcDigits(normalizeDigits(event.target.value).slice(0, 3));
+              }}
               placeholder="CVC"
               inputMode="numeric"
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
@@ -510,7 +569,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
       <button
         type="button"
         onClick={handlePay}
-        disabled={paymentLoading}
+        disabled={paymentLoading || !isFormValid}
         className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
       >
         {paymentLoading ? "Оплата..." : "Оплатить"}
@@ -530,6 +589,7 @@ const CheckoutPage = () => {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState("card");
   const [pendingOrderId, setPendingOrderId] = useState<string | null>(null);
+  const [pendingOrderPayload, setPendingOrderPayload] = useState<Record<string, any> | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
   const [paymentStageError, setPaymentStageError] = useState<string | null>(null);
@@ -724,6 +784,8 @@ const CheckoutPage = () => {
   );
   const grandTotal = useMemo(() => totalValue + deliveryCost, [totalValue, deliveryCost]);
   const isPaymentStep = step === "payment";
+  const isMockCardPayment = isPaymentsMock && paymentMethod === "card";
+  const isAwaitingOrderCreation = isMockCardPayment && !pendingOrderId;
   const stepperSteps = useMemo(
     () => [
       {
@@ -970,6 +1032,89 @@ const CheckoutPage = () => {
     [paymentsConfirmUrl]
   );
 
+  const createOrder = useCallback(
+    async (payload: Record<string, any>) => {
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(
+          () => reject(new Error("Request timeout: Order creation took too long.")),
+          120000
+        );
+      });
+
+      const response = (await Promise.race([
+        fetch(ordersApiUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify(payload),
+        }),
+        timeoutPromise,
+      ])) as Response;
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        let errorMessage = errorText || "Order creation failed.";
+        try {
+          const errorJson = JSON.parse(errorText);
+          if (errorJson.message) {
+            errorMessage = errorJson.message;
+          } else if (errorJson.errors && Array.isArray(errorJson.errors)) {
+            errorMessage = errorJson.errors.map((e: any) => e.message || e.error).join(", ");
+          } else if (errorJson.error) {
+            errorMessage = errorJson.error;
+          }
+        } catch {
+          // Keep original error text if not JSON
+        }
+        throw new Error(errorMessage);
+      }
+
+      const responseData = await response.json();
+      const createdOrderId = responseData?.doc?.id || responseData?.id || null;
+      let paymentStatus = String(
+        responseData?.doc?.paymentStatus || responseData?.paymentStatus || "paid"
+      );
+      let nextIntentId: string | null = null;
+      let nextClientSecret: string | null = null;
+      let paymentIntentError: string | null = null;
+      const shouldRequestPayment =
+        Boolean(createdOrderId) && paymentMethod === "card" && paymentsMode === "stripe";
+      if (shouldRequestPayment && createdOrderId) {
+        try {
+          const paymentData = await requestPaymentIntent(createdOrderId);
+          paymentStatus = String(paymentData?.paymentStatus || paymentStatus);
+          nextIntentId =
+            typeof paymentData?.paymentIntentId === "string"
+              ? paymentData.paymentIntentId
+              : null;
+          nextClientSecret =
+            typeof paymentData?.clientSecret === "string"
+              ? paymentData.clientSecret
+              : null;
+        } catch (error) {
+          paymentIntentError =
+            error instanceof Error ? error.message : "Не удалось создать платеж.";
+          paymentStatus = "pending";
+        }
+      }
+
+      if (paymentsMode === "mock" && createdOrderId) {
+        paymentStatus = "pending";
+      }
+
+      return {
+        createdOrderId,
+        paymentStatus,
+        nextIntentId,
+        nextClientSecret,
+        paymentIntentError,
+      };
+    },
+    [ordersApiUrl, paymentMethod, paymentsMode, requestPaymentIntent]
+  );
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (step === "processing" || cartItems.length === 0 || submitLock) {
@@ -1088,74 +1233,30 @@ const CheckoutPage = () => {
         payload.shipping = shippingPayload;
       }
 
-
-      // Add timeout to fetch request
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Request timeout: Order creation took too long.")), 120000);
-      });
-
-      const response = await Promise.race([
-        fetch(ordersApiUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify(payload),
-        }),
-        timeoutPromise,
-      ]);
-
-      if (!response.ok) {
-        const errorText = await response.text().catch(() => "");
-        // Try to parse as JSON for detailed error messages
-        let errorMessage = errorText || "Order creation failed.";
-        try {
-          const errorJson = JSON.parse(errorText);
-          if (errorJson.message) {
-            errorMessage = errorJson.message;
-          } else if (errorJson.errors && Array.isArray(errorJson.errors)) {
-            errorMessage = errorJson.errors.map((e: any) => e.message || e.error).join(", ");
-          } else if (errorJson.error) {
-            errorMessage = errorJson.error;
-          }
-        } catch {
-          // Keep original error text if not JSON
-        }
-        
-        throw new Error(errorMessage);
+      const isMockCardPayment = isPaymentsMock && paymentMethod === "card";
+      if (isMockCardPayment) {
+        setPendingOrderPayload(payload);
+        setPendingOrderId(null);
+        setPaymentIntentId(null);
+        setPaymentClientSecret(null);
+        setPaymentStageError(null);
+        setStep("payment");
+        setSubmitLock(false);
+        return;
       }
 
-      // Parse successful response
-        const responseData = await response.json();
-        const createdOrderId = responseData?.doc?.id || responseData?.id || null;
-        let paymentStatus = String(
-          responseData?.doc?.paymentStatus || responseData?.paymentStatus || "paid"
-        );
-        let nextIntentId: string | null = null;
-        let nextClientSecret: string | null = null;
-        let paymentIntentError: string | null = null;
-        const shouldRequestPayment =
-          Boolean(createdOrderId) && paymentMethod === "card" && paymentsMode === "stripe";
-        if (shouldRequestPayment && createdOrderId) {
-          try {
-            const paymentData = await requestPaymentIntent(createdOrderId);
-            paymentStatus = String(paymentData?.paymentStatus || paymentStatus);
-            nextIntentId =
-              typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
-            nextClientSecret =
-              typeof paymentData?.clientSecret === "string" ? paymentData.clientSecret : null;
-          } catch (error) {
-            paymentIntentError =
-              error instanceof Error ? error.message : "Не удалось создать платеж.";
-            paymentStatus = "pending";
-          }
-        }
+      const {
+        createdOrderId,
+        paymentStatus,
+        nextIntentId,
+        nextClientSecret,
+        paymentIntentError,
+      } = await createOrder(payload);
 
-        if (paymentsMode === "mock" && createdOrderId) {
-          paymentStatus = "pending";
-        }
-      
+      if (!createdOrderId) {
+        throw new Error("Не удалось создать заказ.");
+      }
+
       if (typeof window !== "undefined") {
         removeCartStorage(cartStorageKey);
         window.dispatchEvent(new Event("orders-updated"));
@@ -1188,6 +1289,53 @@ const CheckoutPage = () => {
       setSubmitLock(false);
     }
   };
+
+  const handleMockCardPay = useCallback(async () => {
+    if (!pendingOrderPayload) {
+      setPaymentStageError(
+        "Не удалось подготовить заказ. Обновите страницу и попробуйте снова."
+      );
+      return;
+    }
+    setPaymentLoading(true);
+    setPaymentStageError(null);
+    try {
+      const { createdOrderId } = await createOrder(pendingOrderPayload);
+      if (!createdOrderId) {
+        throw new Error("Не удалось создать заказ.");
+      }
+
+      setPendingOrderId(createdOrderId);
+
+      const response = await fetch(paymentsConfirmUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        credentials: "include",
+        body: JSON.stringify({ orderId: createdOrderId, status: "paid" }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text().catch(() => "");
+        throw new Error(errorText || "Не удалось завершить оплату.");
+      }
+
+      if (typeof window !== "undefined") {
+        removeCartStorage(cartStorageKey);
+        window.dispatchEvent(new Event("orders-updated"));
+      }
+      setCartItems([]);
+      setPendingOrderPayload(null);
+      router.push(`/checkout/success?orderId=${encodeURIComponent(createdOrderId)}`);
+    } catch (error) {
+      setPaymentStageError(
+        error instanceof Error ? error.message : "Не удалось завершить оплату."
+      );
+    } finally {
+      setPaymentLoading(false);
+    }
+  }, [cartStorageKey, createOrder, pendingOrderPayload, paymentsConfirmUrl, router]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white">
@@ -1493,7 +1641,9 @@ const CheckoutPage = () => {
                 </div>
                 <h2 className="mt-5 text-2xl font-semibold text-white">Ожидаем оплату</h2>
                 <p className="mt-2 text-sm text-white/60">
-                  Заказ создан. Проведите оплату, чтобы получить доступ к файлам.
+                  {isAwaitingOrderCreation
+                    ? "Заказ будет создан после оплаты."
+                    : "Заказ создан. Проведите оплату, чтобы получить доступ к файлам."}
                 </p>
                 {isPaymentsMock && (
                   <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
@@ -1514,19 +1664,11 @@ const CheckoutPage = () => {
                   </div>
                 )}
                 {isPaymentsMock && paymentMethod === "card" ? (
-                  pendingOrderId ? (
-                    <MockCardForm
-                      paymentLoading={paymentLoading}
-                      onPay={() => handlePaymentSimulation("paid")}
-                      onClearStageError={() => setPaymentStageError(null)}
-                    />
-                  ) : (
-                    <div className="mx-auto mt-6 w-full max-w-[480px] space-y-4 text-left">
-                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-                        Не удалось создать заказ. Обновите страницу и попробуйте снова.
-                      </div>
-                    </div>
-                  )
+                  <MockCardForm
+                    paymentLoading={paymentLoading}
+                    onPay={handleMockCardPay}
+                    onClearStageError={() => setPaymentStageError(null)}
+                  />
                 ) : isStripeMode && paymentMethod === "card" ? (
                   stripePromise && paymentClientSecret && pendingOrderId ? (
                     <Elements stripe={stripePromise}>
