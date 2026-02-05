@@ -83,6 +83,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const storedIntentId =
+      typeof order?.paymentIntentId === "string" ? order.paymentIntentId : "";
+    if (storedIntentId && storedIntentId !== paymentIntentId) {
+      return NextResponse.json(
+        { success: false, error: "Payment intent does not match order." },
+        { status: 400 }
+      );
+    }
+
     const userId = authUser?.id ? String(authUser.id) : "";
     const orderUserId = order?.user ? String(order.user) : "";
     const orderEmail = normalizeEmail(order?.customer?.email);
@@ -96,7 +105,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    let paymentIntent: Stripe.PaymentIntent;
+    try {
+      paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+    } catch (error: any) {
+      const message = error?.message || "Stripe request failed.";
+      const code = error?.code || error?.type;
+      const statusCode =
+        typeof error?.statusCode === "number" ? error.statusCode : 400;
+      return NextResponse.json(
+        { success: false, error: message, stripeCode: code },
+        { status: statusCode }
+      );
+    }
     if (paymentIntent.metadata?.orderId && paymentIntent.metadata.orderId !== orderId) {
       return NextResponse.json(
         { success: false, error: "Payment does not match order." },
