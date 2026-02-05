@@ -428,6 +428,97 @@ const StripePaymentForm = ({
   );
 };
 
+type MockCardFormProps = {
+  paymentLoading: boolean;
+  onPay: () => Promise<void> | void;
+  onClearStageError?: () => void;
+};
+
+const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardFormProps) => {
+  const [cardNumber, setCardNumber] = useState("");
+  const [exp, setExp] = useState("");
+  const [cvc, setCvc] = useState("");
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  const normalizeDigits = (value: string) => value.replace(/[^\d]/g, "");
+
+  const handlePay = async () => {
+    onClearStageError?.();
+    const digits = normalizeDigits(cardNumber);
+    if (digits.length < 12) {
+      setLocalError("Введите номер карты.");
+      return;
+    }
+    if (!exp.trim()) {
+      setLocalError("Введите срок действия.");
+      return;
+    }
+    if (normalizeDigits(cvc).length < 3) {
+      setLocalError("Введите CVC.");
+      return;
+    }
+    setLocalError(null);
+    await onPay();
+  };
+
+  return (
+    <div className="mx-auto mt-6 w-full max-w-[420px] space-y-4 text-left">
+      <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+        <label className="mb-2 block text-xs uppercase tracking-[0.3em] text-white/50">
+          Данные карты
+        </label>
+        <div className="space-y-3">
+          <input
+            type="text"
+            value={cardNumber}
+            onChange={(event) => setCardNumber(event.target.value)}
+            placeholder="Номер карты"
+            inputMode="numeric"
+            className="w-full rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <input
+              type="text"
+              value={exp}
+              onChange={(event) => setExp(event.target.value)}
+              placeholder="MM / YY"
+              inputMode="numeric"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+            />
+            <input
+              type="text"
+              value={cvc}
+              onChange={(event) => setCvc(event.target.value)}
+              placeholder="CVC"
+              inputMode="numeric"
+              className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
+            />
+          </div>
+        </div>
+        <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
+          Тестовый режим оплаты
+        </p>
+        <p className="mt-1 text-[11px] text-white/50">Можно вводить любые цифры.</p>
+      </div>
+
+      {localError && (
+        <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+          {localError}
+        </div>
+      )}
+
+      <button
+        type="button"
+        onClick={handlePay}
+        disabled={paymentLoading}
+        className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
+      >
+        {paymentLoading ? "Оплата..." : "Оплатить"}
+      </button>
+    </div>
+  );
+};
+
 const CheckoutPage = () => {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement | null>(null);
@@ -444,7 +535,7 @@ const CheckoutPage = () => {
   const [paymentStageError, setPaymentStageError] = useState<string | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [submitLock, setSubmitLock] = useState(false);
-  const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "off").toLowerCase();
+  const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
   const [form, setForm] = useState({
@@ -476,7 +567,6 @@ const CheckoutPage = () => {
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";
   const paymentsIntentUrl = "/api/payments/create-intent";
-  const paymentsWebhookUrl = "/api/payments/webhook";
   const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
 
@@ -796,15 +886,15 @@ const CheckoutPage = () => {
       if (!pendingOrderId) return;
       setPaymentLoading(true);
       setPaymentStageError(null);
-      try {
-        const response = await fetch(paymentsWebhookUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({ orderId: pendingOrderId, status }),
-        });
+        try {
+          const response = await fetch(paymentsConfirmUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            credentials: "include",
+            body: JSON.stringify({ orderId: pendingOrderId, status }),
+          });
         if (!response.ok) {
           const errorText = await response.text().catch(() => "");
           throw new Error(errorText || "Не удалось обновить статус оплаты.");
@@ -825,10 +915,11 @@ const CheckoutPage = () => {
         setPaymentLoading(false);
       }
     },
-    [pendingOrderId, paymentsWebhookUrl, router]
+    [pendingOrderId, paymentsConfirmUrl, router]
   );
 
   const handleRefreshPaymentIntent = useCallback(async () => {
+    if (paymentsMode !== "stripe") return;
     if (!pendingOrderId) return;
     setPaymentLoading(true);
     setPaymentStageError(null);
@@ -858,7 +949,7 @@ const CheckoutPage = () => {
     } finally {
       setPaymentLoading(false);
     }
-  }, [pendingOrderId, requestPaymentIntent, router]);
+  }, [pendingOrderId, paymentsMode, requestPaymentIntent, router]);
 
   const confirmStripePayment = useCallback(
     async (orderId: string, paymentIntentId: string) => {
@@ -1036,28 +1127,34 @@ const CheckoutPage = () => {
       }
 
       // Parse successful response
-      const responseData = await response.json();
-      const createdOrderId = responseData?.doc?.id || responseData?.id || null;
-      let paymentStatus = "paid";
-      let nextIntentId: string | null = null;
-      let nextClientSecret: string | null = null;
-      let paymentIntentError: string | null = null;
-      const shouldRequestPayment =
-        Boolean(createdOrderId) && paymentMethod === "card" && paymentsMode !== "off";
-      if (shouldRequestPayment && createdOrderId) {
-        try {
-          const paymentData = await requestPaymentIntent(createdOrderId);
-          paymentStatus = String(paymentData?.paymentStatus || paymentStatus);
-          nextIntentId =
-            typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
-          nextClientSecret =
-            typeof paymentData?.clientSecret === "string" ? paymentData.clientSecret : null;
-        } catch (error) {
-          paymentIntentError =
-            error instanceof Error ? error.message : "Не удалось создать платеж.";
+        const responseData = await response.json();
+        const createdOrderId = responseData?.doc?.id || responseData?.id || null;
+        let paymentStatus = String(
+          responseData?.doc?.paymentStatus || responseData?.paymentStatus || "paid"
+        );
+        let nextIntentId: string | null = null;
+        let nextClientSecret: string | null = null;
+        let paymentIntentError: string | null = null;
+        const shouldRequestPayment =
+          Boolean(createdOrderId) && paymentMethod === "card" && paymentsMode === "stripe";
+        if (shouldRequestPayment && createdOrderId) {
+          try {
+            const paymentData = await requestPaymentIntent(createdOrderId);
+            paymentStatus = String(paymentData?.paymentStatus || paymentStatus);
+            nextIntentId =
+              typeof paymentData?.paymentIntentId === "string" ? paymentData.paymentIntentId : null;
+            nextClientSecret =
+              typeof paymentData?.clientSecret === "string" ? paymentData.clientSecret : null;
+          } catch (error) {
+            paymentIntentError =
+              error instanceof Error ? error.message : "Не удалось создать платеж.";
+            paymentStatus = "pending";
+          }
+        }
+
+        if (paymentsMode === "mock" && createdOrderId) {
           paymentStatus = "pending";
         }
-      }
       
       if (typeof window !== "undefined") {
         removeCartStorage(cartStorageKey);
@@ -1416,7 +1513,21 @@ const CheckoutPage = () => {
                     {paymentStageError}
                   </div>
                 )}
-                {isStripeMode && paymentMethod === "card" ? (
+                {isPaymentsMock && paymentMethod === "card" ? (
+                  pendingOrderId ? (
+                    <MockCardForm
+                      paymentLoading={paymentLoading}
+                      onPay={() => handlePaymentSimulation("paid")}
+                      onClearStageError={() => setPaymentStageError(null)}
+                    />
+                  ) : (
+                    <div className="mx-auto mt-6 w-full max-w-[480px] space-y-4 text-left">
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        Не удалось создать заказ. Обновите страницу и попробуйте снова.
+                      </div>
+                    </div>
+                  )
+                ) : isStripeMode && paymentMethod === "card" ? (
                   stripePromise && paymentClientSecret && pendingOrderId ? (
                     <Elements stripe={stripePromise}>
                       <StripePaymentForm
@@ -1500,32 +1611,24 @@ const CheckoutPage = () => {
                   )
                 ) : (
                   <div className="mt-6 flex flex-wrap justify-center gap-3">
-                    {isPaymentsMock && (
+                    {isPaymentsMock && paymentMethod !== "card" && (
                       <button
                         type="button"
                         className="w-full rounded-full border border-[#2ED1FF]/70 bg-[#0b1014] px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] sm:w-auto sm:text-xs"
                         onClick={() => handlePaymentSimulation("paid")}
                         disabled={paymentLoading}
                       >
-                        Симулировать оплату
+                        Завершить заказ
                       </button>
                     )}
-                    <button
-                      type="button"
-                      className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"
-                      onClick={handleRefreshPaymentIntent}
-                      disabled={paymentLoading}
-                    >
-                      Проверить статус
-                    </button>
-                    {isPaymentsMock && (
+                    {isStripeMode && (
                       <button
                         type="button"
-                        className="w-full rounded-full border border-white/10 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/50 transition hover:border-white/30 hover:text-white sm:w-auto sm:text-xs"
-                        onClick={() => handlePaymentSimulation("failed")}
+                        className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"
+                        onClick={handleRefreshPaymentIntent}
                         disabled={paymentLoading}
                       >
-                        Симулировать отказ
+                        Проверить статус
                       </button>
                     )}
                   </div>

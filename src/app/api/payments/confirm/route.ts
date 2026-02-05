@@ -19,6 +19,15 @@ const resolvePaymentsMode = () => {
   return "off";
 };
 
+const normalizePaymentStatus = (value?: string) => {
+  if (!value) return "pending";
+  const raw = String(value).trim().toLowerCase();
+  if (raw === "paid" || raw === "success") return "paid";
+  if (raw === "failed" || raw === "error") return "failed";
+  if (raw === "refunded" || raw === "refund") return "refunded";
+  return "pending";
+};
+
 const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
 const stripe = stripeSecretKey !== "" ? new Stripe(stripeSecretKey) : null;
 
@@ -29,19 +38,6 @@ const normalizeEmail = (value?: string) => {
 
 export async function POST(request: NextRequest) {
   try {
-    if (resolvePaymentsMode() !== "stripe") {
-      return NextResponse.json(
-        { success: false, error: "Stripe mode is disabled." },
-        { status: 400 }
-      );
-    }
-    if (!stripe) {
-      return NextResponse.json(
-        { success: false, error: "Stripe secret key is missing." },
-        { status: 500 }
-      );
-    }
-
     const payload = await getPayload();
     let authUser: any = null;
     try {
@@ -62,9 +58,9 @@ export async function POST(request: NextRequest) {
     const paymentIntentId = data?.paymentIntentId
       ? String(data.paymentIntentId).trim()
       : "";
-    if (!orderId || !paymentIntentId) {
+    if (!orderId) {
       return NextResponse.json(
-        { success: false, error: "Missing orderId or paymentIntentId." },
+        { success: false, error: "Missing orderId." },
         { status: 400 }
       );
     }
@@ -83,15 +79,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const storedIntentId =
-      typeof order?.paymentIntentId === "string" ? order.paymentIntentId : "";
-    if (storedIntentId && storedIntentId !== paymentIntentId) {
-      return NextResponse.json(
-        { success: false, error: "Payment intent does not match order." },
-        { status: 400 }
-      );
-    }
-
     const userId = authUser?.id ? String(authUser.id) : "";
     const orderUserId = order?.user ? String(order.user) : "";
     const orderEmail = normalizeEmail(order?.customer?.email);
@@ -102,6 +89,65 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Forbidden." },
         { status: 403 }
+      );
+    }
+
+    const paymentsMode = resolvePaymentsMode();
+    if (paymentsMode === "mock") {
+      const status = normalizePaymentStatus(data?.status ?? data?.paymentStatus);
+      const updateData: Record<string, unknown> = {
+        paymentStatus: status,
+        paymentProvider: "mock",
+      };
+      if (status === "paid") {
+        updateData.paidAt = new Date().toISOString();
+      }
+
+      await payload.update({
+        collection: "orders",
+        id: orderId,
+        data: updateData,
+        overrideAccess: true,
+        req: {
+          user: authUser ?? undefined,
+          headers: new Headers({
+            "x-internal-payment": "mock",
+          }),
+        } as any,
+      });
+
+      return NextResponse.json(
+        { success: true, orderId, paymentStatus: status },
+        { status: 200 }
+      );
+    }
+
+    if (paymentsMode !== "stripe") {
+      return NextResponse.json(
+        { success: false, error: "Stripe mode is disabled." },
+        { status: 400 }
+      );
+    }
+    if (!stripe) {
+      return NextResponse.json(
+        { success: false, error: "Stripe secret key is missing." },
+        { status: 500 }
+      );
+    }
+
+    if (!paymentIntentId) {
+      return NextResponse.json(
+        { success: false, error: "Missing paymentIntentId." },
+        { status: 400 }
+      );
+    }
+
+    const storedIntentId =
+      typeof order?.paymentIntentId === "string" ? order.paymentIntentId : "";
+    if (storedIntentId && storedIntentId !== paymentIntentId) {
+      return NextResponse.json(
+        { success: false, error: "Payment intent does not match order." },
+        { status: 400 }
       );
     }
 

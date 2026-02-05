@@ -40,7 +40,8 @@ const isInternalPaymentUpdate = (req?: any) => {
       (req.headers["x-internal-payment"] ||
         req.headers["X-Internal-Payment"])) ||
     "";
-  return String(headerValue || "").toLowerCase() === "stripe";
+  const normalized = String(headerValue || "").toLowerCase();
+  return normalized === "stripe" || normalized === "mock";
 };
 
 const isOrderOwner: Access = ({ req }) => {
@@ -276,7 +277,7 @@ export const Orders: CollectionConfig = {
           }
         }
 
-        if (hasStatusField && nextStatus === "paid" && !privileged) {
+        if (hasStatusField && nextStatus === "paid" && !privileged && !internalPaymentUpdate) {
           const allowPaidOnCreate = operation === "create" && !hasPhysical;
           if (!allowPaidOnCreate) {
             if (operation === "update") {

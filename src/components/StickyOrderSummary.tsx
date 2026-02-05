@@ -64,11 +64,12 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                 <p className="text-xs text-white/50">x{item.quantity}</p>
               </div>
               <div className="shrink-0 text-right text-xs font-semibold text-white tabular-nums sm:text-sm">
-                {formatPrice(item.priceValue * item.quantity)}?
+                {formatPrice(item.priceValue * item.quantity)}₽
               </div>
             </div>
           ))}
         </div>
+
         <div className="space-y-2.5 border-t border-white/10 pt-3">
           <button
             type="button"
@@ -77,7 +78,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           >
             Подробности
             <ChevronDown
-              className={`h-4 w-4 transition ${detailsOpen ? "rotate-180 text-white" : "text-white/50"}`}
+              className={`h-4 w-4 transition ${detailsOpen ? 'rotate-180 text-white' : 'text-white/50'}`}
             />
           </button>
 
@@ -88,7 +89,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                   <Package className="h-4 w-4" />
                   Товары
                 </span>
-                <span className="font-medium tabular-nums">{formatPrice(subtotal)}?</span>
+                <span className="font-medium tabular-nums">{formatPrice(subtotal)}₽</span>
               </div>
 
               {deliveryCost > 0 && (
@@ -97,14 +98,14 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                     <Truck className="h-4 w-4" />
                     Доставка
                   </span>
-                  <span className="font-medium tabular-nums">{formatPrice(deliveryCost)}?</span>
+                  <span className="font-medium tabular-nums">{formatPrice(deliveryCost)}₽</span>
                 </div>
               )}
 
               {discount > 0 && (
                 <div className="flex items-center justify-between text-emerald-300">
                   <span>Скидка</span>
-                  <span className="font-medium tabular-nums">-{formatPrice(discount)}?</span>
+                  <span className="font-medium tabular-nums">-{formatPrice(discount)}₽</span>
                 </div>
               )}
             </div>
@@ -116,7 +117,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               Итого
             </span>
             <span className="text-[#2ED1FF] shadow-[0_0_10px_rgba(46,209,255,0.35)] tabular-nums">
-              {formatPrice(total)}?
+              {formatPrice(total)}₽
             </span>
           </div>
         </div>
@@ -147,4 +148,3 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 };
 
 export default StickyOrderSummary;
-
