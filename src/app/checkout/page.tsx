@@ -16,6 +16,7 @@ import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeCardElement, StripeCardElementChangeEvent } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
+import QRCode from "qrcode";
 import CheckoutStepper from "@/components/CheckoutStepper";
 import DeliveryCard, { deliveryOptions } from "@/components/DeliveryCard";
 import StickyOrderSummary from "@/components/StickyOrderSummary";
@@ -234,11 +235,23 @@ const normalizeAddressInput = (value: string) =>
 
 const stripePublicKey = (process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || "").trim();
 const stripePromise = stripePublicKey ? loadStripe(stripePublicKey) : null;
+const sbpQrPayloadOverride = (process.env.NEXT_PUBLIC_SBP_QR_PAYLOAD || "").trim();
+const sbpQrImageOverride = (process.env.NEXT_PUBLIC_SBP_QR_IMAGE_URL || "").trim();
+const sbpMerchant = (process.env.NEXT_PUBLIC_SBP_MERCHANT || "3D-STORE").trim();
 const STRIPE_TEST_CARDS = [
   { number: "4242 4242 4242 4242", label: "Успешная оплата" },
   { number: "4000 0000 0000 0002", label: "Карта отклонена" },
   { number: "4000 0000 0000 9995", label: "Недостаточно средств" },
 ];
+
+const applySbpTemplate = (
+  template: string,
+  params: { order: string; amount: number; merchant: string }
+) =>
+  template
+    .replace(/\{\{order\}\}/g, params.order)
+    .replace(/\{\{amount\}\}/g, String(params.amount))
+    .replace(/\{\{merchant\}\}/g, params.merchant);
 
 type StripePaymentFormProps = {
   orderId: string;
@@ -457,21 +470,24 @@ const formatExpiry = (digits: string) => {
 const detectCardBrand = (digits: string) =>
   CARD_BRANDS.find((brand) => brand.pattern.test(digits)) ?? { key: "generic", label: "КАРТА" };
 
-const CardBrandIcon = ({ brandKey }: { brandKey: string }) => {
+const CardBrandIcon = ({
+  brandKey,
+  className = "h-6 w-10",
+}: {
+  brandKey: string;
+  className?: string;
+}) => {
   if (brandKey === "visa") {
     return (
-      <svg
-        viewBox="0 0 72 40"
-        className="h-6 w-10 rounded-md"
-        aria-hidden="true"
-      >
-        <rect width="72" height="40" rx="8" fill="#1A4FA3" />
+      <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
+        <rect width="72" height="40" rx="8" fill="#1A1F71" />
+        <rect y="32" width="72" height="8" fill="#F7B600" opacity="0.85" />
         <text
           x="36"
-          y="25"
+          y="24"
           textAnchor="middle"
           fontSize="14"
-          fontFamily="Arial, sans-serif"
+          fontFamily="Arial Black, Arial, sans-serif"
           fontWeight="700"
           fill="#FFFFFF"
         >
@@ -482,34 +498,44 @@ const CardBrandIcon = ({ brandKey }: { brandKey: string }) => {
   }
   if (brandKey === "mastercard") {
     return (
-      <svg
-        viewBox="0 0 72 40"
-        className="h-6 w-10 rounded-md"
-        aria-hidden="true"
-      >
-        <rect width="72" height="40" rx="8" fill="#111827" />
-        <circle cx="30" cy="20" r="10" fill="#EB001B" />
-        <circle cx="42" cy="20" r="10" fill="#F79E1B" />
+      <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
+        <rect width="72" height="40" rx="8" fill="#0B0F19" />
+        <circle cx="30" cy="18" r="10" fill="#EB001B" />
+        <circle cx="42" cy="18" r="10" fill="#F79E1B" />
+        <text
+          x="36"
+          y="33"
+          textAnchor="middle"
+          fontSize="7.5"
+          fontFamily="Arial, sans-serif"
+          fontWeight="600"
+          fill="#E5E7EB"
+        >
+          mastercard
+        </text>
       </svg>
     );
   }
   if (brandKey === "mir") {
     return (
-      <svg
-        viewBox="0 0 72 40"
-        className="h-6 w-10 rounded-md"
-        aria-hidden="true"
-      >
-        <rect width="72" height="40" rx="8" fill="#0F172A" />
-        <rect x="6" y="10" width="60" height="20" rx="6" fill="#1E293B" />
+      <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
+        <defs>
+          <linearGradient id="mirGradient" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#12B981" />
+            <stop offset="55%" stopColor="#22D3EE" />
+            <stop offset="100%" stopColor="#F59E0B" />
+          </linearGradient>
+        </defs>
+        <rect width="72" height="40" rx="8" fill="#0B1220" />
+        <rect x="6" y="10" width="60" height="20" rx="6" fill="#111827" />
         <text
           x="36"
           y="25"
           textAnchor="middle"
-          fontSize="14"
-          fontFamily="Arial, sans-serif"
+          fontSize="13"
+          fontFamily="Arial Black, Arial, sans-serif"
           fontWeight="700"
-          fill="#22D3EE"
+          fill="url(#mirGradient)"
         >
           МИР
         </text>
@@ -517,7 +543,7 @@ const CardBrandIcon = ({ brandKey }: { brandKey: string }) => {
     );
   }
   return (
-    <svg viewBox="0 0 72 40" className="h-6 w-10 rounded-md" aria-hidden="true">
+    <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
       <rect width="72" height="40" rx="8" fill="#0B0F19" />
       <rect x="6" y="12" width="60" height="16" rx="6" fill="#1F2937" />
     </svg>
@@ -584,13 +610,30 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
   return (
     <div className="mx-auto mt-6 w-full max-w-[420px] space-y-4 text-left">
       <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
-        <div className="mb-2 flex items-center justify-between gap-3">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
           <label className="text-xs uppercase tracking-[0.3em] text-white/50">
             Данные карты
           </label>
-          <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
-            {brandInfo.label}
-          </span>
+          <div className="flex items-center gap-2">
+            {CARD_BRANDS.map((brand) => {
+              const isActive = brandInfo.key === brand.key;
+              return (
+                <span
+                  key={brand.key}
+                  className={`rounded-lg border px-1.5 py-1 transition ${
+                    isActive
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014]"
+                      : "border-white/10 bg-white/5 opacity-60"
+                  }`}
+                >
+                  <CardBrandIcon brandKey={brand.key} className="h-5 w-9" />
+                </span>
+              );
+            })}
+            <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
+              {brandInfo.label}
+            </span>
+          </div>
         </div>
         <div className="space-y-3">
           <div className="relative">
@@ -670,7 +713,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
         disabled={paymentLoading}
         className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {paymentLoading ? "Оплата..." : "Подтвердить"}
+        {paymentLoading ? "Оплата..." : "Оплатить"}
       </button>
     </div>
   );
@@ -692,6 +735,8 @@ const CheckoutPage = () => {
   const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
   const [paymentStageError, setPaymentStageError] = useState<string | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
+  const [sbpQrSvg, setSbpQrSvg] = useState<string | null>(null);
+  const [sbpQrError, setSbpQrError] = useState<string | null>(null);
   const [submitLock, setSubmitLock] = useState(false);
   const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
   const isPaymentsMock = paymentsMode === "mock";
@@ -881,9 +926,64 @@ const CheckoutPage = () => {
     [hasPhysical, form.shippingMethod]
   );
   const grandTotal = useMemo(() => totalValue + deliveryCost, [totalValue, deliveryCost]);
+  const sbpQrPayload = useMemo(() => {
+    const orderRef = pendingOrderId ? String(pendingOrderId) : "pending";
+    const amount = Math.max(0, grandTotal);
+    if (sbpQrPayloadOverride) {
+      return applySbpTemplate(sbpQrPayloadOverride, {
+        order: orderRef,
+        amount,
+        merchant: sbpMerchant,
+      });
+    }
+    const params = new URLSearchParams({
+      order: orderRef,
+      amount: String(amount),
+      merchant: sbpMerchant,
+      test: "1",
+    });
+    return `sbp://pay?${params.toString()}`;
+  }, [pendingOrderId, grandTotal, sbpQrPayloadOverride, sbpMerchant]);
+
+  useEffect(() => {
+    if (!isPaymentsMock || paymentMethod !== "sbp") {
+      setSbpQrSvg(null);
+      setSbpQrError(null);
+      return;
+    }
+    if (sbpQrImageOverride) {
+      setSbpQrSvg(null);
+      setSbpQrError(null);
+      return;
+    }
+    let isActive = true;
+    setSbpQrError(null);
+    QRCode.toString(sbpQrPayload, {
+      type: "svg",
+      width: 160,
+      margin: 1,
+      color: {
+        dark: "#BFF4FF",
+        light: "#00000000",
+      },
+    })
+      .then((svg) => {
+        if (isActive) {
+          setSbpQrSvg(svg);
+        }
+      })
+      .catch(() => {
+        if (isActive) {
+          setSbpQrSvg(null);
+          setSbpQrError("Не удалось сгенерировать QR-код.");
+        }
+      });
+    return () => {
+      isActive = false;
+    };
+  }, [isPaymentsMock, paymentMethod, sbpQrPayload, sbpQrImageOverride]);
   const isPaymentStep = step === "payment";
-  const isMockCardPayment = isPaymentsMock && paymentMethod === "card";
-  const isAwaitingOrderCreation = isMockCardPayment && !pendingOrderId;
+  const isAwaitingOrderCreation = isPaymentsMock && !pendingOrderId;
   const stepperSteps = useMemo(
     () => [
       {
@@ -1040,18 +1140,35 @@ const CheckoutPage = () => {
 
   const handlePaymentSimulation = useCallback(
     async (status: "paid" | "failed") => {
-      if (!pendingOrderId) return;
+      if (!pendingOrderId && !pendingOrderPayload) {
+        setPaymentStageError(
+          "Не удалось подготовить заказ. Обновите страницу и попробуйте снова."
+        );
+        return;
+      }
       setPaymentLoading(true);
       setPaymentStageError(null);
-        try {
-          const response = await fetch(paymentsConfirmUrl, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            credentials: "include",
-            body: JSON.stringify({ orderId: pendingOrderId, status }),
-          });
+      try {
+        let orderId = pendingOrderId;
+        if (!orderId && pendingOrderPayload) {
+          const { createdOrderId } = await createOrder(pendingOrderPayload);
+          if (!createdOrderId) {
+            throw new Error("Не удалось создать заказ.");
+          }
+          orderId = createdOrderId;
+          setPendingOrderId(createdOrderId);
+        }
+        if (!orderId) {
+          throw new Error("Не удалось создать заказ.");
+        }
+        const response = await fetch(paymentsConfirmUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({ orderId, status }),
+        });
         if (!response.ok) {
           const errorText = await response.text().catch(() => "");
           throw new Error(errorText || "Не удалось обновить статус оплаты.");
@@ -1060,7 +1177,12 @@ const CheckoutPage = () => {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("orders-updated"));
           }
-          router.push(`/checkout/success?orderId=${encodeURIComponent(pendingOrderId)}`);
+          if (typeof window !== "undefined") {
+            removeCartStorage(cartStorageKey);
+          }
+          setCartItems([]);
+          setPendingOrderPayload(null);
+          router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
         } else {
           setPaymentStageError("Оплата отклонена. Попробуйте снова.");
         }
@@ -1072,7 +1194,7 @@ const CheckoutPage = () => {
         setPaymentLoading(false);
       }
     },
-    [pendingOrderId, paymentsConfirmUrl, router]
+    [cartStorageKey, createOrder, pendingOrderId, pendingOrderPayload, paymentsConfirmUrl, router]
   );
 
   const handleRefreshPaymentIntent = useCallback(async () => {
@@ -1252,6 +1374,8 @@ const CheckoutPage = () => {
         setSubmitError(
           `Следующие товары недоступны: ${invalidNames}. Пожалуйста, удалите их из корзины.`
         );
+        setStep("form");
+        setSubmitLock(false);
         return;
       }
 
@@ -1278,6 +1402,7 @@ const CheckoutPage = () => {
         if (!productIdStr) {
           setSubmitError("Ошибка: Товар не найден.");
           setStep("form");
+          setSubmitLock(false);
           return;
         }
 
@@ -1328,8 +1453,8 @@ const CheckoutPage = () => {
         payload.shipping = shippingPayload;
       }
 
-      const isMockCardPayment = isPaymentsMock && paymentMethod === "card";
-      if (isMockCardPayment) {
+      const isMockPayment = isPaymentsMock;
+      if (isMockPayment) {
         setPendingOrderPayload(payload);
         setPendingOrderId(null);
         setPaymentIntentId(null);
@@ -1462,6 +1587,7 @@ const CheckoutPage = () => {
               key="checkout-form"
               onSubmit={handleSubmit}
               ref={formRef}
+              noValidate
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
@@ -1862,13 +1988,39 @@ const CheckoutPage = () => {
                             </div>
                             <div className="mt-4 flex flex-col items-center gap-4 md:flex-row">
                               <div className="flex h-40 w-40 items-center justify-center rounded-2xl border border-white/10 bg-white/5 text-[11px] text-white/60">
-                                QR-код
+                                {sbpQrImageOverride ? (
+                                  <img
+                                    src={sbpQrImageOverride}
+                                    alt="SBP QR"
+                                    className="h-32 w-32 rounded-xl object-contain"
+                                    loading="lazy"
+                                  />
+                                ) : sbpQrSvg ? (
+                                  <div
+                                    className="[&>svg]:h-32 [&>svg]:w-32"
+                                    aria-label="SBP QR"
+                                    dangerouslySetInnerHTML={{ __html: sbpQrSvg }}
+                                  />
+                                ) : sbpQrError ? (
+                                  <span className="text-center text-[10px] uppercase tracking-[0.2em] text-red-300">
+                                    QR недоступен
+                                  </span>
+                                ) : (
+                                  <span className="text-center text-[10px] uppercase tracking-[0.2em] text-white/60">
+                                    Генерируем QR...
+                                  </span>
+                                )}
                               </div>
                               <div className="flex-1 space-y-2 text-sm text-white/70">
                                 <p>Отсканируйте QR-код в банковском приложении.</p>
                                 <p className="text-xs text-white/50">
                                   Оплатите в течение 10 минут, затем вернитесь сюда.
                                 </p>
+                                {sbpQrImageOverride && (
+                                  <p className="text-[11px] text-[#BFF4FF]/70">
+                                    QR-код предоставлен банком.
+                                  </p>
+                                )}
                                 <div className="flex flex-wrap gap-2">
                                   {["Сбер", "Тинькофф", "Альфа", "ВТБ", "Газпромбанк"].map(
                                     (bank) => (

@@ -35,7 +35,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const discount = 0;
-  const canPay = canCheckout && !isProcessing && items.length > 0;
+  const canPay = !isProcessing && items.length > 0;
 
   return (
     <div className="w-full min-w-0 lg:sticky lg:top-24">
@@ -134,7 +134,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               Обрабатываем...
             </div>
           ) : (
-            'ПОДТВЕРДИТЬ'
+            'ПОДТВЕРДИТЬ И ОПЛАТИТЬ'
           )}
         </button>
 
