@@ -548,6 +548,9 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
   const [expDigits, setExpDigits] = useState("");
   const [cvcDigits, setCvcDigits] = useState("");
   const [localError, setLocalError] = useState<string | null>(null);
+  const cardNumberRef = useRef<HTMLInputElement>(null);
+  const expiryRef = useRef<HTMLInputElement>(null);
+  const cvcRef = useRef<HTMLInputElement>(null);
 
   const brandInfo = detectCardBrand(cardNumberDigits);
   const expiryError = validateExpiry(expDigits);
@@ -559,14 +562,17 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
     onClearStageError?.();
     if (!cardNumberValid) {
       setLocalError("Введите 16 цифр номера карты.");
+      cardNumberRef.current?.focus();
       return;
     }
     if (expiryError) {
       setLocalError(expiryError);
+      expiryRef.current?.focus();
       return;
     }
     if (!cvcValid) {
       setLocalError("Введите корректный CVC.");
+      cvcRef.current?.focus();
       return;
     }
     setLocalError(null);
@@ -590,6 +596,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               <CardBrandIcon brandKey={brandInfo.key} />
             </div>
             <input
+              ref={cardNumberRef}
               type="text"
               value={formatCardNumber(cardNumberDigits)}
               onChange={(event) => {
@@ -603,6 +610,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
           </div>
           <div className="grid grid-cols-2 gap-3">
             <input
+              ref={expiryRef}
               type="text"
               value={formatExpiry(expDigits)}
               onChange={(event) => {
@@ -614,6 +622,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
             />
             <input
+              ref={cvcRef}
               type="text"
               value={cvcDigits}
               onChange={(event) => {
@@ -625,6 +634,9 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               className="rounded-xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none focus:border-[#2ED1FF]/60"
             />
           </div>
+          {expDigits.length === 4 && expiryError && (
+            <p className="text-xs text-red-300">{expiryError}</p>
+          )}
         </div>
         <p className="mt-2 text-[10px] uppercase tracking-[0.3em] text-[#2ED1FF]/70">
           Тестовый режим оплаты
@@ -641,10 +653,10 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
       <button
         type="button"
         onClick={handlePay}
-        disabled={paymentLoading || !isFormValid}
+        disabled={paymentLoading}
         className="w-full rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 disabled:cursor-not-allowed disabled:opacity-60"
       >
-        {paymentLoading ? "Оплата..." : "Оплатить"}
+        {paymentLoading ? "Оплата..." : "Подтвердить"}
       </button>
     </div>
   );
