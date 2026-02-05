@@ -1,4 +1,4 @@
-'use client';
+﻿'use client';
 
 import React, { useState } from 'react';
 import { Package, Truck, CreditCard, ChevronDown } from 'lucide-react';
@@ -134,7 +134,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               Обрабатываем...
             </div>
           ) : (
-            'ПОДТВЕРДИТЬ И ОПЛАТИТЬ'
+            'ПОДТВЕРДИТЬ'
           )}
         </button>
 
@@ -148,3 +148,4 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 };
 
 export default StickyOrderSummary;
+

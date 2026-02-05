@@ -972,11 +972,8 @@ const CheckoutPage = () => {
     return { errors, submitError, firstErrorField, isValid: true };
   }, [form, hasPhysical]);
 
-  const formValidation = useMemo(() => getFormErrors(), [getFormErrors]);
   const canCheckout =
-    formValidation.isValid &&
     cartItems.length > 0 &&
-    Boolean(userId) &&
     step === "form" &&
     !submitLock;
 
