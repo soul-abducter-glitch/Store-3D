@@ -31,6 +31,18 @@ const isPrivilegedRequest = (req?: any) => {
   return Boolean(email && adminEmails.includes(email));
 };
 
+const isInternalPaymentUpdate = (req?: any) => {
+  if (!req) return false;
+  const headerValue =
+    (typeof req?.headers?.get === "function" &&
+      req.headers.get("x-internal-payment")) ||
+    (typeof req?.headers === "object" &&
+      (req.headers["x-internal-payment"] ||
+        req.headers["X-Internal-Payment"])) ||
+    "";
+  return String(headerValue || "").toLowerCase() === "stripe";
+};
+
 const isOrderOwner: Access = ({ req }) => {
   const user = req.user;
   if (!user) {
@@ -251,7 +263,14 @@ export const Orders: CollectionConfig = {
           hasPaymentMethodField ? data?.paymentMethod : originalDoc?.paymentMethod
         );
 
-        if (hasPaymentStatusField && operation === "update" && !privileged && !isInternal) {
+        const internalPaymentUpdate = isInternalPaymentUpdate(req);
+        if (
+          hasPaymentStatusField &&
+          operation === "update" &&
+          !privileged &&
+          !isInternal &&
+          !internalPaymentUpdate
+        ) {
           if (nextPaymentStatus !== prevPaymentStatus) {
             throw new Error("Статус оплаты может быть изменен только администратором.");
           }

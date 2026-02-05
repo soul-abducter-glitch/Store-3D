@@ -143,6 +143,12 @@ export async function POST(request: NextRequest) {
         paymentIntentId,
       },
       overrideAccess: true,
+      req: {
+        user: authUser ?? undefined,
+        headers: new Headers({
+          "x-internal-payment": "stripe",
+        }),
+      } as any,
     });
 
     return NextResponse.json(
