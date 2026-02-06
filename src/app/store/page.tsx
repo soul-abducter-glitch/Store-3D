@@ -27,6 +27,8 @@ import {
   Menu,
   Palette,
   Printer,
+  Maximize2,
+  Minimize2,
   RotateCw,
   Scan,
   Search,
@@ -863,6 +865,11 @@ export default function Home() {
   const cartLoadedKeyRef = useRef<string | null>(null);
   const heroSectionRef = useRef<HTMLDivElement | null>(null);
   const heroEntranceRef = useRef<HTMLDivElement | null>(null);
+  const fullscreenRef = useRef<HTMLDivElement | null>(null);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [showFullscreenUI, setShowFullscreenUI] = useState(true);
+  const uiHideTimeoutRef = useRef<number | null>(null);
+  const [canAutoHideUi, setCanAutoHideUi] = useState(true);
   const showPortalHero = false;
   const [heroVisible, setHeroVisible] = useState(false);
   const [heroInView, setHeroInView] = useState(false);
@@ -893,10 +900,70 @@ export default function Home() {
     () => getCartStorageKey(userReady ? userProfile?.id : null),
     [userProfile?.id, userReady]
   );
+  const enterFullscreen = useCallback(async () => {
+    if (!fullscreenRef.current) return;
+    try {
+      await fullscreenRef.current.requestFullscreen();
+    } catch {
+      setIsFullscreen(true);
+    }
+  }, []);
+  const exitFullscreen = useCallback(async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    }
+    setIsFullscreen(false);
+  }, []);
+  const toggleFullscreen = useCallback(() => {
+    if (isFullscreen) {
+      exitFullscreen();
+    } else {
+      enterFullscreen();
+    }
+  }, [enterFullscreen, exitFullscreen, isFullscreen]);
+  const handleFullscreenMouseMove = useCallback(() => {
+    if (!isFullscreen || !canAutoHideUi) return;
+    setShowFullscreenUI(true);
+    if (uiHideTimeoutRef.current) {
+      window.clearTimeout(uiHideTimeoutRef.current);
+    }
+    uiHideTimeoutRef.current = window.setTimeout(() => setShowFullscreenUI(false), 2000);
+  }, [canAutoHideUi, isFullscreen]);
+  const fullscreenUiVisible = !isFullscreen || !canAutoHideUi || showFullscreenUI;
 
   useEffect(() => {
     setIsMounted(true);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const m = window.matchMedia("(hover: hover)");
+    setCanAutoHideUi(m.matches);
+    const onChange = () => setCanAutoHideUi(m.matches);
+    m.addEventListener?.("change", onChange);
+    return () => m.removeEventListener?.("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    const onChange = () => {
+      const active = document.fullscreenElement === fullscreenRef.current;
+      setIsFullscreen(active);
+      setShowFullscreenUI(true);
+    };
+    document.addEventListener("fullscreenchange", onChange);
+    return () => document.removeEventListener("fullscreenchange", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (!isFullscreen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        exitFullscreen();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [exitFullscreen, isFullscreen]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2129,52 +2196,63 @@ export default function Home() {
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
       <GlobalHudMarkers />
-      <Header
-        searchQuery={searchQuery}
-        onSearchChange={setSearchQuery}
-        searchSuggestions={searchSuggestions}
-        onSearchCommit={commitSearch}
-        onSearchPick={(value) => {
-          setSearchQuery(value);
-          commitSearch(value);
-        }}
-        isSidebarOpen={isSidebarOpen}
-        onToggleSidebar={handleToggleSidebar}
-        cartCount={cartCount}
-        onCartToggle={handleToggleCart}
-        favoritesCount={favorites.length}
-        isLoggedIn={Boolean(userProfile?.id)}
-        userLabel={userLabel}
-        onLogout={handleLogout}
-        hasUnreadStatus={hasUnreadStatus}
-        onPrint={handleHeaderPrint}
-      />
-      <AnimatePresence>
-        {isSidebarOpen && (
-          <motion.div
-            className="fixed inset-0 z-30 md:hidden"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-          >
-            <button
-              type="button"
-              aria-label="Close sidebar"
-              className="absolute inset-0 bg-black/60"
-              onClick={() => setIsSidebarOpen(false)}
-            />
+      <div
+        className={`transition-opacity duration-200 ${
+          fullscreenUiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <Header
+          searchQuery={searchQuery}
+          onSearchChange={setSearchQuery}
+          searchSuggestions={searchSuggestions}
+          onSearchCommit={commitSearch}
+          onSearchPick={(value) => {
+            setSearchQuery(value);
+            commitSearch(value);
+          }}
+          isSidebarOpen={isSidebarOpen}
+          onToggleSidebar={handleToggleSidebar}
+          cartCount={cartCount}
+          onCartToggle={handleToggleCart}
+          favoritesCount={favorites.length}
+          isLoggedIn={Boolean(userProfile?.id)}
+          userLabel={userLabel}
+          onLogout={handleLogout}
+          hasUnreadStatus={hasUnreadStatus}
+          onPrint={handleHeaderPrint}
+        />
+      </div>
+      <div
+        className={`transition-opacity duration-200 ${
+          fullscreenUiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+        }`}
+      >
+        <AnimatePresence>
+          {isSidebarOpen && (
             <motion.div
-              className="relative h-full w-[85%] max-w-[320px] bg-[#050505]"
-              initial={{ x: "-100%" }}
-              animate={{ x: 0 }}
-              exit={{ x: "-100%" }}
-              transition={{ type: "tween", duration: 0.25 }}
+              className="fixed inset-0 z-30 md:hidden"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
             >
-              <Sidebar
-                format={format}
-                onFormatChange={setFormat}
-                technology={technology}
-                onTechnologyChange={setTechnology}
+              <button
+                type="button"
+                aria-label="Close sidebar"
+                className="absolute inset-0 bg-black/60"
+                onClick={() => setIsSidebarOpen(false)}
+              />
+              <motion.div
+                className="relative h-full w-[85%] max-w-[320px] bg-[#050505]"
+                initial={{ x: "-100%" }}
+                animate={{ x: 0 }}
+                exit={{ x: "-100%" }}
+                transition={{ type: "tween", duration: 0.25 }}
+              >
+                <Sidebar
+                  format={format}
+                  onFormatChange={setFormat}
+                  technology={technology}
+                  onTechnologyChange={setTechnology}
                   verified={verified}
                   onVerifiedChange={setVerified}
                   useGlobalCatalog={useGlobalCatalog}
@@ -2183,20 +2261,21 @@ export default function Home() {
                   activeCategory={activeCategory}
                   onCategoryChange={setActiveCategory}
                   onRequestClose={() => setIsSidebarOpen(false)}
-                className="h-full w-full overflow-y-auto rounded-none border-r border-white/10 pt-20"
-              />
-              <button
-                type="button"
-                aria-label="Close sidebar"
-                className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
-                onClick={() => setIsSidebarOpen(false)}
-              >
-                <X className="h-5 w-5" />
-              </button>
+                  className="h-full w-full overflow-y-auto rounded-none border-r border-white/10 pt-20"
+                />
+                <button
+                  type="button"
+                  aria-label="Close sidebar"
+                  className="absolute right-3 top-3 flex h-11 w-11 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
+                  onClick={() => setIsSidebarOpen(false)}
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </motion.div>
             </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+          )}
+        </AnimatePresence>
+      </div>
       <AnimatePresence>
         {isCartOpen && (
           <motion.div
@@ -2409,34 +2488,55 @@ export default function Home() {
             onFormatChange={setFormat}
             technology={technology}
             onTechnologyChange={setTechnology}
-              verified={verified}
-              onVerifiedChange={setVerified}
-              useGlobalCatalog={useGlobalCatalog}
-              onGlobalCatalogChange={setUseGlobalCatalog}
-              categories={sidebarCategories}
-              activeCategory={activeCategory}
-              onCategoryChange={setActiveCategory}
-            className="hidden md:flex md:self-start"
+            verified={verified}
+            onVerifiedChange={setVerified}
+            useGlobalCatalog={useGlobalCatalog}
+            onGlobalCatalogChange={setUseGlobalCatalog}
+            categories={sidebarCategories}
+            activeCategory={activeCategory}
+            onCategoryChange={setActiveCategory}
+            className={`hidden md:flex md:self-start transition-opacity duration-200 ${
+              fullscreenUiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+            }`}
           />
           <main className="space-y-8 lg:space-y-10">
-            <motion.section
-              ref={heroSectionRef}
-              variants={containerVariants}
-              initial="hidden"
-              animate="show"
-              className="space-y-4 scroll-mt-24 sm:space-y-6 sm:scroll-mt-28"
+            <div
+              ref={fullscreenRef}
+              onMouseMove={handleFullscreenMouseMove}
+              className={
+                isFullscreen
+                  ? "fixed inset-0 z-[100] bg-[#050505] px-4 pt-20 pb-6"
+                  : ""
+              }
             >
+              <motion.section
+                ref={heroSectionRef}
+                variants={containerVariants}
+                initial="hidden"
+                animate="show"
+                className="space-y-4 scroll-mt-24 sm:space-y-6 sm:scroll-mt-28"
+              >
               <motion.div
                 variants={itemVariants}
                 className="relative overflow-hidden rounded-[32px] border border-white/5 bg-white/[0.02] p-4 sm:p-6 rim-light"
               >
+                <div
+                  className={`transition-opacity duration-200 ${
+                    fullscreenUiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                  }`}
+                >
                   <HUD
                     polyCount={heroPolyCount}
                     printTime={heroPrintTime ?? (heroEstimatedPrintTime ? `≈ ${heroEstimatedPrintTime}` : null)}
                     scale={heroScale}
                     dimensions={heroDimensions}
                   />
-                <div className="relative z-10 h-[360px] w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth sm:h-[360px] lg:h-[420px]">
+                </div>
+                <div
+                  className={`relative z-10 w-full overflow-hidden rounded-3xl bg-[#070707] inner-depth ${
+                    isFullscreen ? "h-[calc(100vh-160px)]" : "h-[360px] sm:h-[360px] lg:h-[420px]"
+                  }`}
+                >
                   <AnimatePresence initial={false}>
                     {isInterior && interiorBackgroundUrl ? (
                       <motion.div
@@ -2536,26 +2636,31 @@ export default function Home() {
                     </AnimatePresence>
                   </div>
                 </div>
-                {canQuickSwitch && (
-                  <>
-                    <button
-                      type="button"
-                      aria-label="Предыдущая модель"
-                      className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:left-8 sm:p-3"
-                      onClick={handlePrev}
-                    >
-                      <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
-                    </button>
-                    <button
-                      type="button"
-                      aria-label="Следующая модель"
-                      className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:right-8 sm:p-3"
-                      onClick={handleNext}
-                    >
-                      <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />
-                    </button>
-                  </>
-                )}
+                <div
+                  className={`transition-opacity duration-200 ${
+                    fullscreenUiVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                  }`}
+                >
+                  {canQuickSwitch && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Предыдущая модель"
+                        className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:left-8 sm:p-3"
+                        onClick={handlePrev}
+                      >
+                        <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Следующая модель"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:right-8 sm:p-3"
+                        onClick={handleNext}
+                      >
+                        <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />
+                      </button>
+                    </>
+                  )}
                   <div className="absolute inset-x-4 bottom-2 z-50 flex flex-col items-stretch gap-2 pb-[env(safe-area-inset-bottom)] sm:inset-x-8 sm:bottom-8 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
                   <div className="order-1 w-full sm:max-w-[420px] sm:w-auto">
                   <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60 sm:text-[10px]">
@@ -2655,6 +2760,19 @@ export default function Home() {
                     onClick={() =>
                       setPreview((prev) => (prev === "ar" ? "default" : "ar"))
                     }
+                  />
+                  <DockButton
+                    active={isFullscreen}
+                    label="Экран"
+                    compactLabel={isFullscreen ? "Свернуть" : "Экран"}
+                    icon={
+                      isFullscreen ? (
+                        <Minimize2 className="h-4 w-4" />
+                      ) : (
+                        <Maximize2 className="h-4 w-4" />
+                      )
+                    }
+                    onClick={toggleFullscreen}
                   />
                   </div>
                   <div className="order-2 relative hidden w-full flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:flex sm:w-auto sm:text-xs">
@@ -2817,6 +2935,20 @@ export default function Home() {
                       }
                     />
                     <DockButton
+                      active={isFullscreen}
+                      label="Экран"
+                      compactLabel={isFullscreen ? "Свернуть" : "Экран"}
+                      icon={
+                        isFullscreen ? (
+                          <Minimize2 className="h-4 w-4" />
+                        ) : (
+                          <Maximize2 className="h-4 w-4" />
+                        )
+                      }
+                      fullWidth
+                      onClick={toggleFullscreen}
+                    />
+                    <DockButton
                       active={isWorkshopOpen}
                       label="Мастерская"
                       compactLabel="Мастер"
@@ -2897,6 +3029,7 @@ export default function Home() {
                 </div>
               </motion.div>
             </motion.section>
+            </div>
 
             <motion.section
               variants={containerVariants}
