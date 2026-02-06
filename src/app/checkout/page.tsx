@@ -550,6 +550,19 @@ const CardBrandIcon = ({
   );
 };
 
+const BankBadge = ({
+  label,
+  accent,
+}: {
+  label: string;
+  accent: string;
+}) => (
+  <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
+    <span className="h-2 w-2 rounded-full" style={{ background: accent }} />
+    {label}
+  </span>
+);
+
 const validateExpiry = (digits: string) => {
   if (digits.length < 4) return "Введите срок действия.";
   const month = Number(digits.slice(0, 2));
@@ -2022,16 +2035,11 @@ const CheckoutPage = () => {
                                   </p>
                                 )}
                                 <div className="flex flex-wrap gap-2">
-                                  {["Сбер", "Тинькофф", "Альфа", "ВТБ", "Газпромбанк"].map(
-                                    (bank) => (
-                                      <span
-                                        key={bank}
-                                        className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70"
-                                      >
-                                        {bank}
-                                      </span>
-                                    )
-                                  )}
+                                  <BankBadge label="Сбер" accent="#21C25E" />
+                                  <BankBadge label="Тинькофф" accent="#F59E0B" />
+                                  <BankBadge label="Альфа" accent="#EF4444" />
+                                  <BankBadge label="ВТБ" accent="#2563EB" />
+                                  <BankBadge label="Газпромбанк" accent="#10B981" />
                                 </div>
                               </div>
                             </div>
