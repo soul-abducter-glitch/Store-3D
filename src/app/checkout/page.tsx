@@ -553,12 +553,19 @@ const CardBrandIcon = ({
 const BankBadge = ({
   label,
   accent,
+  iconLabel,
 }: {
   label: string;
   accent: string;
+  iconLabel: string;
 }) => (
   <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
-    <span className="h-2 w-2 rounded-full" style={{ background: accent }} />
+    <span
+      className="flex h-5 w-5 items-center justify-center rounded-md text-[9px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_0_10px_rgba(0,0,0,0.25)]"
+      style={{ background: accent }}
+    >
+      {iconLabel}
+    </span>
     {label}
   </span>
 );
@@ -2035,11 +2042,11 @@ const CheckoutPage = () => {
                                   </p>
                                 )}
                                 <div className="flex flex-wrap gap-2">
-                                  <BankBadge label="Сбер" accent="#21C25E" />
-                                  <BankBadge label="Тинькофф" accent="#F59E0B" />
-                                  <BankBadge label="Альфа" accent="#EF4444" />
-                                  <BankBadge label="ВТБ" accent="#2563EB" />
-                                  <BankBadge label="Газпромбанк" accent="#10B981" />
+                                  <BankBadge label="Сбер" accent="#21C25E" iconLabel="СБ" />
+                                  <BankBadge label="Тинькофф" accent="#F59E0B" iconLabel="Т" />
+                                  <BankBadge label="Альфа" accent="#EF4444" iconLabel="А" />
+                                  <BankBadge label="ВТБ" accent="#2563EB" iconLabel="ВТБ" />
+                                  <BankBadge label="Газпромбанк" accent="#10B981" iconLabel="ГПБ" />
                                 </div>
                               </div>
                             </div>
