@@ -20,6 +20,7 @@ interface StickyOrderSummaryProps {
   onCheckout: () => void;
   canCheckout?: boolean;
   isProcessing?: boolean;
+  ctaLabel?: string;
 }
 
 const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
@@ -30,12 +31,14 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   onCheckout,
   canCheckout = true,
   isProcessing = false,
+  ctaLabel,
 }) => {
   const formatPrice = (value: number) => new Intl.NumberFormat('ru-RU').format(value);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const discount = 0;
   const canPay = !isProcessing && items.length > 0;
+  const buttonLabel = ctaLabel ?? 'ПОДТВЕРДИТЬ И ОПЛАТИТЬ';
 
   return (
     <div className="w-full min-w-0 lg:sticky lg:top-24">
@@ -126,6 +129,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           type="button"
           onClick={onCheckout}
           disabled={!canPay}
+          aria-disabled={!canCheckout}
           className="mt-5 w-full rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60"
         >
           {isProcessing ? (
@@ -134,7 +138,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
               Обрабатываем...
             </div>
           ) : (
-            'ПОДТВЕРДИТЬ И ОПЛАТИТЬ'
+            buttonLabel
           )}
         </button>
 

@@ -550,22 +550,106 @@ const CardBrandIcon = ({
   );
 };
 
+type BankKey = "sber" | "tinkoff" | "alfa" | "vtb" | "gpb";
+
+const BankLogo = ({ bankKey }: { bankKey: BankKey }) => {
+  if (bankKey === "sber") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
+        <defs>
+          <linearGradient id="sberGradient" x1="0" x2="1" y1="0" y2="1">
+            <stop offset="0%" stopColor="#16A34A" />
+            <stop offset="100%" stopColor="#22D3EE" />
+          </linearGradient>
+        </defs>
+        <circle cx="12" cy="12" r="12" fill="url(#sberGradient)" />
+        <path
+          d="M7 12.2l3 3.1 7-7"
+          fill="none"
+          stroke="#ffffff"
+          strokeWidth="2.1"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    );
+  }
+  if (bankKey === "tinkoff") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
+        <path
+          d="M4.5 3.5h15l-1.4 13.2L12 21l-6.1-4.3L4.5 3.5z"
+          fill="#FBBF24"
+          stroke="#1F2937"
+          strokeWidth="0.6"
+        />
+        <text
+          x="12"
+          y="15"
+          textAnchor="middle"
+          fontSize="8"
+          fontFamily="Arial Black, Arial, sans-serif"
+          fill="#111827"
+        >
+          T
+        </text>
+      </svg>
+    );
+  }
+  if (bankKey === "alfa") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
+        <rect width="24" height="24" rx="6" fill="#DC2626" />
+        <text
+          x="12"
+          y="16"
+          textAnchor="middle"
+          fontSize="10"
+          fontFamily="Arial Black, Arial, sans-serif"
+          fill="#ffffff"
+        >
+          A
+        </text>
+      </svg>
+    );
+  }
+  if (bankKey === "vtb") {
+    return (
+      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
+        <rect width="24" height="24" rx="6" fill="#1D4ED8" />
+        <text
+          x="12"
+          y="15"
+          textAnchor="middle"
+          fontSize="8"
+          fontFamily="Arial Black, Arial, sans-serif"
+          fill="#ffffff"
+        >
+          ВТБ
+        </text>
+      </svg>
+    );
+  }
+  return (
+    <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
+      <rect width="24" height="24" rx="6" fill="#0EA5E9" />
+      <path
+        d="M12 4c2.4 2.5 3.7 4.7 3.7 7a3.7 3.7 0 11-7.4 0c0-2.3 1.3-4.5 3.7-7z"
+        fill="#ffffff"
+      />
+    </svg>
+  );
+};
+
 const BankBadge = ({
   label,
-  accent,
-  iconLabel,
+  bankKey,
 }: {
   label: string;
-  accent: string;
-  iconLabel: string;
+  bankKey: BankKey;
 }) => (
   <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
-    <span
-      className="flex h-5 w-5 items-center justify-center rounded-md text-[9px] font-semibold uppercase tracking-[0.12em] text-white shadow-[0_0_10px_rgba(0,0,0,0.25)]"
-      style={{ background: accent }}
-    >
-      {iconLabel}
-    </span>
+    <BankLogo bankKey={bankKey} />
     {label}
   </span>
 );
@@ -792,6 +876,8 @@ const CheckoutPage = () => {
   const paymentsIntentUrl = "/api/payments/create-intent";
   const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
+  const checkoutCtaLabel =
+    paymentMethod === "cash" ? "ПОДТВЕРДИТЬ ЗАКАЗ" : "ПОДТВЕРДИТЬ И ОПЛАТИТЬ";
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1852,6 +1938,7 @@ const CheckoutPage = () => {
                   onCheckout={() => formRef.current?.requestSubmit()}
                   canCheckout={canCheckout}
                   isProcessing={isProcessing}
+                  ctaLabel={checkoutCtaLabel}
                 />
                 {!userId && (
                   <p className="mt-3 text-xs text-white/60">
@@ -2042,11 +2129,11 @@ const CheckoutPage = () => {
                                   </p>
                                 )}
                                 <div className="flex flex-wrap gap-2">
-                                  <BankBadge label="Сбер" accent="#21C25E" iconLabel="СБ" />
-                                  <BankBadge label="Тинькофф" accent="#F59E0B" iconLabel="Т" />
-                                  <BankBadge label="Альфа" accent="#EF4444" iconLabel="А" />
-                                  <BankBadge label="ВТБ" accent="#2563EB" iconLabel="ВТБ" />
-                                  <BankBadge label="Газпромбанк" accent="#10B981" iconLabel="ГПБ" />
+                                  <BankBadge label="Сбер" bankKey="sber" />
+                                  <BankBadge label="Тинькофф" bankKey="tinkoff" />
+                                  <BankBadge label="Альфа" bankKey="alfa" />
+                                  <BankBadge label="ВТБ" bankKey="vtb" />
+                                  <BankBadge label="Газпромбанк" bankKey="gpb" />
                                 </div>
                               </div>
                             </div>
