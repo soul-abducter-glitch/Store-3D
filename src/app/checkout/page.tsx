@@ -183,6 +183,9 @@ const shippingMethodOptions = [
   { value: "pochta", label: "Почта России" },
   { value: "pickup", label: "Самовывоз" },
 ];
+const shippingMethodSet = new Set(
+  shippingMethodOptions.map((option) => option.value)
+);
 const deliveryCostMap: Record<string, number> = {
   cdek: 200,
   yandex: 150,
@@ -195,6 +198,21 @@ const resolveDeliveryCost = (method?: string) => {
   if (!method) return 0;
   return deliveryCostMap[method] ?? 0;
 };
+
+const CHECKOUT_DRAFT_KEY = "checkout:draft:v1";
+const CHECKOUT_LOG_KEY = "checkout:events:v1";
+const CHECKOUT_LOG_MAX = 50;
+const DRAFT_SAVE_DEBOUNCE_MS = 450;
+
+const safeJsonParse = (value: string) => {
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
+};
+const checkoutDebug =
+  (process.env.NEXT_PUBLIC_CHECKOUT_DEBUG || "").toLowerCase() === "true";
 const paymentOptions = [
   { value: "card", label: "Оплата картой" },
   { value: "sbp", label: "СБП" },
@@ -555,73 +573,74 @@ type BankKey = "sber" | "tinkoff" | "alfa" | "vtb" | "gpb";
 const BankLogo = ({ bankKey }: { bankKey: BankKey }) => {
   if (bankKey === "sber") {
     return (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-        <defs>
-          <linearGradient id="sberGradient" x1="0" x2="1" y1="0" y2="1">
-            <stop offset="0%" stopColor="#16A34A" />
-            <stop offset="100%" stopColor="#22D3EE" />
-          </linearGradient>
-        </defs>
-        <circle cx="12" cy="12" r="12" fill="url(#sberGradient)" />
+      <svg viewBox="0 0 56 24" className="h-6 w-auto" aria-hidden="true">
+        <rect width="56" height="24" rx="6" fill="#E7F8F1" />
+        <circle cx="12" cy="12" r="6" fill="#16A34A" />
         <path
-          d="M7 12.2l3 3.1 7-7"
+          d="M9 12.2l2 2.2 4.8-4.8"
           fill="none"
           stroke="#ffffff"
-          strokeWidth="2.1"
+          strokeWidth="1.4"
           strokeLinecap="round"
           strokeLinejoin="round"
         />
+        <text
+          x="33"
+          y="16"
+          textAnchor="middle"
+          fontSize="9"
+          fontFamily="Arial Black, Arial, sans-serif"
+          fill="#0F766E"
+        >
+          СБЕР
+        </text>
       </svg>
     );
   }
   if (bankKey === "tinkoff") {
     return (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-        <path
-          d="M4.5 3.5h15l-1.4 13.2L12 21l-6.1-4.3L4.5 3.5z"
-          fill="#FBBF24"
-          stroke="#1F2937"
-          strokeWidth="0.6"
-        />
+      <svg viewBox="0 0 56 24" className="h-6 w-auto" aria-hidden="true">
+        <rect width="56" height="24" rx="6" fill="#FCD34D" />
+        <rect x="6" y="5" width="12" height="14" rx="3" fill="#111827" />
         <text
-          x="12"
-          y="15"
+          x="36"
+          y="16"
           textAnchor="middle"
-          fontSize="8"
+          fontSize="9"
           fontFamily="Arial Black, Arial, sans-serif"
           fill="#111827"
         >
-          T
+          TINK
         </text>
       </svg>
     );
   }
   if (bankKey === "alfa") {
     return (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-        <rect width="24" height="24" rx="6" fill="#DC2626" />
+      <svg viewBox="0 0 56 24" className="h-6 w-auto" aria-hidden="true">
+        <rect width="56" height="24" rx="6" fill="#DC2626" />
         <text
-          x="12"
+          x="28"
           y="16"
           textAnchor="middle"
-          fontSize="10"
+          fontSize="9"
           fontFamily="Arial Black, Arial, sans-serif"
           fill="#ffffff"
         >
-          A
+          АЛЬФА
         </text>
       </svg>
     );
   }
   if (bankKey === "vtb") {
     return (
-      <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-        <rect width="24" height="24" rx="6" fill="#1D4ED8" />
+      <svg viewBox="0 0 56 24" className="h-6 w-auto" aria-hidden="true">
+        <rect width="56" height="24" rx="6" fill="#1D4ED8" />
         <text
-          x="12"
-          y="15"
+          x="28"
+          y="16"
           textAnchor="middle"
-          fontSize="8"
+          fontSize="10"
           fontFamily="Arial Black, Arial, sans-serif"
           fill="#ffffff"
         >
@@ -631,12 +650,22 @@ const BankLogo = ({ bankKey }: { bankKey: BankKey }) => {
     );
   }
   return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" aria-hidden="true">
-      <rect width="24" height="24" rx="6" fill="#0EA5E9" />
+    <svg viewBox="0 0 56 24" className="h-6 w-auto" aria-hidden="true">
+      <rect width="56" height="24" rx="6" fill="#0EA5E9" />
       <path
-        d="M12 4c2.4 2.5 3.7 4.7 3.7 7a3.7 3.7 0 11-7.4 0c0-2.3 1.3-4.5 3.7-7z"
+        d="M16 6c2.4 2.5 3.7 4.7 3.7 7a3.7 3.7 0 11-7.4 0c0-2.3 1.3-4.5 3.7-7z"
         fill="#ffffff"
       />
+      <text
+        x="36"
+        y="16"
+        textAnchor="middle"
+        fontSize="9"
+        fontFamily="Arial Black, Arial, sans-serif"
+        fill="#ffffff"
+      >
+        ГПБ
+      </text>
     </svg>
   );
 };
@@ -648,9 +677,9 @@ const BankBadge = ({
   label: string;
   bankKey: BankKey;
 }) => (
-  <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
+  <span className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] font-medium text-white/80">
     <BankLogo bankKey={bankKey} />
-    {label}
+    <span className="whitespace-nowrap">{label}</span>
   </span>
 );
 
@@ -842,6 +871,7 @@ const CheckoutPage = () => {
   const [sbpQrSvg, setSbpQrSvg] = useState<string | null>(null);
   const [sbpQrError, setSbpQrError] = useState<string | null>(null);
   const [submitLock, setSubmitLock] = useState(false);
+  const [draftLoaded, setDraftLoaded] = useState(false);
   const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
@@ -870,14 +900,47 @@ const CheckoutPage = () => {
     () => getCartStorageKey(userReady ? userId : null),
     [userId, userReady]
   );
+  const checkoutDraftKey = useMemo(
+    () => `${CHECKOUT_DRAFT_KEY}:${userReady ? userId ?? "guest" : "guest"}`,
+    [userId, userReady]
+  );
+
+  const logCheckoutEvent = useCallback(
+    (event: string, data?: Record<string, unknown>) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+      const entry = {
+        ts: new Date().toISOString(),
+        event,
+        data: data ?? {},
+      };
+      const existing = safeJsonParse(localStorage.getItem(CHECKOUT_LOG_KEY) || "");
+      const list = Array.isArray(existing) ? existing : [];
+      list.push(entry);
+      const trimmed = list.slice(-CHECKOUT_LOG_MAX);
+      localStorage.setItem(CHECKOUT_LOG_KEY, JSON.stringify(trimmed));
+      if (checkoutDebug) {
+        console.debug("[checkout]", entry);
+      }
+    },
+    []
+  );
+
+  const clearCheckoutDraft = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    localStorage.removeItem(checkoutDraftKey);
+    logCheckoutEvent("draft:clear");
+  }, [checkoutDraftKey, logCheckoutEvent]);
   
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";
   const paymentsIntentUrl = "/api/payments/create-intent";
   const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
-  const checkoutCtaLabel =
-    paymentMethod === "cash" ? "ПОДТВЕРДИТЬ ЗАКАЗ" : "ПОДТВЕРДИТЬ И ОПЛАТИТЬ";
+  const checkoutCtaLabel = "ПОДТВЕРДИТЬ";
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -931,15 +994,100 @@ const CheckoutPage = () => {
           if (user) {
             setForm((prev) => ({
               ...prev,
-              name: user.name || prev.name,
-              email: user.email || prev.email,
-              address: user.shippingAddress || prev.address,
+              name: prev.name || user.name || prev.name,
+              email: prev.email || user.email || prev.email,
+              address: prev.address || user.shippingAddress || prev.address,
             }));
           }
         })
         .catch(() => {});
     }
   }, [apiBase, userId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!userReady || !cartReady || draftLoaded) {
+      return;
+    }
+    const stored = safeJsonParse(localStorage.getItem(checkoutDraftKey) || "");
+    if (!stored || typeof stored !== "object") {
+      setDraftLoaded(true);
+      return;
+    }
+    const draftForm =
+      stored.form && typeof stored.form === "object" ? stored.form : stored;
+
+    setForm((prev) => ({
+      ...prev,
+      name: typeof draftForm.name === "string" ? draftForm.name : prev.name,
+      email: typeof draftForm.email === "string" ? draftForm.email : prev.email,
+      city: typeof draftForm.city === "string" ? draftForm.city : prev.city,
+      address: typeof draftForm.address === "string" ? draftForm.address : prev.address,
+      shippingMethod: shippingMethodSet.has(draftForm.shippingMethod)
+        ? draftForm.shippingMethod
+        : prev.shippingMethod,
+      zipCode: typeof draftForm.zipCode === "string" ? draftForm.zipCode : prev.zipCode,
+    }));
+
+    if (typeof stored.paymentMethod === "string") {
+      const nextMethod =
+        paymentOptions.find((option) => option.value === stored.paymentMethod)?.value ??
+        null;
+      if (nextMethod) {
+        setPaymentMethod(nextMethod);
+      }
+    }
+
+    logCheckoutEvent("draft:load", {
+      hasForm: Boolean(draftForm),
+      hasPaymentMethod: typeof stored.paymentMethod === "string",
+    });
+    setDraftLoaded(true);
+  }, [cartReady, checkoutDraftKey, draftLoaded, logCheckoutEvent, userReady]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    if (!draftLoaded || !cartReady || step !== "form") {
+      return;
+    }
+    const timeoutId = window.setTimeout(() => {
+      const payload = {
+        form,
+        paymentMethod,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(checkoutDraftKey, JSON.stringify(payload));
+      logCheckoutEvent("draft:save", {
+        paymentMethod,
+        city: form.city,
+        shippingMethod: form.shippingMethod,
+      });
+    }, DRAFT_SAVE_DEBOUNCE_MS);
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [
+    cartReady,
+    checkoutDraftKey,
+    draftLoaded,
+    form,
+    logCheckoutEvent,
+    paymentMethod,
+    step,
+  ]);
+
+  useEffect(() => {
+    if (!cartReady) {
+      return;
+    }
+    if (cartItems.length === 0) {
+      clearCheckoutDraft();
+    }
+  }, [cartItems.length, cartReady, clearCheckoutDraft]);
 
   const streetSuggestions = useMemo(() => {
     const list = streetSuggestionsByCity[form.city] ?? [];
@@ -1298,6 +1446,10 @@ const CheckoutPage = () => {
 
   const createOrder = useCallback(
     async (payload: Record<string, any>) => {
+      logCheckoutEvent("order:create:start", {
+        items: Array.isArray(payload?.items) ? payload.items.length : 0,
+        total: payload?.total,
+      });
       const timeoutPromise = new Promise<never>((_, reject) => {
         setTimeout(
           () => reject(new Error("Request timeout: Order creation took too long.")),
@@ -1332,6 +1484,9 @@ const CheckoutPage = () => {
         } catch {
           // Keep original error text if not JSON
         }
+        logCheckoutEvent("order:create:error", {
+          message: errorMessage,
+        });
         throw new Error(errorMessage);
       }
 
@@ -1368,6 +1523,12 @@ const CheckoutPage = () => {
         paymentStatus = "pending";
       }
 
+      logCheckoutEvent("order:create:success", {
+        orderId: createdOrderId,
+        paymentStatus,
+        paymentMode: paymentsMode,
+      });
+
       return {
         createdOrderId,
         paymentStatus,
@@ -1390,6 +1551,7 @@ const CheckoutPage = () => {
       setPaymentLoading(true);
       setPaymentStageError(null);
       try {
+        logCheckoutEvent("payment:simulate:start", { status });
         let orderId = pendingOrderId;
         if (!orderId && pendingOrderPayload) {
           const { createdOrderId } = await createOrder(pendingOrderPayload);
@@ -1421,6 +1583,7 @@ const CheckoutPage = () => {
           if (typeof window !== "undefined") {
             removeCartStorage(cartStorageKey);
           }
+          clearCheckoutDraft();
           setCartItems([]);
           setPendingOrderPayload(null);
           router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
@@ -1431,11 +1594,23 @@ const CheckoutPage = () => {
         setPaymentStageError(
           error instanceof Error ? error.message : "Не удалось обновить статус оплаты."
         );
+        logCheckoutEvent("payment:simulate:error", {
+          message: error instanceof Error ? error.message : "Не удалось обновить статус оплаты.",
+        });
       } finally {
         setPaymentLoading(false);
       }
     },
-    [cartStorageKey, createOrder, pendingOrderId, pendingOrderPayload, paymentsConfirmUrl, router]
+    [
+      cartStorageKey,
+      clearCheckoutDraft,
+      createOrder,
+      logCheckoutEvent,
+      pendingOrderId,
+      pendingOrderPayload,
+      paymentsConfirmUrl,
+      router,
+    ]
   );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -1453,6 +1628,7 @@ const CheckoutPage = () => {
       if (firstErrorField) {
         focusField(firstErrorField);
       }
+      logCheckoutEvent("form:invalid", { firstErrorField });
       return;
     }
 
@@ -1471,6 +1647,7 @@ const CheckoutPage = () => {
 
     setSubmitError(null);
     setSubmitLock(true);
+    logCheckoutEvent("checkout:submit");
 
     try {
       // Validate products before creating order
@@ -1587,6 +1764,7 @@ const CheckoutPage = () => {
         removeCartStorage(cartStorageKey);
         window.dispatchEvent(new Event("orders-updated"));
       }
+      clearCheckoutDraft();
       setCartItems([]);
       
       if (paymentStatus === "pending" && createdOrderId) {
@@ -1613,6 +1791,7 @@ const CheckoutPage = () => {
       setSubmitError(message);
       setStep("form");
       setSubmitLock(false);
+      logCheckoutEvent("checkout:error", { message });
     }
   };
 
@@ -1626,6 +1805,7 @@ const CheckoutPage = () => {
     setPaymentLoading(true);
     setPaymentStageError(null);
     try {
+      logCheckoutEvent("payment:mock:start");
       const { createdOrderId } = await createOrder(pendingOrderPayload);
       if (!createdOrderId) {
         throw new Error("Не удалось создать заказ.");
@@ -1651,6 +1831,7 @@ const CheckoutPage = () => {
         removeCartStorage(cartStorageKey);
         window.dispatchEvent(new Event("orders-updated"));
       }
+      clearCheckoutDraft();
       setCartItems([]);
       setPendingOrderPayload(null);
       router.push(`/checkout/success?orderId=${encodeURIComponent(createdOrderId)}`);
@@ -1658,10 +1839,21 @@ const CheckoutPage = () => {
       setPaymentStageError(
         error instanceof Error ? error.message : "Не удалось завершить оплату."
       );
+      logCheckoutEvent("payment:mock:error", {
+        message: error instanceof Error ? error.message : "Не удалось завершить оплату.",
+      });
     } finally {
       setPaymentLoading(false);
     }
-  }, [cartStorageKey, createOrder, pendingOrderPayload, paymentsConfirmUrl, router]);
+  }, [
+    cartStorageKey,
+    clearCheckoutDraft,
+    createOrder,
+    logCheckoutEvent,
+    pendingOrderPayload,
+    paymentsConfirmUrl,
+    router,
+  ]);
 
   return (
     <div className="min-h-screen bg-[#050505] text-white">

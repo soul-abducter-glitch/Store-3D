@@ -37,8 +37,8 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const discount = 0;
-  const canPay = !isProcessing && items.length > 0;
-  const buttonLabel = ctaLabel ?? 'ПОДТВЕРДИТЬ И ОПЛАТИТЬ';
+  const canPay = !isProcessing;
+  const buttonLabel = ctaLabel ?? 'ПОДТВЕРДИТЬ';
 
   return (
     <div className="w-full min-w-0 lg:sticky lg:top-24">
@@ -130,7 +130,9 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           onClick={onCheckout}
           disabled={!canPay}
           aria-disabled={!canCheckout}
-          className="mt-5 w-full rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60"
+          className={`mt-5 w-full rounded-full bg-white px-4 py-2.5 text-sm font-semibold text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95 hover:shadow-[0_0_26px_rgba(46,209,255,0.55)] disabled:cursor-not-allowed disabled:opacity-60 ${
+            !canCheckout ? "shadow-[0_0_10px_rgba(46,209,255,0.2)]" : ""
+          }`}
         >
           {isProcessing ? (
             <div className="flex items-center justify-center gap-2">
