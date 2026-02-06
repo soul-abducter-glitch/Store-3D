@@ -7,7 +7,7 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type MutableRefObject,
   type ReactNode,
@@ -956,7 +956,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!isFullscreen) return;
-    const onKey = (event: KeyboardEvent) => {
+    const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
         exitFullscreen();
       }
@@ -2662,120 +2662,120 @@ export default function Home() {
                     </>
                   )}
                   <div className="absolute inset-x-4 bottom-2 z-50 flex flex-col items-stretch gap-2 pb-[env(safe-area-inset-bottom)] sm:inset-x-8 sm:bottom-8 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
-                  <div className="order-1 w-full sm:max-w-[420px] sm:w-auto">
-                  <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60 sm:text-[10px]">
-                    TECH_ID: {heroSku}
-                  </p>
-                    <h2 className="text-lg font-bold italic leading-tight tracking-[0.01em] text-white sm:text-xl lg:text-2xl">
-                      {heroName}
-                    </h2>
-                  <div className="mt-2 flex flex-col gap-2 sm:mt-4 sm:flex-row sm:items-center sm:gap-4">
-                    <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
-                      {heroPriceLabel}
-                    </span>
-                      <div className="flex w-full items-center gap-2 sm:w-auto">
-                        <button
-                          type="button"
-                          aria-label="В корзину"
-                          title="В корзину"
-                          className="group flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.25)] transition hover:bg-[#2ED1FF]/35 sm:h-9 sm:w-9"
-                          onClick={() => currentProduct && addToCart(currentProduct)}
-                        >
-                          <ShoppingCart className="h-4 w-4" />
-                          <span className="sr-only">В корзину</span>
-                        </button>
-                        {isCurrentDigital &&
-                          (currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) && (
+                    <div className="order-1 w-full sm:max-w-[420px] sm:w-auto">
+                      <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60 sm:text-[10px]">
+                        TECH_ID: {heroSku}
+                      </p>
+                      <h2 className="text-lg font-bold italic leading-tight tracking-[0.01em] text-white sm:text-xl lg:text-2xl">
+                        {heroName}
+                      </h2>
+                      <div className="mt-2 flex flex-col gap-2 sm:mt-4 sm:flex-row sm:items-center sm:gap-4">
+                        <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
+                          {heroPriceLabel}
+                        </span>
+                        <div className="flex w-full items-center gap-2 sm:w-auto">
                           <button
                             type="button"
-                            aria-label="Заказать печать"
-                            title="Заказать печать"
-                            className="group flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:h-9 sm:w-9"
-                            onClick={() => currentProduct && handleOrderPrint(currentProduct)}
+                            aria-label="В корзину"
+                            title="В корзину"
+                            className="group flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.25)] transition hover:bg-[#2ED1FF]/35 sm:h-9 sm:w-9"
+                            onClick={() => currentProduct && addToCart(currentProduct)}
                           >
-                            <Printer className="h-4 w-4" />
-                            <span className="sr-only">Заказать печать</span>
+                            <ShoppingCart className="h-4 w-4" />
+                            <span className="sr-only">В корзину</span>
                           </button>
-                        )}
-                        <button
-                          type="button"
-                          aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
-                          title={isCurrentFavorite ? "В избранном" : "В избранное"}
-                          className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-9 ${
-                          isCurrentFavorite
-                            ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
-                            : "border-white/15 bg-white/5 text-white/70 hover:text-white"
-                        }`}
-                        onClick={() =>
-                          currentProduct && toggleFavorite(buildFavoriteItem(currentProduct))
-                        }
-                      >
-                        <Heart
-                          className="h-4 w-4"
-                          fill={isCurrentFavorite ? "currentColor" : "none"}
-                        />
-                        <span className="sr-only">
-                          {isCurrentFavorite ? "В избранном" : "В избранное"}
-                        </span>
-                      </button>
+                          {isCurrentDigital &&
+                            (currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) && (
+                              <button
+                                type="button"
+                                aria-label="Заказать печать"
+                                title="Заказать печать"
+                                className="group flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:h-9 sm:w-9"
+                                onClick={() => currentProduct && handleOrderPrint(currentProduct)}
+                              >
+                                <Printer className="h-4 w-4" />
+                                <span className="sr-only">Заказать печать</span>
+                              </button>
+                            )}
+                          <button
+                            type="button"
+                            aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
+                            title={isCurrentFavorite ? "В избранном" : "В избранное"}
+                            className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-9 ${
+                              isCurrentFavorite
+                                ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
+                                : "border-white/15 bg-white/5 text-white/70 hover:text-white"
+                            }`}
+                            onClick={() =>
+                              currentProduct && toggleFavorite(buildFavoriteItem(currentProduct))
+                            }
+                          >
+                            <Heart
+                              className="h-4 w-4"
+                              fill={isCurrentFavorite ? "currentColor" : "none"}
+                            />
+                            <span className="sr-only">
+                              {isCurrentFavorite ? "В избранном" : "В избранное"}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  </div>
-                  <div className="order-3 hidden w-full items-center justify-start gap-2 overflow-x-auto rounded-full px-3.5 py-2 glass-dock border-white/15 bg-white/5 sm:flex sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-4 sm:px-5 sm:py-2.5">
-                  <DockButton
-                    active={autoRotate}
-                    label="Авто-поворот"
-                    compactLabel="Авто"
-                    icon={<RotateCw className="h-4 w-4" />}
-                    onClick={() => setAutoRotate((prev) => !prev)}
-                  />
-                  <DockButton
-                    active={false}
-                    label="Zoom +"
-                    compactLabel="Zoom +"
-                    icon={<ZoomIn className="h-4 w-4" />}
-                    onClick={() => handleZoom("in")}
-                  />
-                  <DockButton
-                    active={false}
-                    label="Zoom -"
-                    compactLabel="Zoom -"
-                    icon={<ZoomOut className="h-4 w-4" />}
-                    onClick={() => handleZoom("out")}
-                  />
-                  <DockButton
-                    active={preview === "interior"}
-                    label="В интерьере"
-                    compactLabel="Интерьер"
-                    icon={<Scan className="h-4 w-4" />}
-                    onClick={() =>
-                      setPreview((prev) => (prev === "interior" ? "default" : "interior"))
-                    }
-                  />
-                  <DockButton
-                    active={preview === "ar"}
-                    label="AR-просмотр"
-                    compactLabel="AR"
-                    icon={<Sparkles className="h-4 w-4" />}
-                    onClick={() =>
-                      setPreview((prev) => (prev === "ar" ? "default" : "ar"))
-                    }
-                  />
-                  <DockButton
-                    active={isFullscreen}
-                    label="Экран"
-                    compactLabel={isFullscreen ? "Свернуть" : "Экран"}
-                    icon={
-                      isFullscreen ? (
-                        <Minimize2 className="h-4 w-4" />
-                      ) : (
-                        <Maximize2 className="h-4 w-4" />
-                      )
-                    }
-                    onClick={toggleFullscreen}
-                  />
-                  </div>
-                  <div className="order-2 relative hidden w-full flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:flex sm:w-auto sm:text-xs">
+                    <div className="order-3 hidden w-full items-center justify-start gap-2 overflow-x-auto rounded-full px-3.5 py-2 glass-dock border-white/15 bg-white/5 sm:flex sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-4 sm:px-5 sm:py-2.5">
+                      <DockButton
+                        active={autoRotate}
+                        label="Авто-поворот"
+                        compactLabel="Авто"
+                        icon={<RotateCw className="h-4 w-4" />}
+                        onClick={() => setAutoRotate((prev) => !prev)}
+                      />
+                      <DockButton
+                        active={false}
+                        label="Zoom +"
+                        compactLabel="Zoom +"
+                        icon={<ZoomIn className="h-4 w-4" />}
+                        onClick={() => handleZoom("in")}
+                      />
+                      <DockButton
+                        active={false}
+                        label="Zoom -"
+                        compactLabel="Zoom -"
+                        icon={<ZoomOut className="h-4 w-4" />}
+                        onClick={() => handleZoom("out")}
+                      />
+                      <DockButton
+                        active={preview === "interior"}
+                        label="В интерьере"
+                        compactLabel="Интерьер"
+                        icon={<Scan className="h-4 w-4" />}
+                        onClick={() =>
+                          setPreview((prev) => (prev === "interior" ? "default" : "interior"))
+                        }
+                      />
+                      <DockButton
+                        active={preview === "ar"}
+                        label="AR-просмотр"
+                        compactLabel="AR"
+                        icon={<Sparkles className="h-4 w-4" />}
+                        onClick={() =>
+                          setPreview((prev) => (prev === "ar" ? "default" : "ar"))
+                        }
+                      />
+                      <DockButton
+                        active={isFullscreen}
+                        label="Экран"
+                        compactLabel={isFullscreen ? "Свернуть" : "Экран"}
+                        icon={
+                          isFullscreen ? (
+                            <Minimize2 className="h-4 w-4" />
+                          ) : (
+                            <Maximize2 className="h-4 w-4" />
+                          )
+                        }
+                        onClick={toggleFullscreen}
+                      />
+                    </div>
+                    <div className="order-2 relative hidden w-full flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:flex sm:w-auto sm:text-xs">
                     <button
                       type="button"
                       aria-expanded={isWorkshopOpen}
@@ -2889,7 +2889,7 @@ export default function Home() {
                       )}
                     </AnimatePresence>
                   </div>
-                  <div className="fixed inset-x-4 bottom-2 z-40 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-[#0b0f12]/85 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.14em] text-white/70 shadow-[0_10px_30px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:hidden">
+                    <div className="fixed inset-x-4 bottom-2 z-40 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-[#0b0f12]/85 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.14em] text-white/70 shadow-[0_10px_30px_rgba(0,0,0,0.4)] backdrop-blur-xl sm:hidden">
                     <DockButton
                       active={autoRotate}
                       label="Авто-поворот"
@@ -3025,6 +3025,7 @@ export default function Home() {
                         </motion.div>
                       )}
                     </AnimatePresence>
+                    </div>
                   </div>
                 </div>
               </motion.div>
@@ -3314,7 +3315,7 @@ function Header({
     });
   };
 
-  const handleSearchKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleSearchKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Enter") {
       onSearchCommit(event.currentTarget.value);
     }
@@ -4535,7 +4536,7 @@ function ProductCard({
     prefetchDoneRef.current = true;
     router.prefetch(productLink);
   }, [productLink, router]);
-  const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+  const handleKeyDown = (event: ReactKeyboardEvent<HTMLElement>) => {
     if (event.key === "Enter" || event.key === " ") {
       event.preventDefault();
       onClick();
