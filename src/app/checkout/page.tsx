@@ -1138,65 +1138,6 @@ const CheckoutPage = () => {
     [paymentsIntentUrl]
   );
 
-  const handlePaymentSimulation = useCallback(
-    async (status: "paid" | "failed") => {
-      if (!pendingOrderId && !pendingOrderPayload) {
-        setPaymentStageError(
-          "Не удалось подготовить заказ. Обновите страницу и попробуйте снова."
-        );
-        return;
-      }
-      setPaymentLoading(true);
-      setPaymentStageError(null);
-      try {
-        let orderId = pendingOrderId;
-        if (!orderId && pendingOrderPayload) {
-          const { createdOrderId } = await createOrder(pendingOrderPayload);
-          if (!createdOrderId) {
-            throw new Error("Не удалось создать заказ.");
-          }
-          orderId = createdOrderId;
-          setPendingOrderId(createdOrderId);
-        }
-        if (!orderId) {
-          throw new Error("Не удалось создать заказ.");
-        }
-        const response = await fetch(paymentsConfirmUrl, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          credentials: "include",
-          body: JSON.stringify({ orderId, status }),
-        });
-        if (!response.ok) {
-          const errorText = await response.text().catch(() => "");
-          throw new Error(errorText || "Не удалось обновить статус оплаты.");
-        }
-        if (status === "paid") {
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new Event("orders-updated"));
-          }
-          if (typeof window !== "undefined") {
-            removeCartStorage(cartStorageKey);
-          }
-          setCartItems([]);
-          setPendingOrderPayload(null);
-          router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
-        } else {
-          setPaymentStageError("Оплата отклонена. Попробуйте снова.");
-        }
-      } catch (error) {
-        setPaymentStageError(
-          error instanceof Error ? error.message : "Не удалось обновить статус оплаты."
-        );
-      } finally {
-        setPaymentLoading(false);
-      }
-    },
-    [cartStorageKey, createOrder, pendingOrderId, pendingOrderPayload, paymentsConfirmUrl, router]
-  );
-
   const handleRefreshPaymentIntent = useCallback(async () => {
     if (paymentsMode !== "stripe") return;
     if (!pendingOrderId) return;
@@ -1330,6 +1271,65 @@ const CheckoutPage = () => {
       };
     },
     [ordersApiUrl, paymentMethod, paymentsMode, requestPaymentIntent]
+  );
+
+  const handlePaymentSimulation = useCallback(
+    async (status: "paid" | "failed") => {
+      if (!pendingOrderId && !pendingOrderPayload) {
+        setPaymentStageError(
+          "Не удалось подготовить заказ. Обновите страницу и попробуйте снова."
+        );
+        return;
+      }
+      setPaymentLoading(true);
+      setPaymentStageError(null);
+      try {
+        let orderId = pendingOrderId;
+        if (!orderId && pendingOrderPayload) {
+          const { createdOrderId } = await createOrder(pendingOrderPayload);
+          if (!createdOrderId) {
+            throw new Error("Не удалось создать заказ.");
+          }
+          orderId = createdOrderId;
+          setPendingOrderId(createdOrderId);
+        }
+        if (!orderId) {
+          throw new Error("Не удалось создать заказ.");
+        }
+        const response = await fetch(paymentsConfirmUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({ orderId, status }),
+        });
+        if (!response.ok) {
+          const errorText = await response.text().catch(() => "");
+          throw new Error(errorText || "Не удалось обновить статус оплаты.");
+        }
+        if (status === "paid") {
+          if (typeof window !== "undefined") {
+            window.dispatchEvent(new Event("orders-updated"));
+          }
+          if (typeof window !== "undefined") {
+            removeCartStorage(cartStorageKey);
+          }
+          setCartItems([]);
+          setPendingOrderPayload(null);
+          router.push(`/checkout/success?orderId=${encodeURIComponent(orderId)}`);
+        } else {
+          setPaymentStageError("Оплата отклонена. Попробуйте снова.");
+        }
+      } catch (error) {
+        setPaymentStageError(
+          error instanceof Error ? error.message : "Не удалось обновить статус оплаты."
+        );
+      } finally {
+        setPaymentLoading(false);
+      }
+    },
+    [cartStorageKey, createOrder, pendingOrderId, pendingOrderPayload, paymentsConfirmUrl, router]
   );
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
