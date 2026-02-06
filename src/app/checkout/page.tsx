@@ -627,16 +627,16 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
           <label className="text-xs uppercase tracking-[0.3em] text-white/50">
             Данные карты
           </label>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {CARD_BRANDS.map((brand) => {
               const isActive = brandInfo.key === brand.key;
               return (
                 <span
                   key={brand.key}
-                  className={`rounded-lg border px-1.5 py-1 transition ${
+                  className={`flex items-center justify-center rounded-[10px] border px-2 py-1.5 shadow-[0_0_10px_rgba(46,209,255,0.1)] transition ${
                     isActive
-                      ? "border-[#2ED1FF]/60 bg-[#0b1014]"
-                      : "border-white/10 bg-white/5 opacity-60"
+                      ? "border-[#2ED1FF]/70 bg-[#0b1014]"
+                      : "border-white/10 bg-white/5 opacity-70"
                   }`}
                 >
                   <CardBrandIcon brandKey={brand.key} className="h-6 w-12" />
@@ -644,7 +644,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
               );
             })}
             <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.25em] text-white/70">
-              {brandInfo.label}
+              КАРТА
             </span>
           </div>
         </div>
