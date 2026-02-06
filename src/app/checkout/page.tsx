@@ -472,7 +472,7 @@ const detectCardBrand = (digits: string) =>
 
 const CardBrandIcon = ({
   brandKey,
-  className = "h-6 w-10",
+  className = "h-6 w-12",
 }: {
   brandKey: string;
   className?: string;
@@ -480,36 +480,36 @@ const CardBrandIcon = ({
   if (brandKey === "visa") {
     return (
       <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
-        <rect width="72" height="40" rx="8" fill="#1A1F71" />
-        <rect y="32" width="72" height="8" fill="#F7B600" opacity="0.85" />
+        <rect width="72" height="40" rx="8" fill="#FFFFFF" />
         <text
           x="36"
           y="24"
           textAnchor="middle"
-          fontSize="14"
+          fontSize="15"
           fontFamily="Arial Black, Arial, sans-serif"
           fontWeight="700"
-          fill="#FFFFFF"
+          fill="#1434CB"
         >
           VISA
         </text>
+        <rect x="10" y="29" width="52" height="4" rx="2" fill="#F5B335" />
       </svg>
     );
   }
   if (brandKey === "mastercard") {
     return (
       <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
-        <rect width="72" height="40" rx="8" fill="#0B0F19" />
+        <rect width="72" height="40" rx="8" fill="#FFFFFF" />
         <circle cx="30" cy="18" r="10" fill="#EB001B" />
         <circle cx="42" cy="18" r="10" fill="#F79E1B" />
         <text
           x="36"
           y="33"
           textAnchor="middle"
-          fontSize="7.5"
+          fontSize="7"
           fontFamily="Arial, sans-serif"
           fontWeight="600"
-          fill="#E5E7EB"
+          fill="#1F2937"
         >
           mastercard
         </text>
@@ -526,13 +526,13 @@ const CardBrandIcon = ({
             <stop offset="100%" stopColor="#F59E0B" />
           </linearGradient>
         </defs>
-        <rect width="72" height="40" rx="8" fill="#0B1220" />
-        <rect x="6" y="10" width="60" height="20" rx="6" fill="#111827" />
+        <rect width="72" height="40" rx="8" fill="#FFFFFF" />
+        <rect x="6" y="10" width="60" height="20" rx="6" fill="#F8FAFC" stroke="#E2E8F0" />
         <text
           x="36"
           y="25"
           textAnchor="middle"
-          fontSize="13"
+          fontSize="14"
           fontFamily="Arial Black, Arial, sans-serif"
           fontWeight="700"
           fill="url(#mirGradient)"
@@ -544,8 +544,8 @@ const CardBrandIcon = ({
   }
   return (
     <svg viewBox="0 0 72 40" className={`${className} rounded-md`} aria-hidden="true">
-      <rect width="72" height="40" rx="8" fill="#0B0F19" />
-      <rect x="6" y="12" width="60" height="16" rx="6" fill="#1F2937" />
+      <rect width="72" height="40" rx="8" fill="#FFFFFF" />
+      <rect x="6" y="12" width="60" height="16" rx="6" fill="#E2E8F0" />
     </svg>
   );
 };
@@ -626,7 +626,7 @@ const MockCardForm = ({ paymentLoading, onPay, onClearStageError }: MockCardForm
                       : "border-white/10 bg-white/5 opacity-60"
                   }`}
                 >
-                  <CardBrandIcon brandKey={brand.key} className="h-5 w-9" />
+                  <CardBrandIcon brandKey={brand.key} className="h-6 w-12" />
                 </span>
               );
             })}
