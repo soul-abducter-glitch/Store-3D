@@ -945,7 +945,11 @@ export default function Home() {
   const exitFullscreen = useCallback(async () => {
     const hasNativeFullscreen = Boolean(document.fullscreenElement);
     if (hasNativeFullscreen) {
-      await document.exitFullscreen();
+      try {
+        await document.exitFullscreen();
+      } catch {
+        // ignore and fallback to CSS fullscreen state below
+      }
     }
     setIsFullscreen(false);
     setShowFullscreenUI(true);
@@ -972,8 +976,8 @@ export default function Home() {
     }
     uiHideTimeoutRef.current = window.setTimeout(() => setShowFullscreenUI(false), 2000);
   }, [canAutoHideUi, isFullscreen]);
-  const fullscreenControlsVisible = !isFullscreen || !canAutoHideUi || showFullscreenUI;
-  const fullscreenOverlayVisible = !isFullscreen;
+  const fullscreenSurfaceVisible = !isFullscreen;
+  const fullscreenDockVisible = !isFullscreen || !canAutoHideUi || showFullscreenUI;
 
   useEffect(() => {
     setIsMounted(true);
@@ -990,7 +994,7 @@ export default function Home() {
 
   useEffect(() => {
     const onChange = () => {
-      const active = document.fullscreenElement === fullscreenRef.current;
+      const active = Boolean(document.fullscreenElement);
       setIsFullscreen(active);
       setShowFullscreenUI(true);
       if (!active) {
@@ -2263,10 +2267,10 @@ export default function Home() {
         <div className="absolute -left-40 top-[-20%] h-[520px] w-[520px] rounded-full bg-[radial-gradient(circle,rgba(46,209,255,0.2),transparent_70%)] blur-2xl" />
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
-      {fullscreenOverlayVisible && <GlobalHudMarkers />}
+      {fullscreenSurfaceVisible && <GlobalHudMarkers />}
       <div
         className={`transition-opacity duration-200 ${
-          fullscreenOverlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+          fullscreenSurfaceVisible ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
         <Header
@@ -2292,7 +2296,7 @@ export default function Home() {
       </div>
       <div
         className={`transition-opacity duration-200 ${
-          fullscreenOverlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+          fullscreenSurfaceVisible ? "opacity-100" : "opacity-0 pointer-events-none"
         }`}
       >
         <AnimatePresence>
@@ -2564,7 +2568,7 @@ export default function Home() {
             activeCategory={activeCategory}
             onCategoryChange={setActiveCategory}
             className={`hidden md:flex md:self-start transition-opacity duration-200 ${
-              fullscreenOverlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+              fullscreenSurfaceVisible ? "opacity-100" : "opacity-0 pointer-events-none"
             }`}
           />
           <main className="space-y-8 lg:space-y-10">
@@ -2590,7 +2594,7 @@ export default function Home() {
               >
                 <div
                   className={`transition-opacity duration-200 ${
-                    fullscreenOverlayVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                    fullscreenSurfaceVisible ? "opacity-100" : "opacity-0 pointer-events-none"
                   }`}
                 >
                   <HUD
@@ -2704,6 +2708,231 @@ export default function Home() {
                     </AnimatePresence>
                   </div>
                 </div>
+                <div className="transition-opacity duration-200">
+                  {fullscreenSurfaceVisible && canQuickSwitch && (
+                    <>
+                      <button
+                        type="button"
+                        aria-label="Предыдущая модель"
+                        className="absolute left-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:left-8 sm:p-3"
+                        onClick={handlePrev}
+                      >
+                        <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        aria-label="Следующая модель"
+                        className="absolute right-4 top-1/2 -translate-y-1/2 rounded-full border border-white/10 bg-white/5 p-2.5 text-white/70 transition hover:text-white sm:right-8 sm:p-3"
+                        onClick={handleNext}
+                      >
+                        <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5" />
+                      </button>
+                    </>
+                  )}
+                  <div className="absolute inset-x-4 bottom-2 z-50 flex flex-col items-stretch gap-2 pb-[env(safe-area-inset-bottom)] sm:inset-x-8 sm:bottom-8 sm:flex-row sm:flex-wrap sm:items-end sm:justify-between sm:gap-4">
+                    {fullscreenSurfaceVisible && (
+                    <div className="order-1 w-full sm:max-w-[420px] sm:w-auto">
+                      <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60 sm:text-[10px]">
+                        TECH_ID: {heroSku}
+                      </p>
+                      <h2 className="text-lg font-bold italic leading-tight tracking-[0.01em] text-white sm:text-xl lg:text-2xl">
+                        {heroName}
+                      </h2>
+                      <div className="mt-2 flex flex-col gap-2 sm:mt-4 sm:flex-row sm:items-center sm:gap-4">
+                        <span className="text-lg font-semibold text-white sm:text-xl lg:text-2xl">
+                          {heroPriceLabel}
+                        </span>
+                        <div className="flex w-full items-center gap-2 sm:w-auto">
+                          <button
+                            type="button"
+                            aria-label="В корзину"
+                            title="В корзину"
+                            className="group flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/25 text-[#2ED1FF] shadow-[0_0_14px_rgba(46,209,255,0.25)] transition hover:bg-[#2ED1FF]/35 sm:h-9 sm:w-9"
+                            onClick={() => currentProduct && addToCart(currentProduct)}
+                          >
+                            <ShoppingCart className="h-4 w-4" />
+                            <span className="sr-only">В корзину</span>
+                          </button>
+                          {isCurrentDigital &&
+                            (currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) && (
+                              <button
+                                type="button"
+                                aria-label="Заказать печать"
+                                title="Заказать печать"
+                                className="group flex h-12 w-12 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:h-9 sm:w-9"
+                                onClick={() => currentProduct && handleOrderPrint(currentProduct)}
+                              >
+                                <Printer className="h-4 w-4" />
+                                <span className="sr-only">Заказать печать</span>
+                              </button>
+                            )}
+                          <button
+                            type="button"
+                            aria-label={isCurrentFavorite ? "В избранном" : "В избранное"}
+                            title={isCurrentFavorite ? "В избранном" : "В избранное"}
+                            className={`group flex h-12 w-12 items-center justify-center rounded-full border text-[10px] uppercase tracking-[0.12em] transition sm:h-9 sm:w-9 ${
+                              isCurrentFavorite
+                                ? "border-rose-400/60 bg-rose-500/10 text-rose-200 shadow-[0_0_18px_rgba(244,63,94,0.35)]"
+                                : "border-white/15 bg-white/5 text-white/70 hover:text-white"
+                            }`}
+                            onClick={() =>
+                              currentProduct && toggleFavorite(buildFavoriteItem(currentProduct))
+                            }
+                          >
+                            <Heart
+                              className="h-4 w-4"
+                              fill={isCurrentFavorite ? "currentColor" : "none"}
+                            />
+                            <span className="sr-only">
+                              {isCurrentFavorite ? "В избранном" : "В избранное"}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    )}
+                    <div
+                      className={`order-3 hidden w-full items-center justify-start gap-2 overflow-x-auto rounded-full px-3.5 py-2 glass-dock border-white/15 bg-white/5 transition-opacity duration-200 sm:flex sm:flex-wrap sm:justify-center sm:overflow-visible sm:gap-4 sm:px-5 sm:py-2.5 ${
+                        fullscreenDockVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                      }`}
+                    >
+                      <DockButton
+                        active={autoRotate}
+                        label="Авто-поворот"
+                        compactLabel="Авто"
+                        icon={<RotateCw className="h-4 w-4" />}
+                        onClick={() => setAutoRotate((prev) => !prev)}
+                      />
+                      <DockButton
+                        active={false}
+                        label="Zoom +"
+                        compactLabel="Zoom +"
+                        icon={<ZoomIn className="h-4 w-4" />}
+                        onClick={() => handleZoom("in")}
+                      />
+                      <DockButton
+                        active={false}
+                        label="Zoom -"
+                        compactLabel="Zoom -"
+                        icon={<ZoomOut className="h-4 w-4" />}
+                        onClick={() => handleZoom("out")}
+                      />
+                      <DockButton
+                        active={preview === "interior"}
+                        label="В интерьере"
+                        compactLabel="Интерьер"
+                        icon={<Scan className="h-4 w-4" />}
+                        onClick={() =>
+                          setPreview((prev) => (prev === "interior" ? "default" : "interior"))
+                        }
+                      />
+                      <DockButton
+                        active={preview === "ar"}
+                        label="AR-просмотр"
+                        compactLabel="AR"
+                        icon={<Sparkles className="h-4 w-4" />}
+                        onClick={() =>
+                          setPreview((prev) => (prev === "ar" ? "default" : "ar"))
+                        }
+                      />
+                      <DockButton
+                        active={isFullscreen}
+                        label="Экран"
+                        compactLabel={isFullscreen ? "Свернуть" : "Экран"}
+                        icon={
+                          isFullscreen ? (
+                            <Minimize2 className="h-4 w-4" />
+                          ) : (
+                            <Maximize2 className="h-4 w-4" />
+                          )
+                        }
+                        onClick={toggleFullscreen}
+                      />
+                    </div>
+                    {fullscreenSurfaceVisible && (
+                    <div className="order-2 relative hidden w-full flex-wrap items-center gap-2 rounded-full bg-white/5 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[10px] uppercase tracking-[0.2em] text-white/70 sm:flex sm:w-auto sm:text-xs">
+                    <button
+                      type="button"
+                      aria-expanded={isWorkshopOpen}
+                      className={`rounded-full min-h-[44px] px-3 py-2 transition sm:min-h-0 sm:px-3 sm:py-1 ${
+                        isWorkshopOpen
+                          ? "bg-white/15 text-white"
+                          : "text-white/50 hover:text-white"
+                      }`}
+                      onClick={() => setWorkshopOpen((prev) => !prev)}
+                    >
+                      Мастерская
+                    </button>
+                    <AnimatePresence>
+                      {isWorkshopOpen && (
+                        <motion.div
+                          className="absolute bottom-full right-0 z-20 mb-3 w-[320px] min-w-[280px] max-w-[calc(100vw-32px)] rounded-2xl border border-white/10 bg-[#0b0b0b]/80 p-6 text-[10px] text-white/70 shadow-2xl backdrop-blur-xl"
+                          initial={{ opacity: 0, y: 6 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: 6 }}
+                          transition={{ duration: 0.2 }}
+                        >
+                          <div className="space-y-4">
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ОСВЕЩЕНИЕ
+                              </p>
+                                <div className="grid grid-cols-2 gap-2 rounded-2xl bg-white/5 p-1">
+                                  {lightingPresets.map((option) => {
+                                    const isActive = lightingMode === option.value;
+                                    return (
+                                      <button
+                                        key={option.value}
+                                        type="button"
+                                        className={`rounded-full px-2 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                          isActive
+                                            ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                            : "text-white/50 hover:text-white"
+                                          }`}
+                                        onClick={() => setLightingMode(option.value)}
+                                      >
+                                        {option.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            <div className="space-y-2">
+                              <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                ВИД
+                              </p>
+                              <div className="grid grid-cols-2 gap-2">
+                                <button
+                                  type="button"
+                                  className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                    isWireframeActive
+                                      ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                      : "text-white/50 hover:text-white"
+                                  }`}
+                                  onClick={() => toggleRenderMode("wireframe")}
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                  Сетка
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`flex min-h-[36px] items-center justify-center gap-2 rounded-full px-3 py-1.5 text-[11px] font-semibold font-[var(--font-inter)] transition ${
+                                    isBaseActive
+                                      ? "bg-white/20 text-white shadow-[0_0_12px_rgba(255,255,255,0.18)]"
+                                      : "text-white/50 hover:text-white"
+                                  }`}
+                                  onClick={() => toggleRenderMode("base")}
+                                >
+                                  <Palette className="h-3.5 w-3.5" />
+                                  Чистый цвет
+                                </button>
+                              </div>
+                            </div>
+                            {isSlaProduct && (
+                              <div className="space-y-2">
+                                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/40">
+                                  МАТЕРИАЛ
+                                </p>
                                 <div className="flex rounded-full bg-white/5 p-1">
                                   <button
                                     type="button"
@@ -2735,9 +2964,10 @@ export default function Home() {
                       )}
                     </AnimatePresence>
                   </div>
+                    )}
                     <div
                       className={`fixed inset-x-4 bottom-2 z-40 grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-[#0b0f12]/85 px-3 py-2 font-[var(--font-jetbrains-mono)] text-[9px] uppercase tracking-[0.14em] text-white/70 shadow-[0_10px_30px_rgba(0,0,0,0.4)] backdrop-blur-xl transition-opacity duration-200 sm:hidden ${
-                        fullscreenControlsVisible ? "opacity-100" : "opacity-0 pointer-events-none"
+                        fullscreenDockVisible ? "opacity-100" : "opacity-0 pointer-events-none"
                       }`}
                     >
                     <DockButton
