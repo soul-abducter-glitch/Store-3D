@@ -871,6 +871,8 @@ export default function Home() {
   const uiHideTimeoutRef = useRef<number | null>(null);
   const [canAutoHideUi, setCanAutoHideUi] = useState(true);
   const scrollYRef = useRef(0);
+  const wasFullscreenRef = useRef(false);
+  const [layoutResetKey, setLayoutResetKey] = useState(0);
   const showPortalHero = false;
   const [heroVisible, setHeroVisible] = useState(false);
   const [heroInView, setHeroInView] = useState(false);
@@ -910,17 +912,35 @@ export default function Home() {
     setIsFullscreen(true);
     setShowFullscreenUI(true);
   }, []);
+
+  const normalizeAfterFullscreenExit = useCallback(() => {
+    if (typeof window === "undefined") return;
+    const restoreY = scrollYRef.current || 0;
+    const apply = () => {
+      const maxY = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+      const nextY = Math.min(Math.max(restoreY, 0), maxY);
+      window.scrollTo({ left: 0, top: nextY, behavior: "auto" });
+      document.documentElement.scrollLeft = 0;
+      document.body.scrollLeft = 0;
+    };
+    apply();
+    window.requestAnimationFrame(() => {
+      apply();
+      window.dispatchEvent(new Event("resize"));
+      window.requestAnimationFrame(apply);
+    });
+    window.setTimeout(() => {
+      apply();
+      window.dispatchEvent(new Event("resize"));
+    }, 120);
+  }, []);
+
   const exitFullscreen = useCallback(async () => {
     setIsFullscreen(false);
     setShowFullscreenUI(true);
     if (uiHideTimeoutRef.current) {
       window.clearTimeout(uiHideTimeoutRef.current);
       uiHideTimeoutRef.current = null;
-    }
-    if (typeof window !== "undefined") {
-      window.requestAnimationFrame(() => {
-        window.scrollTo(0, scrollYRef.current || 0);
-      });
     }
   }, []);
   const toggleFullscreen = useCallback(() => {
@@ -981,6 +1001,14 @@ export default function Home() {
       }
     };
   }, [canAutoHideUi, isFullscreen]);
+
+  useEffect(() => {
+    if (!isFullscreen && wasFullscreenRef.current) {
+      normalizeAfterFullscreenExit();
+      setLayoutResetKey((prev) => prev + 1);
+    }
+    wasFullscreenRef.current = isFullscreen;
+  }, [isFullscreen, normalizeAfterFullscreenExit]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2179,7 +2207,7 @@ export default function Home() {
   }
 
   return (
-    <div className="relative min-h-screen bg-[#050505] text-white font-[var(--font-inter)]">
+    <div className="relative min-h-screen overflow-x-hidden bg-[#050505] text-white font-[var(--font-inter)]">
       <ToastContainer toasts={toasts} onRemove={removeToast} position="top-right" />
       <script
         type="application/ld+json"
@@ -2498,7 +2526,10 @@ export default function Home() {
         </div>
         </section>
       )}
-      <div className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-44 sm:px-6 sm:pb-24 sm:pt-32 md:pt-28">
+      <div
+        key={layoutResetKey}
+        className="relative z-10 mx-auto max-w-[1400px] px-4 pb-28 pt-44 sm:px-6 sm:pb-24 sm:pt-32 md:pt-28"
+      >
         <div className="grid gap-6 lg:gap-8 md:grid-cols-[280px_1fr] md:items-start">
           <Sidebar
             format={format}
