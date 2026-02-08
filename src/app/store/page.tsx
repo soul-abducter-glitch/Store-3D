@@ -871,8 +871,6 @@ export default function Home() {
   const uiHideTimeoutRef = useRef<number | null>(null);
   const [canAutoHideUi, setCanAutoHideUi] = useState(true);
   const scrollYRef = useRef(0);
-  const bodyStyleRef = useRef<Partial<CSSStyleDeclaration>>({});
-  const scrollLockedRef = useRef(false);
   const showPortalHero = false;
   const [heroVisible, setHeroVisible] = useState(false);
   const [heroInView, setHeroInView] = useState(false);
@@ -903,47 +901,15 @@ export default function Home() {
     () => getCartStorageKey(userReady ? userProfile?.id : null),
     [userProfile?.id, userReady]
   );
-  const lockScroll = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (scrollLockedRef.current) return;
-    const scrollY = window.scrollY;
-    scrollYRef.current = Number.isFinite(scrollY) ? Math.round(scrollY) : 0;
-    bodyStyleRef.current = {
-      overflow: document.body.style.overflow,
-      position: document.body.style.position,
-      top: document.body.style.top,
-      width: document.body.style.width,
-      paddingRight: document.body.style.paddingRight,
-    };
-    const scrollbarWidth = Math.round(window.innerWidth - document.documentElement.clientWidth);
-    document.body.style.overflow = "hidden";
-    document.body.style.position = "fixed";
-    document.body.style.top = `-${scrollYRef.current}px`;
-    document.body.style.width = "100%";
-    if (scrollbarWidth > 0) {
-      document.body.style.paddingRight = `${scrollbarWidth}px`;
-    }
-    scrollLockedRef.current = true;
-  }, []);
-
-  const unlockScroll = useCallback(() => {
-    if (typeof window === "undefined") return;
-    if (!scrollLockedRef.current) return;
-    document.body.style.overflow = bodyStyleRef.current.overflow ?? "";
-    document.body.style.position = bodyStyleRef.current.position ?? "";
-    document.body.style.top = bodyStyleRef.current.top ?? "";
-    document.body.style.width = bodyStyleRef.current.width ?? "";
-    document.body.style.paddingRight = bodyStyleRef.current.paddingRight ?? "";
-    window.scrollTo(0, scrollYRef.current || 0);
-    scrollLockedRef.current = false;
-  }, []);
-
   const enterFullscreen = useCallback(async () => {
     if (!fullscreenRef.current) return;
-    lockScroll();
+    if (typeof window !== "undefined") {
+      const scrollY = window.scrollY;
+      scrollYRef.current = Number.isFinite(scrollY) ? Math.round(scrollY) : 0;
+    }
     setIsFullscreen(true);
     setShowFullscreenUI(true);
-  }, [lockScroll]);
+  }, []);
   const exitFullscreen = useCallback(async () => {
     setIsFullscreen(false);
     setShowFullscreenUI(true);
@@ -951,8 +917,12 @@ export default function Home() {
       window.clearTimeout(uiHideTimeoutRef.current);
       uiHideTimeoutRef.current = null;
     }
-    unlockScroll();
-  }, [unlockScroll]);
+    if (typeof window !== "undefined") {
+      window.requestAnimationFrame(() => {
+        window.scrollTo(0, scrollYRef.current || 0);
+      });
+    }
+  }, []);
   const toggleFullscreen = useCallback(() => {
     if (isFullscreen) {
       exitFullscreen();
@@ -1011,12 +981,6 @@ export default function Home() {
       }
     };
   }, [canAutoHideUi, isFullscreen]);
-
-  useEffect(() => {
-    return () => {
-      unlockScroll();
-    };
-  }, [unlockScroll]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2556,9 +2520,19 @@ export default function Home() {
             <div
               ref={fullscreenRef}
               onMouseMove={handleFullscreenMouseMove}
+              onWheel={(event) => {
+                if (isFullscreen) {
+                  event.preventDefault();
+                }
+              }}
+              onTouchMove={(event) => {
+                if (isFullscreen) {
+                  event.preventDefault();
+                }
+              }}
               className={
                 isFullscreen
-                  ? "fixed inset-0 z-[100] bg-[#050505] px-4 pt-20 pb-6"
+                  ? "fixed inset-0 z-[100] overflow-hidden overscroll-none bg-[#050505] px-4 pt-20 pb-6"
                   : ""
               }
             >
