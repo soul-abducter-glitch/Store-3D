@@ -872,6 +872,7 @@ export default function Home() {
   const [canAutoHideUi, setCanAutoHideUi] = useState(true);
   const scrollYRef = useRef(0);
   const bodyStyleRef = useRef<Partial<CSSStyleDeclaration>>({});
+  const scrollLockedRef = useRef(false);
   const showPortalHero = false;
   const [heroVisible, setHeroVisible] = useState(false);
   const [heroInView, setHeroInView] = useState(false);
@@ -904,6 +905,7 @@ export default function Home() {
   );
   const lockScroll = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (scrollLockedRef.current) return;
     const scrollY = window.scrollY;
     scrollYRef.current = Number.isFinite(scrollY) ? Math.round(scrollY) : 0;
     bodyStyleRef.current = {
@@ -921,24 +923,27 @@ export default function Home() {
     if (scrollbarWidth > 0) {
       document.body.style.paddingRight = `${scrollbarWidth}px`;
     }
+    scrollLockedRef.current = true;
   }, []);
 
   const unlockScroll = useCallback(() => {
     if (typeof window === "undefined") return;
+    if (!scrollLockedRef.current) return;
     document.body.style.overflow = bodyStyleRef.current.overflow ?? "";
     document.body.style.position = bodyStyleRef.current.position ?? "";
     document.body.style.top = bodyStyleRef.current.top ?? "";
     document.body.style.width = bodyStyleRef.current.width ?? "";
     document.body.style.paddingRight = bodyStyleRef.current.paddingRight ?? "";
     window.scrollTo(0, scrollYRef.current || 0);
+    scrollLockedRef.current = false;
   }, []);
 
   const enterFullscreen = useCallback(async () => {
     if (!fullscreenRef.current) return;
-    lockScroll();
     try {
       await fullscreenRef.current.requestFullscreen();
     } catch {
+      lockScroll();
       setIsFullscreen(true);
     }
   }, [lockScroll]);
@@ -994,7 +999,7 @@ export default function Home() {
 
   useEffect(() => {
     const onChange = () => {
-      const active = Boolean(document.fullscreenElement);
+      const active = document.fullscreenElement === fullscreenRef.current;
       setIsFullscreen(active);
       setShowFullscreenUI(true);
       if (!active) {
