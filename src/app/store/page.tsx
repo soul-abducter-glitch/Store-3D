@@ -940,6 +940,10 @@ export default function Home() {
 
   const enterFullscreen = useCallback(async () => {
     if (!fullscreenRef.current) return;
+    if (typeof window !== "undefined") {
+      const scrollY = window.scrollY;
+      scrollYRef.current = Number.isFinite(scrollY) ? Math.round(scrollY) : 0;
+    }
     try {
       await fullscreenRef.current.requestFullscreen();
     } catch {
@@ -998,6 +1002,9 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
     const onChange = () => {
       const active = document.fullscreenElement === fullscreenRef.current;
       setIsFullscreen(active);
@@ -1008,6 +1015,15 @@ export default function Home() {
           uiHideTimeoutRef.current = null;
         }
         unlockScroll();
+        // Native fullscreen can shift page position on exit in some browsers.
+        // Restore scroll after the viewport/layout settle and force size recalc.
+        window.requestAnimationFrame(() => {
+          window.scrollTo(0, scrollYRef.current || 0);
+          window.requestAnimationFrame(() => {
+            window.scrollTo(0, scrollYRef.current || 0);
+            window.dispatchEvent(new Event("resize"));
+          });
+        });
       }
     };
     document.addEventListener("fullscreenchange", onChange);
