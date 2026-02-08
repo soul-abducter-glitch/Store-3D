@@ -940,35 +940,18 @@ export default function Home() {
 
   const enterFullscreen = useCallback(async () => {
     if (!fullscreenRef.current) return;
-    if (typeof window !== "undefined") {
-      const scrollY = window.scrollY;
-      scrollYRef.current = Number.isFinite(scrollY) ? Math.round(scrollY) : 0;
-    }
-    try {
-      await fullscreenRef.current.requestFullscreen();
-    } catch {
-      lockScroll();
-      setIsFullscreen(true);
-    }
+    lockScroll();
+    setIsFullscreen(true);
+    setShowFullscreenUI(true);
   }, [lockScroll]);
   const exitFullscreen = useCallback(async () => {
-    const hasNativeFullscreen = Boolean(document.fullscreenElement);
-    if (hasNativeFullscreen) {
-      try {
-        await document.exitFullscreen();
-      } catch {
-        // ignore and fallback to CSS fullscreen state below
-      }
-    }
     setIsFullscreen(false);
     setShowFullscreenUI(true);
     if (uiHideTimeoutRef.current) {
       window.clearTimeout(uiHideTimeoutRef.current);
       uiHideTimeoutRef.current = null;
     }
-    if (!hasNativeFullscreen) {
-      unlockScroll();
-    }
+    unlockScroll();
   }, [unlockScroll]);
   const toggleFullscreen = useCallback(() => {
     if (isFullscreen) {
@@ -1002,35 +985,6 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const onChange = () => {
-      const active = document.fullscreenElement === fullscreenRef.current;
-      setIsFullscreen(active);
-      setShowFullscreenUI(true);
-      if (!active) {
-        if (uiHideTimeoutRef.current) {
-          window.clearTimeout(uiHideTimeoutRef.current);
-          uiHideTimeoutRef.current = null;
-        }
-        unlockScroll();
-        // Native fullscreen can shift page position on exit in some browsers.
-        // Restore scroll after the viewport/layout settle and force size recalc.
-        window.requestAnimationFrame(() => {
-          window.scrollTo(0, scrollYRef.current || 0);
-          window.requestAnimationFrame(() => {
-            window.scrollTo(0, scrollYRef.current || 0);
-            window.dispatchEvent(new Event("resize"));
-          });
-        });
-      }
-    };
-    document.addEventListener("fullscreenchange", onChange);
-    return () => document.removeEventListener("fullscreenchange", onChange);
-  }, [unlockScroll]);
-
-  useEffect(() => {
     if (!isFullscreen) return;
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -1057,6 +1011,12 @@ export default function Home() {
       }
     };
   }, [canAutoHideUi, isFullscreen]);
+
+  useEffect(() => {
+    return () => {
+      unlockScroll();
+    };
+  }, [unlockScroll]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
