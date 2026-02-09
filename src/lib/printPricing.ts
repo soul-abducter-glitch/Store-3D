@@ -13,7 +13,6 @@ export type ComputePrintPriceInput = {
   quality?: string;
   dimensions?: PrintDimensions;
   volumeCm3?: number;
-  sourcePrice?: number | null;
   enableSmart?: boolean;
   queueMultiplier?: number;
 };
@@ -123,13 +122,6 @@ const resolveQueueMultiplier = (value?: number) => {
   return clamp(multiplier, 1, 2);
 };
 
-const resolveSourceFloorPrice = (value?: number | null) => {
-  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
-    return 0;
-  }
-  return Math.round(value);
-};
-
 const computeSmartPrice = (
   tech: PrintTech,
   material: string,
@@ -211,21 +203,8 @@ export const computePrintPrice = (
   const quality = normalizePrintQuality(input.quality);
   const material = normalizePrintMaterial(input.material, tech);
   const queueMultiplier = resolveQueueMultiplier(input.queueMultiplier);
-  const sourceFloorPrice = resolveSourceFloorPrice(input.sourcePrice);
   const legacyPrice = resolveLegacyPrice(tech, material, quality);
-  const legacyFinal = Math.max(sourceFloorPrice, legacyPrice);
-
-  // For catalog-driven print orders we keep list pricing as the source of truth.
-  if (sourceFloorPrice > 0) {
-    return {
-      price: legacyFinal,
-      legacyPrice,
-      smartPrice: null,
-      model: "legacy",
-      confidence: "low",
-      queueMultiplier,
-    };
-  }
+  const legacyFinal = legacyPrice;
 
   const smartEnabled = input.enableSmart !== false;
   if (!smartEnabled) {
@@ -253,9 +232,8 @@ export const computePrintPrice = (
     };
   }
 
-  const smartFinal = Math.max(sourceFloorPrice, smart.smartPrice);
   return {
-    price: smartFinal,
+    price: smart.smartPrice,
     legacyPrice,
     smartPrice: smart.smartPrice,
     model: "smart",

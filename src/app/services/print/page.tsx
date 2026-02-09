@@ -56,6 +56,9 @@ type ModelMetrics = {
 
 const BED_SIZE = 200;
 const BASE_FEE = 350;
+const DEFAULT_PRINT_HEIGHT_MM = 120;
+const MIN_PRINT_HEIGHT_MM = 40;
+const MAX_PRINT_HEIGHT_MM = 280;
 const PENDING_CART_KEY = "store3d_pending_print_item";
 const UPLOAD_TIMEOUT_MS = 300_000;
 const PRESIGN_TIMEOUT_MS = 30_000;
@@ -546,7 +549,7 @@ function PrintServiceContent() {
   const [uploadStalled, setUploadStalled] = useState(false);
   const [uploadAttempt, setUploadAttempt] = useState(1);
   const [uploadRetryInMs, setUploadRetryInMs] = useState<number | null>(null);
-  const [sourcePrice, setSourcePrice] = useState<number | null>(null);
+  const [targetHeightMm, setTargetHeightMm] = useState(DEFAULT_PRINT_HEIGHT_MM);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadStartRef = useRef<number | null>(null);
   const lastProgressRef = useRef<{ time: number; loaded: number } | null>(null);
@@ -590,11 +593,6 @@ function PrintServiceContent() {
   const isUploadBusy =
     uploadStatus === "uploading" || uploadStatus === "analyzing" || uploadStatus === "finalizing";
   const canStartUpload = Boolean(pendingFile) && uploadStatus === "pending";
-  const canAddToCart =
-    Boolean(uploadedMedia?.id) &&
-    Boolean(metrics) &&
-    Boolean(serviceProductId) &&
-    uploadStatus === "ready";
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -722,19 +720,52 @@ function PrintServiceContent() {
     []
   );
 
+  useEffect(() => {
+    if (!metrics) return;
+    const measuredHeight = metrics.size.z;
+    const suggestedHeight =
+      Number.isFinite(measuredHeight) &&
+      measuredHeight >= MIN_PRINT_HEIGHT_MM &&
+      measuredHeight <= MAX_PRINT_HEIGHT_MM
+        ? Math.round(measuredHeight)
+        : DEFAULT_PRINT_HEIGHT_MM;
+    setTargetHeightMm(suggestedHeight);
+  }, [metrics]);
+
+  const scaledMetrics = useMemo(() => {
+    if (!metrics) return null;
+    const baseHeight = Math.max(metrics.size.z, 1);
+    const safeTargetHeight = Math.min(
+      MAX_PRINT_HEIGHT_MM,
+      Math.max(MIN_PRINT_HEIGHT_MM, targetHeightMm)
+    );
+    const scale = safeTargetHeight / baseHeight;
+    const size = {
+      x: metrics.size.x * scale,
+      y: metrics.size.y * scale,
+      z: metrics.size.z * scale,
+    };
+    const volumeCm3 = Math.max(0, metrics.volumeCm3 * Math.pow(scale, 3));
+    return {
+      size,
+      volumeCm3,
+      scale,
+      safeTargetHeight,
+    };
+  }, [metrics, targetHeightMm]);
+
   const pricing = useMemo(
     () =>
       computePrintPrice({
         technology,
         material,
         quality,
-        dimensions: metrics?.size,
-        volumeCm3: metrics?.volumeCm3,
-        sourcePrice,
+        dimensions: scaledMetrics?.size,
+        volumeCm3: scaledMetrics?.volumeCm3,
         enableSmart: SMART_PRICING_ENABLED,
         queueMultiplier: SMART_QUEUE_MULTIPLIER,
       }),
-    [material, quality, technology, sourcePrice, metrics?.size, metrics?.volumeCm3]
+    [material, quality, technology, scaledMetrics?.size, scaledMetrics?.volumeCm3]
   );
   const price = pricing.price;
 
@@ -755,13 +786,19 @@ function PrintServiceContent() {
   }, [quality]);
 
   const fitsBed = useMemo(() => {
-    if (!metrics) return true;
+    if (!scaledMetrics) return true;
     return (
-      metrics.size.x <= BED_SIZE &&
-      metrics.size.y <= BED_SIZE &&
-      metrics.size.z <= BED_SIZE
+      scaledMetrics.size.x <= BED_SIZE &&
+      scaledMetrics.size.y <= BED_SIZE &&
+      scaledMetrics.size.z <= BED_SIZE
     );
-  }, [metrics]);
+  }, [scaledMetrics]);
+  const canAddToCart =
+    Boolean(uploadedMedia?.id) &&
+    Boolean(scaledMetrics) &&
+    fitsBed &&
+    Boolean(serviceProductId) &&
+    uploadStatus === "ready";
 
   const isPreviewScaled = useMemo(
     () => Number.isFinite(previewScale) && Math.abs(previewScale - 1) > 0.01,
@@ -899,7 +936,6 @@ function PrintServiceContent() {
     const nameParam = searchParams.get("name");
     const mediaIdParam = searchParams.get("mediaId");
     const techParam = searchParams.get("tech");
-    const priceParam = searchParams.get("price");
     const thumbParam = searchParams.get("thumb");
     const resolvedUrl =
       modelParam.startsWith("http://") ||
@@ -943,10 +979,6 @@ function PrintServiceContent() {
 
     const loadPreset = async () => {
       try {
-        if (priceParam) {
-          const parsed = Number(priceParam);
-          setSourcePrice(Number.isFinite(parsed) ? parsed : null);
-        }
         let response = await fetch(initialUrl);
         if (!response.ok && initialUrl !== resolvedUrl) {
           response = await fetch(resolvedUrl);
@@ -1672,7 +1704,6 @@ function PrintServiceContent() {
       setDragActive(false);
       const file = event.dataTransfer.files?.[0];
       if (file) {
-        setSourcePrice(null);
         void handleFile(file);
       }
     },
@@ -1682,7 +1713,6 @@ function PrintServiceContent() {
   const handleFilePick = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      setSourcePrice(null);
       void handleFile(file);
     }
     event.currentTarget.value = "";
@@ -1702,12 +1732,11 @@ function PrintServiceContent() {
       uploadId: uploadedMedia?.id ?? "",
       uploadUrl: uploadedMedia?.url,
       uploadName: pendingFile?.name ?? uploadedMedia?.filename,
-      sourcePrice: typeof sourcePrice === "number" ? sourcePrice : undefined,
       technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
       material,
       quality: quality === "pro" ? "0.05mm" : "0.1mm",
-      dimensions: metrics?.size,
-      volumeCm3: metrics?.volumeCm3,
+      dimensions: scaledMetrics?.size,
+      volumeCm3: scaledMetrics?.volumeCm3,
     },
   });
 
@@ -1757,12 +1786,17 @@ function PrintServiceContent() {
       return;
     }
 
-    if (!uploadedMedia?.id || !metrics) {
+    if (!uploadedMedia?.id || !scaledMetrics) {
       showError(
         uploadStatus === "pending"
           ? "Нажмите «Загрузить», чтобы отправить модель."
           : "Загрузите файл и дождитесь анализа."
       );
+      return;
+    }
+
+    if (!fitsBed) {
+      showError("Модель в выбранном размере не помещается в область печати 200мм.");
       return;
     }
 
@@ -2075,24 +2109,70 @@ function PrintServiceContent() {
               <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                 Технические данные
               </p>
+              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+                    Высота печати
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="number"
+                      min={MIN_PRINT_HEIGHT_MM}
+                      max={MAX_PRINT_HEIGHT_MM}
+                      step={1}
+                      value={targetHeightMm}
+                      onChange={(event) => {
+                        const parsed = Number.parseFloat(event.target.value);
+                        if (!Number.isFinite(parsed)) {
+                          return;
+                        }
+                        const next = Math.min(
+                          MAX_PRINT_HEIGHT_MM,
+                          Math.max(MIN_PRINT_HEIGHT_MM, Math.round(parsed))
+                        );
+                        setTargetHeightMm(next);
+                      }}
+                      className="w-20 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-right text-xs text-white outline-none transition focus:border-[#2ED1FF]/60"
+                    />
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/50">мм</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min={MIN_PRINT_HEIGHT_MM}
+                  max={MAX_PRINT_HEIGHT_MM}
+                  step={1}
+                  value={targetHeightMm}
+                  onChange={(event) => setTargetHeightMm(Number(event.target.value))}
+                  className="mt-3 w-full accent-[#2ED1FF]"
+                />
+              </div>
               <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/80">
                 <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/60">
                   <span>X</span>
-                  <span>{metrics ? `${formatNumber(metrics.size.x)} мм` : "--"}</span>
+                  <span>{scaledMetrics ? `${formatNumber(scaledMetrics.size.x)} мм` : "--"}</span>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/60">
                   <span>Y</span>
-                  <span>{metrics ? `${formatNumber(metrics.size.y)} мм` : "--"}</span>
+                  <span>{scaledMetrics ? `${formatNumber(scaledMetrics.size.y)} мм` : "--"}</span>
                 </div>
                 <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/60">
                   <span>Z</span>
-                  <span>{metrics ? `${formatNumber(metrics.size.z)} мм` : "--"}</span>
+                  <span>{scaledMetrics ? `${formatNumber(scaledMetrics.size.z)} мм` : "--"}</span>
                 </div>
                 <div className="mt-3 border-t border-white/10 pt-3 text-xs uppercase tracking-[0.2em] text-white/60">
                   <div className="flex items-center justify-between">
                     <span>Volume</span>
-                    <span>{metrics ? `${formatNumber(metrics.volumeCm3)} см3` : "--"}</span>
+                    <span>{scaledMetrics ? `${formatNumber(scaledMetrics.volumeCm3)} см3` : "--"}</span>
                   </div>
+                  {metrics && scaledMetrics && (
+                    <div className="mt-2 flex items-center justify-between text-[10px] tracking-[0.15em] text-white/40">
+                      <span>База</span>
+                      <span>
+                        {formatNumber(metrics.size.z)}мм → {formatNumber(scaledMetrics.safeTargetHeight, 0)}мм
+                      </span>
+                    </div>
+                  )}
                 </div>
                 {!fitsBed && (
                   <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-red-200">

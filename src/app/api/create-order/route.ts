@@ -195,18 +195,10 @@ export async function POST(request: NextRequest) {
           if (!productId) return null;
           const quantity =
             typeof item?.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
-          const unitPrice =
-            typeof item?.unitPrice === "number" && item.unitPrice >= 0 ? item.unitPrice : 0;
           const format = item?.format === "Physical" ? "Physical" : "Digital";
           const customerUpload = normalizeRelationshipId(
             item?.customerUpload ?? item?.customerUploadId ?? item?.customPrint?.uploadId
           );
-          const sourcePriceRaw =
-            typeof item?.sourcePrice === "number"
-              ? item.sourcePrice
-              : typeof item?.customPrint?.sourcePrice === "number"
-                ? item.customPrint.sourcePrice
-                : null;
           const printSpecs = normalizePrintSpecs(item?.printSpecs ?? item?.customPrint);
 
           return {
@@ -214,10 +206,6 @@ export async function POST(request: NextRequest) {
             quantity,
             format,
             customerUpload: customerUpload ?? undefined,
-            sourcePrice:
-              typeof sourcePriceRaw === "number" && Number.isFinite(sourcePriceRaw)
-                ? sourcePriceRaw
-                : undefined,
             printSpecs,
           };
         })
@@ -442,7 +430,6 @@ export async function POST(request: NextRequest) {
         unitPrice?: number;
         customerUpload?: unknown;
         printSpecs?: unknown;
-        sourcePrice?: number;
         format?: string;
       }) => {
       const productDoc = productCache.get(String(item.product));
@@ -451,10 +438,6 @@ export async function POST(request: NextRequest) {
           ? productDoc.price
           : 0;
       const hasPrint = Boolean(item.customerUpload || item.printSpecs);
-      const sourcePrice =
-        typeof item.sourcePrice === "number" && Number.isFinite(item.sourcePrice)
-          ? item.sourcePrice
-          : null;
 
       let unitPrice = productPrice;
       if (hasPrint) {
@@ -473,7 +456,6 @@ export async function POST(request: NextRequest) {
           quality: printSpecs?.quality,
           dimensions: printSpecs?.dimensions,
           volumeCm3: printSpecs?.volumeCm3,
-          sourcePrice,
           enableSmart: smartPricingEnabled,
           queueMultiplier,
         });
