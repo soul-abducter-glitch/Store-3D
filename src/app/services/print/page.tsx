@@ -135,6 +135,13 @@ const formatSpeed = (bytesPerSecond: number) => {
   return `${mb.toFixed(2)} MB/s`;
 };
 
+const toPrinterAxes = (size: { x: number; y: number; z: number }) => ({
+  // three.js scene uses Y-up; printer convention is Z-up.
+  x: size.x,
+  y: size.z,
+  z: size.y,
+});
+
 const buildProxyUrlFromSource = (value: string) => {
   const normalized = value.split("?")[0] ?? value;
   if (PUBLIC_MEDIA_BASE_URL && normalized.toLowerCase().startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
@@ -725,9 +732,10 @@ function PrintServiceContent() {
 
   const maxHeightForBedMm = useMemo(() => {
     if (!metrics) return MAX_PRINT_HEIGHT_MM;
-    const sx = Math.max(metrics.size.x, 1);
-    const sy = Math.max(metrics.size.y, 1);
-    const sz = Math.max(metrics.size.z, 1);
+    const printBase = toPrinterAxes(metrics.size);
+    const sx = Math.max(printBase.x, 1);
+    const sy = Math.max(printBase.y, 1);
+    const sz = Math.max(printBase.z, 1);
     const maxScale = Math.min(BED_SIZE / sx, BED_SIZE / sy, BED_SIZE / sz);
     if (!Number.isFinite(maxScale) || maxScale <= 0) {
       return MIN_PRINT_HEIGHT_MM;
@@ -745,7 +753,7 @@ function PrintServiceContent() {
 
   useEffect(() => {
     if (!metrics) return;
-    const measuredHeight = metrics.size.z;
+    const measuredHeight = toPrinterAxes(metrics.size).z;
     const suggestedHeight =
       Number.isFinite(measuredHeight) &&
       measuredHeight >= MIN_PRINT_HEIGHT_MM &&
@@ -762,16 +770,17 @@ function PrintServiceContent() {
 
   const scaledMetrics = useMemo(() => {
     if (!metrics) return null;
-    const baseHeight = Math.max(metrics.size.z, 1);
+    const printBase = toPrinterAxes(metrics.size);
+    const baseHeight = Math.max(printBase.z, 1);
     const safeTargetHeight = Math.min(
       heightInputMax,
       Math.max(MIN_PRINT_HEIGHT_MM, targetHeightMm)
     );
     const scale = safeTargetHeight / baseHeight;
     const size = {
-      x: metrics.size.x * scale,
-      y: metrics.size.y * scale,
-      z: metrics.size.z * scale,
+      x: printBase.x * scale,
+      y: printBase.y * scale,
+      z: printBase.z * scale,
     };
     const volumeCm3 = Math.max(0, metrics.volumeCm3 * Math.pow(scale, 3));
     return {
@@ -2209,7 +2218,7 @@ function PrintServiceContent() {
                     <div className="mt-2 flex items-center justify-between text-[10px] tracking-[0.15em] text-white/40">
                       <span>База</span>
                       <span>
-                        {formatNumber(metrics.size.z)}мм → {formatNumber(scaledMetrics.safeTargetHeight, 0)}мм
+                        {formatNumber(toPrinterAxes(metrics.size).z)}мм → {formatNumber(scaledMetrics.safeTargetHeight, 0)}мм
                       </span>
                     </div>
                   )}
