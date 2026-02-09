@@ -55,10 +55,11 @@ type ModelMetrics = {
 };
 
 const BED_SIZE = 200;
-const BASE_FEE = 350;
+const BASE_FEE = 300;
 const DEFAULT_PRINT_HEIGHT_MM = 120;
-const MIN_PRINT_HEIGHT_MM = 40;
+const MIN_PRINT_HEIGHT_MM = 20;
 const MAX_PRINT_HEIGHT_MM = 280;
+const DEFAULT_FDM_INFILL_PERCENT = 20;
 const PENDING_CART_KEY = "store3d_pending_print_item";
 const UPLOAD_TIMEOUT_MS = 300_000;
 const PRESIGN_TIMEOUT_MS = 30_000;
@@ -550,6 +551,8 @@ function PrintServiceContent() {
   const [uploadAttempt, setUploadAttempt] = useState(1);
   const [uploadRetryInMs, setUploadRetryInMs] = useState<number | null>(null);
   const [targetHeightMm, setTargetHeightMm] = useState(DEFAULT_PRINT_HEIGHT_MM);
+  const [isHollowModel, setIsHollowModel] = useState(true);
+  const [infillPercent, setInfillPercent] = useState(DEFAULT_FDM_INFILL_PERCENT);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
   const uploadStartRef = useRef<number | null>(null);
   const lastProgressRef = useRef<{ time: number; loaded: number } | null>(null);
@@ -720,6 +723,26 @@ function PrintServiceContent() {
     []
   );
 
+  const maxHeightForBedMm = useMemo(() => {
+    if (!metrics) return MAX_PRINT_HEIGHT_MM;
+    const sx = Math.max(metrics.size.x, 1);
+    const sy = Math.max(metrics.size.y, 1);
+    const sz = Math.max(metrics.size.z, 1);
+    const maxScale = Math.min(BED_SIZE / sx, BED_SIZE / sy, BED_SIZE / sz);
+    if (!Number.isFinite(maxScale) || maxScale <= 0) {
+      return MIN_PRINT_HEIGHT_MM;
+    }
+    const recommended = Math.floor(sz * maxScale);
+    return Math.max(MIN_PRINT_HEIGHT_MM, Math.min(MAX_PRINT_HEIGHT_MM, recommended));
+  }, [metrics]);
+
+  const heightInputMax = useMemo(() => {
+    return Math.max(
+      MIN_PRINT_HEIGHT_MM,
+      Math.min(MAX_PRINT_HEIGHT_MM, maxHeightForBedMm)
+    );
+  }, [maxHeightForBedMm]);
+
   useEffect(() => {
     if (!metrics) return;
     const measuredHeight = metrics.size.z;
@@ -729,14 +752,19 @@ function PrintServiceContent() {
       measuredHeight <= MAX_PRINT_HEIGHT_MM
         ? Math.round(measuredHeight)
         : DEFAULT_PRINT_HEIGHT_MM;
-    setTargetHeightMm(suggestedHeight);
-  }, [metrics]);
+    const next = Math.min(heightInputMax, suggestedHeight);
+    setTargetHeightMm(Math.max(MIN_PRINT_HEIGHT_MM, next));
+  }, [heightInputMax, metrics]);
+
+  useEffect(() => {
+    setTargetHeightMm((prev) => Math.min(prev, heightInputMax));
+  }, [heightInputMax]);
 
   const scaledMetrics = useMemo(() => {
     if (!metrics) return null;
     const baseHeight = Math.max(metrics.size.z, 1);
     const safeTargetHeight = Math.min(
-      MAX_PRINT_HEIGHT_MM,
+      heightInputMax,
       Math.max(MIN_PRINT_HEIGHT_MM, targetHeightMm)
     );
     const scale = safeTargetHeight / baseHeight;
@@ -752,7 +780,7 @@ function PrintServiceContent() {
       scale,
       safeTargetHeight,
     };
-  }, [metrics, targetHeightMm]);
+  }, [heightInputMax, metrics, targetHeightMm]);
 
   const pricing = useMemo(
     () =>
@@ -762,10 +790,20 @@ function PrintServiceContent() {
         quality,
         dimensions: scaledMetrics?.size,
         volumeCm3: scaledMetrics?.volumeCm3,
+        isHollow: technology === "sla" ? isHollowModel : undefined,
+        infillPercent: technology === "fdm" ? infillPercent : undefined,
         enableSmart: SMART_PRICING_ENABLED,
         queueMultiplier: SMART_QUEUE_MULTIPLIER,
       }),
-    [material, quality, technology, scaledMetrics?.size, scaledMetrics?.volumeCm3]
+    [
+      infillPercent,
+      isHollowModel,
+      material,
+      quality,
+      technology,
+      scaledMetrics?.size,
+      scaledMetrics?.volumeCm3,
+    ]
   );
   const price = pricing.price;
 
@@ -1735,6 +1773,8 @@ function PrintServiceContent() {
       technology: technology === "sla" ? "SLA Resin" : "FDM Plastic",
       material,
       quality: quality === "pro" ? "0.05mm" : "0.1mm",
+      isHollow: technology === "sla" ? isHollowModel : undefined,
+      infillPercent: technology === "fdm" ? infillPercent : undefined,
       dimensions: scaledMetrics?.size,
       volumeCm3: scaledMetrics?.volumeCm3,
     },
@@ -2118,7 +2158,7 @@ function PrintServiceContent() {
                     <input
                       type="number"
                       min={MIN_PRINT_HEIGHT_MM}
-                      max={MAX_PRINT_HEIGHT_MM}
+                      max={heightInputMax}
                       step={1}
                       value={targetHeightMm}
                       onChange={(event) => {
@@ -2127,7 +2167,7 @@ function PrintServiceContent() {
                           return;
                         }
                         const next = Math.min(
-                          MAX_PRINT_HEIGHT_MM,
+                          heightInputMax,
                           Math.max(MIN_PRINT_HEIGHT_MM, Math.round(parsed))
                         );
                         setTargetHeightMm(next);
@@ -2140,7 +2180,7 @@ function PrintServiceContent() {
                 <input
                   type="range"
                   min={MIN_PRINT_HEIGHT_MM}
-                  max={MAX_PRINT_HEIGHT_MM}
+                  max={heightInputMax}
                   step={1}
                   value={targetHeightMm}
                   onChange={(event) => setTargetHeightMm(Number(event.target.value))}
@@ -2174,10 +2214,18 @@ function PrintServiceContent() {
                     </div>
                   )}
                 </div>
+                <p className="mt-3 text-[10px] uppercase tracking-[0.15em] text-white/45">
+                  X/Y/Z — габариты модели по осям (мм), не координаты сцены.
+                </p>
                 {!fitsBed && (
                   <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-red-200">
                     Модель больше 200mm
                   </div>
+                )}
+                {metrics && (
+                  <p className="mt-2 text-[10px] uppercase tracking-[0.15em] text-white/40">
+                    Рекомендуемая высота для стола 200мм: до {formatNumber(maxHeightForBedMm, 0)}мм
+                  </p>
                 )}
               </div>
             </div>
@@ -2340,6 +2388,64 @@ function PrintServiceContent() {
                   ))}
                 </div>
               </div>
+              <div className="h-px bg-white/10" />
+              {technology === "sla" ? (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                    Полость модели
+                  </p>
+                  <p className="text-xs text-white/50">
+                    Для фигурок обычно используется полая печать. Это заметно снижает расход смолы.
+                  </p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <button
+                      type="button"
+                      className={`rounded-2xl border px-3 py-2 text-xs uppercase tracking-[0.2em] transition ${
+                        isHollowModel
+                          ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
+                          : "border-white/10 bg-white/5 text-white/60 hover:text-white"
+                      }`}
+                      onClick={() => setIsHollowModel(true)}
+                    >
+                      Полая
+                    </button>
+                    <button
+                      type="button"
+                      className={`rounded-2xl border px-3 py-2 text-xs uppercase tracking-[0.2em] transition ${
+                        !isHollowModel
+                          ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10 text-white"
+                          : "border-white/10 bg-white/5 text-white/60 hover:text-white"
+                      }`}
+                      onClick={() => setIsHollowModel(false)}
+                    >
+                      Цельная
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                    Заполнение (FDM)
+                  </p>
+                  <p className="text-xs text-white/50">
+                    Ниже заполнение — дешевле и легче, выше — прочнее.
+                  </p>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="range"
+                      min={8}
+                      max={100}
+                      step={1}
+                      value={infillPercent}
+                      onChange={(event) => setInfillPercent(Number(event.target.value))}
+                      className="w-full accent-[#2ED1FF]"
+                    />
+                    <span className="w-12 text-right text-xs text-white/70">
+                      {formatNumber(infillPercent, 0)}%
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
 
             <div className="space-y-3">

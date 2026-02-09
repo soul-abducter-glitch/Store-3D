@@ -57,12 +57,19 @@ const normalizePrintSpecs = (value: any) => {
     quality?: string;
     dimensions?: { x: number; y: number; z: number };
     volumeCm3?: number;
+    isHollow?: boolean;
+    infillPercent?: number;
   } = {
     technology: typeof value.technology === "string" ? value.technology : undefined,
     material: typeof value.material === "string" ? value.material : undefined,
     quality: typeof value.quality === "string" ? value.quality : undefined,
     dimensions,
     volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
+    isHollow: typeof value.isHollow === "boolean" ? value.isHollow : undefined,
+    infillPercent:
+      typeof value.infillPercent === "number" && Number.isFinite(value.infillPercent)
+        ? value.infillPercent
+        : undefined,
   };
 
   return normalized;
@@ -263,6 +270,8 @@ export async function POST(request: NextRequest) {
             quality: firstPrintItem.printSpecs.quality,
             dimensions: firstPrintItem.printSpecs.dimensions,
             volumeCm3: firstPrintItem.printSpecs.volumeCm3,
+            isHollow: firstPrintItem.printSpecs.isHollow,
+            infillPercent: firstPrintItem.printSpecs.infillPercent,
           };
         }
       }
@@ -448,6 +457,8 @@ export async function POST(request: NextRequest) {
               quality?: string;
               dimensions?: { x: number; y: number; z: number };
               volumeCm3?: number;
+              isHollow?: boolean;
+              infillPercent?: number;
             }
           | undefined;
         const pricing = computePrintPrice({
@@ -456,6 +467,8 @@ export async function POST(request: NextRequest) {
           quality: printSpecs?.quality,
           dimensions: printSpecs?.dimensions,
           volumeCm3: printSpecs?.volumeCm3,
+          isHollow: printSpecs?.isHollow,
+          infillPercent: printSpecs?.infillPercent,
           enableSmart: smartPricingEnabled,
           queueMultiplier,
         });
