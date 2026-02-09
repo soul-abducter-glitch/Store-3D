@@ -677,7 +677,7 @@ export default function ProfilePage() {
         const rawModel = (product as any)?.rawModel;
         const paintedModel = (product as any)?.paintedModel;
         const targetId = String(
-          product.slug || product.id || (product as any)?.value || (product as any)?._id || product.name || ""
+          product.id || (product as any)?.value || (product as any)?._id || product.slug || product.name || ""
         );
         const downloadUrl = targetId ? `/api/download/${encodeURIComponent(targetId)}` : null;
         const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
