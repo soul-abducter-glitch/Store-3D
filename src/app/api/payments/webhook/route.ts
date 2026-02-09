@@ -1,16 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const normalizePaymentStatus = (value?: string) => {
   if (!value) return "pending";
@@ -60,7 +55,7 @@ export async function POST(request: NextRequest) {
       updateData.paidAt = new Date().toISOString();
     }
 
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     await payload.update({
       collection: "orders",
       id: orderId,
@@ -76,3 +71,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

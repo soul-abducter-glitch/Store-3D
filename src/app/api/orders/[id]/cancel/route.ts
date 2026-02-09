@@ -1,16 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
-import { importMap } from "../../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const normalizeEmail = (value?: string) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
@@ -56,7 +51,7 @@ export async function POST(
     );
   }
 
-  const payload = await getPayload();
+  const payload = await getPayloadClient();
   const siteUrl = request.nextUrl.origin;
   const cookie = request.headers.get("cookie") || "";
   let authUser: any = null;
@@ -153,3 +148,4 @@ export async function POST(
     );
   }
 }
+

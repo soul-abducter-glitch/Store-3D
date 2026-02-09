@@ -1,16 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const normalizeEmail = (value?: string | null) => {
   if (!value) return "";
@@ -83,7 +78,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Backfill token is required." }, { status: 403 });
   }
 
-  const payload = await getPayload();
+  const payload = await getPayloadClient();
 
   let page = 1;
   const limit = 50;
@@ -200,3 +195,4 @@ export async function POST(request: NextRequest) {
     ordersLinked,
   });
 }
+

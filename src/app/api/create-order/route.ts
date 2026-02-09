@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../payload.config";
-import { importMap } from "../../(payload)/admin/importMap";
 import {
   KNOWN_CITY_SET,
   normalizeCityInput,
@@ -11,11 +10,7 @@ import {
 
 export const dynamic = "force-dynamic";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const normalizeRelationshipId = (value: unknown) => {
   if (value === null || value === undefined) {
@@ -209,7 +204,7 @@ const collectDigitalProductIds = (items: Array<{ format?: string; product?: unkn
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     let authUser: any = null;
     const authHeaders = request.headers;
     try {
@@ -604,3 +599,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

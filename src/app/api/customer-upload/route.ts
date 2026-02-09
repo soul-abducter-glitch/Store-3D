@@ -1,17 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../payload.config";
-import { importMap } from "../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const resolveFileType = (filename: string) => {
   const lower = filename.toLowerCase();
@@ -123,7 +118,7 @@ export async function POST(request: NextRequest) {
         });
       });
     }
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     console.log("[customer-upload] parsing formData", { requestId });
     const formData = await request.formData();
     const file = formData.get("file");
@@ -265,3 +260,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

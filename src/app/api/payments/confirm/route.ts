@@ -1,17 +1,12 @@
 import Stripe from "stripe";
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const resolvePaymentsMode = () => {
   const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
@@ -69,7 +64,7 @@ const extractRelationshipId = (value: unknown): string | number | null => {
 
 export async function POST(request: NextRequest) {
   try {
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     let authUser: any = null;
     try {
       const authResult = await payload.auth({ headers: request.headers });
@@ -258,3 +253,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

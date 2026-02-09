@@ -1,18 +1,13 @@
 import { randomUUID } from "crypto";
 import Stripe from "stripe";
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const resolvePaymentsMode = () => {
   const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
@@ -53,7 +48,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Missing orderId." }, { status: 400 });
     }
 
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     const order = await payload.findByID({
       collection: "orders",
       id: orderId,
@@ -151,3 +146,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+

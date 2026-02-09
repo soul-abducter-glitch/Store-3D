@@ -1,17 +1,12 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../payload.config";
-import { importMap } from "../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const parsePositiveInt = (value: string | null, fallback: number) => {
   if (!value) return fallback;
@@ -29,7 +24,7 @@ const normalizeId = (value: string | null) => {
 
 export async function GET(request: NextRequest) {
   try {
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     const { searchParams } = new URL(request.url);
     const limit = parsePositiveInt(searchParams.get("limit"), 20);
     const depth = parsePositiveInt(searchParams.get("depth"), 0);
@@ -82,3 +77,4 @@ export async function GET(request: NextRequest) {
     );
   }
 }
+

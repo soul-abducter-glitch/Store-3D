@@ -1,8 +1,7 @@
 import { NextResponse } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../payload.config";
-import { importMap } from "../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 
@@ -16,11 +15,7 @@ type MediaDoc = {
 const CACHE_TTL_MS = 60_000;
 const CACHE_KEY = "__store3d_catalog_cache__";
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const pickMedia = (value?: MediaDoc | string | null) => {
   if (!value) return null;
@@ -98,7 +93,7 @@ export async function GET(request: Request) {
     );
   }
 
-  const payload = await getPayload();
+  const payload = await getPayloadClient();
   const [productsResult, categoriesResult] = await Promise.all([
     payload.find({
       collection: "products",
@@ -126,3 +121,4 @@ export async function GET(request: Request) {
     },
   });
 }
+

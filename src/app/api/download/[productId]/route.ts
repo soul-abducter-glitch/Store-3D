@@ -1,10 +1,9 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { NextResponse, type NextRequest } from "next/server";
 import { Readable } from "stream";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -82,11 +81,7 @@ const uploadClient = buildS3Client(
   uploadRegion
 );
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const guessContentType = (filename: string) => {
   const lower = filename.toLowerCase();
@@ -417,7 +412,7 @@ export async function GET(
     return NextResponse.json({ error: "Missing product id." }, { status: 400 });
   }
 
-  const payload = await getPayload();
+  const payload = await getPayloadClient();
   const user = await fetchUser(payload, request);
   if (!user?.id) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
@@ -546,3 +541,4 @@ export async function GET(
     { status: unexpectedStorageError ? 500 : 404 }
   );
 }
+

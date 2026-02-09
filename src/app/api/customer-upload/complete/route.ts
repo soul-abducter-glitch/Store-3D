@@ -1,8 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
-import { getPayloadHMR } from "@payloadcms/next/utilities";
+import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { importMap } from "../../../(payload)/admin/importMap";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -28,11 +27,7 @@ const EXTENSION_ALLOWED_CONTENT_TYPES: Record<string, string[]> = {
   ".gltf": ["model/gltf+json", "application/gltf+json", "application/octet-stream"],
 };
 
-const getPayload = async () =>
-  getPayloadHMR({
-    config: payloadConfig,
-    importMap,
-  });
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const getExtension = (filename: string) => {
   const lower = filename.toLowerCase();
@@ -144,7 +139,7 @@ export async function POST(request: NextRequest) {
   const requestId = Math.random().toString(36).slice(2, 8);
   const startedAt = Date.now();
   try {
-    const payload = await getPayload();
+    const payload = await getPayloadClient();
     const body = await request.json();
     const filename = typeof body?.filename === "string" ? body.filename : "";
     const size = typeof body?.size === "number" ? body.size : 0;
@@ -312,3 +307,4 @@ export async function POST(request: NextRequest) {
     );
   }
 }
+
