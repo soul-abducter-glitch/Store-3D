@@ -1794,6 +1794,9 @@ export default function Home() {
   const canPrintCurrent =
     Boolean(currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) &&
     isCurrentDigital;
+  const hasCurrentModelAsset = Boolean(
+    currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl
+  );
   const handleHeaderPrint = useCallback(() => {
     if (currentProduct && canPrintCurrent) {
       handleOrderPrint(currentProduct);
@@ -1848,7 +1851,7 @@ export default function Home() {
   }, [currentProduct?.id]);
 
   useEffect(() => {
-    if (!currentProduct || productsError || dataLoading) {
+    if (!currentProduct || productsError || dataLoading || !hasCurrentModelAsset) {
       return;
     }
     setHeroModelReady(false);
@@ -1857,7 +1860,7 @@ export default function Home() {
       setHeroModelStalled(true);
     }, MODEL_LOAD_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
-  }, [currentProduct?.id, modelRetryKey, productsError, dataLoading]);
+  }, [currentProduct?.id, modelRetryKey, productsError, dataLoading, hasCurrentModelAsset]);
 
   useEffect(() => {
     if (heroModelReady) {
@@ -2017,12 +2020,15 @@ export default function Home() {
     },
     []
   );
-  const showHeroStandby = productsError || dataLoading || !currentProduct;
+  const showHeroStandby =
+    productsError || dataLoading || !currentProduct || !hasCurrentModelAsset;
   const heroStandbyMessage = productsError
     ? "System Standby: No Data"
     : dataLoading
       ? "Loading Data..."
-      : emptyCategoryMessage;
+      : !currentProduct
+        ? emptyCategoryMessage
+        : "3D ФАЙЛ НЕ НАЗНАЧЕН";
   const currentIndex = useMemo(() => {
     if (!currentModelId) {
       return -1;
