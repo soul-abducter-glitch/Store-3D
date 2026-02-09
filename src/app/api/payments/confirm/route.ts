@@ -36,6 +36,37 @@ const normalizeEmail = (value?: string) => {
   return value.trim().toLowerCase();
 };
 
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  const base = raw.split(":")[0].trim();
+  if (!base || /\s/.test(base)) {
+    return null;
+  }
+  if (/^\d+$/.test(base)) {
+    return Number(base);
+  }
+  return base;
+};
+
+const extractRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    const candidate =
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+    return normalizeRelationshipId(candidate);
+  }
+  return normalizeRelationshipId(value);
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayload();
@@ -65,12 +96,30 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const order = await payload.findByID({
-      collection: "orders",
-      id: orderId,
-      depth: 0,
-      overrideAccess: true,
-    });
+    const normalizedOrderId = normalizeRelationshipId(orderId);
+    if (normalizedOrderId === null) {
+      return NextResponse.json(
+        { success: false, error: "Invalid orderId." },
+        { status: 400 }
+      );
+    }
+
+    let order: any = null;
+    try {
+      order = await payload.findByID({
+        collection: "orders",
+        id: normalizedOrderId,
+        depth: 0,
+        overrideAccess: true,
+      });
+    } catch (error: any) {
+      const message = String(error?.message || "").toLowerCase();
+      if (message.includes("not found")) {
+        order = null;
+      } else {
+        throw error;
+      }
+    }
 
     if (!order) {
       return NextResponse.json(
@@ -80,7 +129,8 @@ export async function POST(request: NextRequest) {
     }
 
     const userId = authUser?.id ? String(authUser.id) : "";
-    const orderUserId = order?.user ? String(order.user) : "";
+    const orderUser = extractRelationshipId(order?.user);
+    const orderUserId = orderUser !== null ? String(orderUser) : "";
     const orderEmail = normalizeEmail(order?.customer?.email);
     const userEmail = normalizeEmail(authUser?.email);
     const isOwner = (userId && orderUserId === userId) || (userEmail && orderEmail === userEmail);
@@ -105,7 +155,7 @@ export async function POST(request: NextRequest) {
 
       await payload.update({
         collection: "orders",
-        id: orderId,
+        id: order.id,
         data: updateData,
         overrideAccess: true,
         req: {
@@ -180,7 +230,7 @@ export async function POST(request: NextRequest) {
 
     await payload.update({
       collection: "orders",
-      id: orderId,
+      id: order.id,
       data: {
         paymentStatus: "paid",
         status: "paid",

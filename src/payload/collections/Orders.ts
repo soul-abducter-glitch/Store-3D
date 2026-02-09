@@ -77,7 +77,7 @@ const findUserIdByEmail = async (payloadInstance: any, email?: string) => {
   });
 
   const doc = result?.docs?.[0];
-  return doc?.id ? String(doc.id) : null;
+  return extractRelationshipId(doc?.id);
 };
 
 const getProductId = (product: any): string | null => {
@@ -115,6 +115,19 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
   if (!base || /\s/.test(base)) return null;
   if (/^\d+$/.test(base)) return Number(base);
   return base;
+};
+
+const extractRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    const candidate =
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+    return normalizeRelationshipId(candidate);
+  }
+  return normalizeRelationshipId(value);
 };
 
 const normalizeOrderStatus = (value?: string) => {
@@ -319,7 +332,7 @@ export const Orders: CollectionConfig = {
         const payloadInstance = req?.payload;
         if (!payloadInstance) return doc;
 
-        const userIdFromDoc = doc.user ? String(doc.user) : null;
+        const userIdFromDoc = extractRelationshipId(doc.user);
         const userId = userIdFromDoc ?? (await findUserIdByEmail(payloadInstance, doc.customer?.email));
 
         if (userId && !userIdFromDoc) {
