@@ -321,6 +321,7 @@ const matchesQuery = (value: string, query: string) => {
 };
 
 const MODEL_EXTENSIONS = [".glb", ".gltf", ".stl"];
+const INVALID_MEDIA_TOKENS = new Set(["null", "undefined", "nan", "none"]);
 
 const isModelAsset = (value: string) =>
   MODEL_EXTENSIONS.some((ext) => value.toLowerCase().endsWith(ext));
@@ -330,27 +331,54 @@ const isExternalUrl = (value: string) =>
 
 const isGltfAsset = (value: string) => value.toLowerCase().endsWith(".gltf");
 
+const isInvalidMediaToken = (value: string) =>
+  INVALID_MEDIA_TOKENS.has(value.trim().toLowerCase());
+
+const sanitizeMediaSource = (value?: string | null) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed || isInvalidMediaToken(trimmed)) {
+    return null;
+  }
+  const normalized = trimmed
+    .split("?")[0]
+    .split("#")[0]
+    .replace(/\\/g, "/")
+    .replace(/\/+$/, "");
+  const tail = normalized.split("/").pop() ?? "";
+  if (!tail || isInvalidMediaToken(tail)) {
+    return null;
+  }
+  return trimmed;
+};
+
 const extractFilename = (value: string) => {
   const normalized = value.split("?")[0] ?? value;
   const parts = normalized.replace(/\\/g, "/").split("/");
-  return parts[parts.length - 1] || null;
+  const filename = parts[parts.length - 1] || "";
+  if (!filename || isInvalidMediaToken(filename)) {
+    return null;
+  }
+  return filename;
 };
 
 const buildProxyUrl = (filename: string) =>
   `/api/media-file/${encodeURIComponent(filename)}`;
 
 const buildProxyUrlFromSource = (value?: string | null) => {
-  if (!value) return null;
-  if (PUBLIC_MEDIA_BASE_URL && value.toLowerCase().startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
+  const source = sanitizeMediaSource(value);
+  if (!source) return null;
+  if (PUBLIC_MEDIA_BASE_URL && source.toLowerCase().startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
     return null;
   }
-  const normalized = value.split("?")[0] ?? value;
+  const normalized = source.split("?")[0] ?? source;
   const lower = normalized.toLowerCase();
   const marker = "/media/";
   const idx = lower.indexOf(marker);
   if (idx >= 0) {
     const key = normalized.slice(idx + 1);
-    return key ? buildProxyUrl(key) : null;
+    if (!key || !extractFilename(key)) return null;
+    return buildProxyUrl(key);
   }
   const filename = extractFilename(normalized);
   return filename ? buildProxyUrl(filename) : null;
@@ -362,23 +390,27 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
   }
 
   if (typeof value === "string") {
-    if (isModelAsset(value)) {
-      const filename = extractFilename(value);
+    const source = sanitizeMediaSource(value);
+    if (!source) {
+      return null;
+    }
+    if (isModelAsset(source)) {
+      const filename = extractFilename(source);
       if (filename && isGltfAsset(filename)) {
-        return value;
+        return source;
       }
-      if (isExternalUrl(value) && PUBLIC_MEDIA_BASE_URL) {
-        const lower = value.toLowerCase();
+      if (isExternalUrl(source) && PUBLIC_MEDIA_BASE_URL) {
+        const lower = source.toLowerCase();
         if (lower.startsWith(PUBLIC_MEDIA_BASE_URL.toLowerCase())) {
-          return value;
+          return source;
         }
       }
-      return filename ? buildProxyUrl(filename) : value;
+      return filename ? buildProxyUrl(filename) : source;
     }
-    return value;
+    return source;
   }
 
-  const url = typeof value.url === "string" ? value.url : null;
+  const url = sanitizeMediaSource(typeof value.url === "string" ? value.url : null);
   if (url) {
     const filename = extractFilename(url);
     if (isExternalUrl(url)) {
@@ -398,7 +430,7 @@ const resolveMediaUrl = (value?: MediaDoc | string | null) => {
     }
   }
 
-  const filename = value.filename ?? null;
+  const filename = sanitizeMediaSource(value.filename ?? null);
   if (filename && isModelAsset(filename)) {
     if (isGltfAsset(filename)) {
       if (url) {
