@@ -7,6 +7,7 @@ import {
   normalizeCityInput,
   normalizeNameInput,
 } from "@/lib/cities";
+import { computePrintPrice } from "@/lib/printPricing";
 
 export const dynamic = "force-dynamic";
 
@@ -136,60 +137,13 @@ const validateAddress = (value?: string) => {
   return ADDRESS_REGEX.test(value.trim());
 };
 
-const PRINT_BASE_FEE = 350;
-const PRINT_TECH_SURCHARGE: Record<string, number> = {
-  "SLA Resin": 120,
-  "FDM Plastic": 0,
-};
-const PRINT_MATERIAL_SURCHARGE: Record<string, number> = {
-  "Tough Resin": 50,
-  "Standard Resin": 0,
-  "Standard PLA": 0,
-  "ABS Pro": 60,
-};
-const PRINT_QUALITY_SURCHARGE: Record<string, number> = {
-  pro: 100,
-  standard: 0,
-};
+const resolveSmartPricingEnabled = () =>
+  (process.env.PRINT_SMART_ENABLED || "true").trim().toLowerCase() !== "false";
 
-const normalizePrintTech = (value?: string) => {
-  if (!value) return "SLA Resin";
-  return value.toLowerCase().includes("fdm") ? "FDM Plastic" : "SLA Resin";
-};
-
-const normalizePrintQuality = (value?: string) => {
-  if (!value) return "standard";
-  const raw = value.toLowerCase();
-  if (raw.includes("0.05") || raw.includes("pro")) return "pro";
-  return "standard";
-};
-
-const normalizePrintMaterial = (value?: string, tech?: string) => {
-  const resolvedTech = normalizePrintTech(tech);
-  if (!value) {
-    return resolvedTech === "SLA Resin" ? "Standard Resin" : "Standard PLA";
-  }
-  if (resolvedTech === "SLA Resin") {
-    if (value === "Tough Resin" || value === "Standard Resin") return value;
-    return "Standard Resin";
-  }
-  if (value === "Standard PLA" || value === "ABS Pro") return value;
-  return "Standard PLA";
-};
-
-const resolvePrintPrice = (printSpecs?: {
-  technology?: string;
-  material?: string;
-  quality?: string;
-}) => {
-  if (!printSpecs) return null;
-  const tech = normalizePrintTech(printSpecs.technology);
-  const material = normalizePrintMaterial(printSpecs.material, tech);
-  const quality = normalizePrintQuality(printSpecs.quality);
-  const techFee = PRINT_TECH_SURCHARGE[tech] ?? 0;
-  const materialFee = PRINT_MATERIAL_SURCHARGE[material] ?? 0;
-  const qualityFee = PRINT_QUALITY_SURCHARGE[quality] ?? 0;
-  return Math.max(0, Math.round(PRINT_BASE_FEE + techFee + materialFee + qualityFee));
+const resolveQueueMultiplier = () => {
+  const parsed = Number.parseFloat((process.env.PRINT_QUEUE_MULTIPLIER || "1").trim());
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.min(Math.max(parsed, 1), 2);
 };
 
 const collectDigitalProductIds = (items: Array<{ format?: string; product?: unknown }>) => {
@@ -205,6 +159,8 @@ const collectDigitalProductIds = (items: Array<{ format?: string; product?: unkn
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
+    const smartPricingEnabled = resolveSmartPricingEnabled();
+    const queueMultiplier = resolveQueueMultiplier();
     let authUser: any = null;
     const authHeaders = request.headers;
     try {
@@ -494,9 +450,6 @@ export async function POST(request: NextRequest) {
         typeof productDoc?.price === "number" && productDoc.price >= 0
           ? productDoc.price
           : 0;
-      const printPrice = resolvePrintPrice(
-        item.printSpecs as { technology?: string; material?: string; quality?: string } | undefined
-      );
       const hasPrint = Boolean(item.customerUpload || item.printSpecs);
       const sourcePrice =
         typeof item.sourcePrice === "number" && Number.isFinite(item.sourcePrice)
@@ -505,11 +458,26 @@ export async function POST(request: NextRequest) {
 
       let unitPrice = productPrice;
       if (hasPrint) {
-        const computedPrint = printPrice ?? productPrice;
-        unitPrice =
-          typeof sourcePrice === "number"
-            ? Math.max(sourcePrice, computedPrint)
-            : Math.max(productPrice, computedPrint);
+        const printSpecs = item.printSpecs as
+          | {
+              technology?: string;
+              material?: string;
+              quality?: string;
+              dimensions?: { x: number; y: number; z: number };
+              volumeCm3?: number;
+            }
+          | undefined;
+        const pricing = computePrintPrice({
+          technology: printSpecs?.technology,
+          material: printSpecs?.material,
+          quality: printSpecs?.quality,
+          dimensions: printSpecs?.dimensions,
+          volumeCm3: printSpecs?.volumeCm3,
+          sourcePrice,
+          enableSmart: smartPricingEnabled,
+          queueMultiplier,
+        });
+        unitPrice = Math.max(productPrice, pricing.price);
       }
 
       return {

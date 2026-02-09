@@ -39,6 +39,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
+import { computePrintPrice } from "@/lib/printPricing";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -71,6 +72,15 @@ const PRINT_BG_IMAGE = "/backgrounds/Industrial%20Power.png";
 const PUBLIC_MEDIA_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
   .trim()
   .replace(/\/$/, "");
+const SMART_PRICING_ENABLED =
+  (process.env.NEXT_PUBLIC_PRINT_SMART_ENABLED || "true").trim().toLowerCase() !== "false";
+const SMART_QUEUE_MULTIPLIER = (() => {
+  const parsed = Number.parseFloat(
+    (process.env.NEXT_PUBLIC_PRINT_QUEUE_MULTIPLIER || "1").trim()
+  );
+  if (!Number.isFinite(parsed) || parsed <= 0) return 1;
+  return Math.min(Math.max(parsed, 1), 2);
+})();
 
 const ACCEPTED_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"];
 const ACCEPTED_TYPES = [
@@ -95,23 +105,6 @@ const qualityOptions: Array<{ key: QualityKey; label: string; multiplier: number
   { key: "pro", label: "0.05mm (Pro)", multiplier: 1.55 },
   { key: "standard", label: "0.1mm (Standard)", multiplier: 1 },
 ];
-
-const techSurcharge: Record<TechMode, number> = {
-  sla: 120,
-  fdm: 0,
-};
-
-const materialSurcharge: Record<string, number> = {
-  "Tough Resin": 50,
-  "Standard Resin": 0,
-  "Standard PLA": 0,
-  "ABS Pro": 60,
-};
-
-const qualitySurcharge: Record<QualityKey, number> = {
-  pro: 100,
-  standard: 0,
-};
 
 const formatNumber = (value: number, digits = 1) => {
   if (!Number.isFinite(value)) return "0";
@@ -722,16 +715,21 @@ function PrintServiceContent() {
     []
   );
 
-  const price = useMemo(() => {
-    const materialFee = materialSurcharge[material] ?? 0;
-    const qualityFee = qualitySurcharge[quality] ?? 0;
-    const techFee = techSurcharge[technology] ?? 0;
-    const computed = BASE_FEE + techFee + materialFee + qualityFee;
-    if (typeof sourcePrice === "number" && Number.isFinite(sourcePrice)) {
-      return Math.max(sourcePrice, computed);
-    }
-    return computed;
-  }, [material, quality, technology, sourcePrice]);
+  const pricing = useMemo(
+    () =>
+      computePrintPrice({
+        technology,
+        material,
+        quality,
+        dimensions: metrics?.size,
+        volumeCm3: metrics?.volumeCm3,
+        sourcePrice,
+        enableSmart: SMART_PRICING_ENABLED,
+        queueMultiplier: SMART_QUEUE_MULTIPLIER,
+      }),
+    [material, quality, technology, sourcePrice, metrics?.size, metrics?.volumeCm3]
+  );
+  const price = pricing.price;
 
   const materialHint = useMemo(() => {
     const hints: Record<string, string> = {
@@ -2266,7 +2264,9 @@ function PrintServiceContent() {
                 {formatPrice(price)} ₽
                 </p>
                 <p className="mt-1 text-xs uppercase tracking-[0.2em] text-[#D4AF37]/60">
-                  BASE {BASE_FEE} + ОПЦИИ
+                  {pricing.model === "smart"
+                    ? `SMART ESTIMATE • Q:${formatNumber(pricing.queueMultiplier, 2)}`
+                    : `BASE ${BASE_FEE} + ОПЦИИ`}
                 </p>
               </div>
 
