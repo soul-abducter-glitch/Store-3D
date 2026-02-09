@@ -73,6 +73,54 @@ const toWebStream = (body: any) => {
   return body;
 };
 
+const resolveAbsoluteUrl = (value: string, request: NextRequest) => {
+  if (/^https?:\/\//i.test(value)) {
+    return value;
+  }
+  const siteUrl = (
+    process.env.NEXT_PUBLIC_SERVER_URL ||
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    request.nextUrl.origin ||
+    "http://localhost:3000"
+  )
+    .trim()
+    .replace(/\/$/, "");
+  return `${siteUrl}${value.startsWith("/") ? value : `/${value}`}`;
+};
+
+const streamRemoteFile = async (
+  remoteUrl: string,
+  request: NextRequest,
+  fallbackFilename: string
+) => {
+  const cookie = request.headers.get("cookie") || "";
+  const response = await fetch(resolveAbsoluteUrl(remoteUrl, request), {
+    headers: cookie ? { cookie } : undefined,
+    cache: "no-store",
+    redirect: "follow",
+  });
+
+  if (!response.ok || !response.body) {
+    return null;
+  }
+
+  const headers = new Headers();
+  headers.set(
+    "Content-Type",
+    response.headers.get("content-type") || guessContentType(fallbackFilename)
+  );
+  headers.set(
+    "Content-Disposition",
+    `attachment; filename="${encodeURIComponent(fallbackFilename)}"`
+  );
+  headers.set("Cache-Control", "private, max-age=0, must-revalidate");
+  const contentLength = response.headers.get("content-length");
+  if (contentLength) {
+    headers.set("Content-Length", contentLength);
+  }
+  return new Response(response.body, { headers });
+};
+
 const normalizeId = (value: unknown) => String(value ?? "").trim();
 
 const pickPurchasedProduct = (
@@ -189,22 +237,25 @@ export async function GET(
   const media =
     (await resolveMediaDoc(payload, product.rawModel)) ??
     (await resolveMediaDoc(payload, product.paintedModel));
-  if (!media?.filename) {
-    if (media?.url) {
-      return NextResponse.redirect(media.url);
-    }
+  if (!media?.filename && !media?.url) {
     return NextResponse.json({ error: "File not available." }, { status: 404 });
   }
-
-  if (media.url) {
-    return NextResponse.redirect(media.url);
-  }
+  const resolvedFilename =
+    media?.filename ||
+    decodeURIComponent((media?.url || "").split("?")[0].split("/").pop() || "").trim() ||
+    `${product.slug || product.id || target}.stl`;
 
   if (!client || !bucket) {
+    if (media?.url) {
+      const proxied = await streamRemoteFile(media.url, request, resolvedFilename);
+      if (proxied) {
+        return proxied;
+      }
+    }
     return NextResponse.json({ error: "Storage is not configured." }, { status: 500 });
   }
 
-  const key = prefix ? `${prefix}/${media.filename}` : media.filename;
+  const key = prefix ? `${prefix}/${resolvedFilename}` : resolvedFilename;
   try {
     const result = await client.send(
       new GetObjectCommand({
@@ -217,10 +268,10 @@ export async function GET(
     }
 
     const headers = new Headers();
-    headers.set("Content-Type", media.mimeType || guessContentType(media.filename));
+    headers.set("Content-Type", media.mimeType || guessContentType(resolvedFilename));
     headers.set(
       "Content-Disposition",
-      `attachment; filename="${encodeURIComponent(media.filename)}"`
+      `attachment; filename="${encodeURIComponent(resolvedFilename)}"`
     );
     headers.set("Cache-Control", "private, max-age=0, must-revalidate");
     if (typeof result.ContentLength === "number") {
@@ -231,12 +282,18 @@ export async function GET(
   } catch (error: any) {
     if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
       if (media.url) {
-        return NextResponse.redirect(media.url);
+        const proxied = await streamRemoteFile(media.url, request, resolvedFilename);
+        if (proxied) {
+          return proxied;
+        }
       }
       return NextResponse.json({ error: "File not found." }, { status: 404 });
     }
     if (media.url) {
-      return NextResponse.redirect(media.url);
+      const proxied = await streamRemoteFile(media.url, request, resolvedFilename);
+      if (proxied) {
+        return proxied;
+      }
     }
     return NextResponse.json({ error: "Failed to download file." }, { status: 500 });
   }
