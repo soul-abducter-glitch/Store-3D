@@ -7,6 +7,34 @@ export type PrintDimensions = {
   z: number;
 };
 
+export type PrintPricingCoefficients = {
+  baseFee: number;
+  minPrice: number;
+  maxSmartPrice: number;
+  materialRateToughResin: number;
+  materialRateStandardResin: number;
+  materialRateStandardPLA: number;
+  materialRateABSPro: number;
+  machineRateSla: number;
+  machineRateFdm: number;
+  qualityMultiplierPro: number;
+  slaHollowFactor: number;
+};
+
+export const DEFAULT_PRINT_PRICING_COEFFICIENTS: PrintPricingCoefficients = {
+  baseFee: 300,
+  minPrice: 450,
+  maxSmartPrice: 250_000,
+  materialRateToughResin: 3.8,
+  materialRateStandardResin: 2.9,
+  materialRateStandardPLA: 1.2,
+  materialRateABSPro: 1.6,
+  machineRateSla: 55,
+  machineRateFdm: 45,
+  qualityMultiplierPro: 1.35,
+  slaHollowFactor: 0.28,
+};
+
 export type ComputePrintPriceInput = {
   technology?: string;
   material?: string;
@@ -28,8 +56,6 @@ export type ComputePrintPriceResult = {
   queueMultiplier: number;
 };
 
-const BASE_FEE = 300;
-
 const LEGACY_TECH_SURCHARGE: Record<PrintTech, number> = {
   sla: 120,
   fdm: 0,
@@ -47,36 +73,21 @@ const LEGACY_QUALITY_SURCHARGE: Record<PrintQuality, number> = {
   standard: 0,
 };
 
-const MATERIAL_RATE_PER_CM3: Record<string, number> = {
-  "Tough Resin": 3.8,
-  "Standard Resin": 2.9,
-  "Standard PLA": 1.2,
-  "ABS Pro": 1.6,
-};
-
-const QUALITY_TIME_MULTIPLIER: Record<PrintQuality, number> = {
-  pro: 1.35,
-  standard: 1,
-};
-
-const MACHINE_RATE_PER_HOUR: Record<PrintTech, number> = {
-  sla: 55,
-  fdm: 45,
-};
-
 const DEFAULT_MATERIAL_BY_TECH: Record<PrintTech, string> = {
   sla: "Standard Resin",
   fdm: "Standard PLA",
 };
 
 const MAX_EFFECTIVE_VOLUME_CM3 = 12_000;
-const MAX_SMART_PRICE = 250_000;
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
 const asPositive = (value: unknown) =>
   typeof value === "number" && Number.isFinite(value) && value > 0 ? value : null;
+
+const asNonNegative = (value: unknown) =>
+  typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : null;
 
 const normalizePrintTech = (value?: string): PrintTech => {
   if (!value) return "sla";
@@ -103,13 +114,6 @@ const normalizePrintMaterial = (value: string | undefined, tech: PrintTech) => {
   return "Standard PLA";
 };
 
-const resolveLegacyPrice = (tech: PrintTech, material: string, quality: PrintQuality) => {
-  const techFee = LEGACY_TECH_SURCHARGE[tech] ?? 0;
-  const materialFee = LEGACY_MATERIAL_SURCHARGE[material] ?? 0;
-  const qualityFee = LEGACY_QUALITY_SURCHARGE[quality] ?? 0;
-  return Math.max(0, Math.round(BASE_FEE + techFee + materialFee + qualityFee));
-};
-
 const normalizeDimensions = (value?: PrintDimensions) => {
   if (!value) return null;
   const x = asPositive(value.x);
@@ -124,20 +128,93 @@ const resolveQueueMultiplier = (value?: number) => {
   return clamp(multiplier, 1, 2);
 };
 
+const resolveCoefficients = (
+  overrides?: Partial<PrintPricingCoefficients>
+): PrintPricingCoefficients => {
+  const base = DEFAULT_PRINT_PRICING_COEFFICIENTS;
+  return {
+    baseFee: asNonNegative(overrides?.baseFee) ?? base.baseFee,
+    minPrice: asNonNegative(overrides?.minPrice) ?? base.minPrice,
+    maxSmartPrice: asPositive(overrides?.maxSmartPrice) ?? base.maxSmartPrice,
+    materialRateToughResin:
+      asPositive(overrides?.materialRateToughResin) ?? base.materialRateToughResin,
+    materialRateStandardResin:
+      asPositive(overrides?.materialRateStandardResin) ?? base.materialRateStandardResin,
+    materialRateStandardPLA:
+      asPositive(overrides?.materialRateStandardPLA) ?? base.materialRateStandardPLA,
+    materialRateABSPro:
+      asPositive(overrides?.materialRateABSPro) ?? base.materialRateABSPro,
+    machineRateSla: asPositive(overrides?.machineRateSla) ?? base.machineRateSla,
+    machineRateFdm: asPositive(overrides?.machineRateFdm) ?? base.machineRateFdm,
+    qualityMultiplierPro:
+      asPositive(overrides?.qualityMultiplierPro) ?? base.qualityMultiplierPro,
+    slaHollowFactor: clamp(
+      asPositive(overrides?.slaHollowFactor) ?? base.slaHollowFactor,
+      0.08,
+      1
+    ),
+  };
+};
+
+const resolveLegacyPrice = (
+  tech: PrintTech,
+  material: string,
+  quality: PrintQuality,
+  coefficients: PrintPricingCoefficients
+) => {
+  const techFee = LEGACY_TECH_SURCHARGE[tech] ?? 0;
+  const materialFee = LEGACY_MATERIAL_SURCHARGE[material] ?? 0;
+  const qualityFee = LEGACY_QUALITY_SURCHARGE[quality] ?? 0;
+  return Math.max(
+    0,
+    Math.round(coefficients.baseFee + techFee + materialFee + qualityFee)
+  );
+};
+
+const resolveMaterialRate = (
+  material: string,
+  tech: PrintTech,
+  coefficients: PrintPricingCoefficients
+) => {
+  if (material === "Tough Resin") return coefficients.materialRateToughResin;
+  if (material === "Standard Resin") return coefficients.materialRateStandardResin;
+  if (material === "ABS Pro") return coefficients.materialRateABSPro;
+  if (material === "Standard PLA") return coefficients.materialRateStandardPLA;
+  return tech === "sla"
+    ? coefficients.materialRateStandardResin
+    : coefficients.materialRateStandardPLA;
+};
+
+const resolveMachineRate = (tech: PrintTech, coefficients: PrintPricingCoefficients) => {
+  return tech === "sla" ? coefficients.machineRateSla : coefficients.machineRateFdm;
+};
+
+const resolveQualityTimeMultiplier = (
+  quality: PrintQuality,
+  coefficients: PrintPricingCoefficients
+) => {
+  if (quality === "pro") {
+    return clamp(coefficients.qualityMultiplierPro, 1, 3);
+  }
+  return 1;
+};
+
 const resolveMaterialUsageFactor = (
   tech: PrintTech,
-  isHollow?: boolean,
-  infillPercent?: number
+  isHollow: boolean | undefined,
+  infillPercent: number | undefined,
+  coefficients: PrintPricingCoefficients
 ) => {
   if (tech === "sla") {
     // For figurines we assume hollow print by default.
-    return isHollow === false ? 1 : 0.28;
+    return isHollow === false ? 1 : coefficients.slaHollowFactor;
   }
 
   const infill = asPositive(infillPercent) ?? 20;
   const clamped = clamp(infill, 8, 100) / 100;
+  const shellBase = 0.12;
   // FDM shell + infill simplified into a single material factor.
-  return clamp(0.12 + clamped * 0.88, 0.12, 1);
+  return clamp(shellBase + clamped * (1 - shellBase), shellBase, 1);
 };
 
 const computeSmartPrice = (
@@ -147,7 +224,8 @@ const computeSmartPrice = (
   dimensions: PrintDimensions | null,
   volumeCm3: number | null,
   queueMultiplier: number,
-  materialUsageFactor: number
+  materialUsageFactor: number,
+  coefficients: PrintPricingCoefficients
 ) => {
   const boundsVolumeCm3 = dimensions ? (dimensions.x * dimensions.y * dimensions.z) / 1000 : null;
   const estimatedInfill = tech === "fdm" ? 0.24 : 0.34;
@@ -181,11 +259,11 @@ const computeSmartPrice = (
 
   const supportPct = clamp(0.08 + complexity * 0.24, 0.08, tech === "sla" ? 0.42 : 0.36);
   const wastePct = tech === "sla" ? 0.12 : 0.08;
-  const materialRate = MATERIAL_RATE_PER_CM3[material] ?? MATERIAL_RATE_PER_CM3[DEFAULT_MATERIAL_BY_TECH[tech]];
+  const materialRate = resolveMaterialRate(material, tech, coefficients);
   const materialVolumeCm3 = Math.max(4, effectiveVolumeCm3 * materialUsageFactor);
   const materialCost = materialVolumeCm3 * (1 + supportPct + wastePct) * materialRate;
 
-  const qualityTimeMultiplier = QUALITY_TIME_MULTIPLIER[quality] ?? 1;
+  const qualityTimeMultiplier = resolveQualityTimeMultiplier(quality, coefficients);
   const effectiveVolumeForTime =
     tech === "sla"
       ? Math.min(effectiveVolumeCm3, 450)
@@ -195,7 +273,7 @@ const computeSmartPrice = (
       ? 0.45 + heightMm / 70 + effectiveVolumeForTime / 500
       : 0.6 + effectiveVolumeForTime / 28 + heightMm / 90;
   const totalHours = baseHours * qualityTimeMultiplier * (1 + complexity * 0.35);
-  const machineCost = totalHours * (MACHINE_RATE_PER_HOUR[tech] ?? 70);
+  const machineCost = totalHours * resolveMachineRate(tech, coefficients);
 
   const postProcessCost = (tech === "sla" ? 90 : 45) + (quality === "pro" ? 25 : 0);
   const riskPct = clamp(
@@ -204,10 +282,10 @@ const computeSmartPrice = (
     0.16
   );
 
-  const subtotal = BASE_FEE + materialCost + machineCost + postProcessCost;
+  const subtotal = coefficients.baseFee + materialCost + machineCost + postProcessCost;
   const smartRaw = subtotal * (1 + riskPct) * queueMultiplier;
-  const smartPrice = Math.max(450, Math.round(smartRaw));
-  if (!Number.isFinite(smartPrice) || smartPrice > MAX_SMART_PRICE) {
+  const smartPrice = Math.max(coefficients.minPrice, Math.round(smartRaw));
+  if (!Number.isFinite(smartPrice) || smartPrice > coefficients.maxSmartPrice) {
     return null;
   }
 
@@ -221,8 +299,10 @@ const computeSmartPrice = (
 };
 
 export const computePrintPrice = (
-  input: ComputePrintPriceInput
+  input: ComputePrintPriceInput,
+  coefficientOverrides?: Partial<PrintPricingCoefficients>
 ): ComputePrintPriceResult => {
+  const coefficients = resolveCoefficients(coefficientOverrides);
   const tech = normalizePrintTech(input.technology);
   const quality = normalizePrintQuality(input.quality);
   const material = normalizePrintMaterial(input.material, tech);
@@ -230,9 +310,10 @@ export const computePrintPrice = (
   const materialUsageFactor = resolveMaterialUsageFactor(
     tech,
     input.isHollow,
-    input.infillPercent
+    input.infillPercent,
+    coefficients
   );
-  const legacyPrice = resolveLegacyPrice(tech, material, quality);
+  const legacyPrice = resolveLegacyPrice(tech, material, quality, coefficients);
   const legacyFinal = legacyPrice;
 
   const smartEnabled = input.enableSmart !== false;
@@ -256,7 +337,8 @@ export const computePrintPrice = (
     dimensions,
     volumeCm3,
     queueMultiplier,
-    materialUsageFactor
+    materialUsageFactor,
+    coefficients
   );
   if (!smart) {
     return {
@@ -278,3 +360,4 @@ export const computePrintPrice = (
     queueMultiplier,
   };
 };
+

@@ -7,7 +7,12 @@ import {
   normalizeCityInput,
   normalizeNameInput,
 } from "@/lib/cities";
+import { captureFunnelEvent } from "@/lib/funnelServer";
 import { computePrintPrice } from "@/lib/printPricing";
+import {
+  DEFAULT_PRINT_PRICING_RUNTIME_SETTINGS,
+  normalizePrintPricingRuntimeSettings,
+} from "@/lib/printPricingSettings";
 
 export const dynamic = "force-dynamic";
 
@@ -153,6 +158,24 @@ const resolveQueueMultiplier = () => {
   return Math.min(Math.max(parsed, 1), 2);
 };
 
+const resolvePrintPricingSettings = async (payload: any) => {
+  const envFallback = {
+    ...DEFAULT_PRINT_PRICING_RUNTIME_SETTINGS,
+    smartEnabled: resolveSmartPricingEnabled(),
+    queueMultiplier: resolveQueueMultiplier(),
+  };
+  try {
+    const globalDoc = await payload.findGlobal({
+      slug: "print-pricing-settings",
+      depth: 0,
+    });
+    const normalized = normalizePrintPricingRuntimeSettings(globalDoc);
+    return normalized;
+  } catch {
+    return envFallback;
+  }
+};
+
 const collectDigitalProductIds = (items: Array<{ format?: string; product?: unknown }>) => {
   if (!Array.isArray(items)) return [];
   const ids = items
@@ -166,8 +189,9 @@ const collectDigitalProductIds = (items: Array<{ format?: string; product?: unkn
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
-    const smartPricingEnabled = resolveSmartPricingEnabled();
-    const queueMultiplier = resolveQueueMultiplier();
+    const pricingSettings = await resolvePrintPricingSettings(payload);
+    const smartPricingEnabled = pricingSettings.smartEnabled;
+    const queueMultiplier = pricingSettings.queueMultiplier;
     let authUser: any = null;
     const authHeaders = request.headers;
     try {
@@ -471,7 +495,7 @@ export async function POST(request: NextRequest) {
           infillPercent: printSpecs?.infillPercent,
           enableSmart: smartPricingEnabled,
           queueMultiplier,
-        });
+        }, pricingSettings.coefficients);
         unitPrice = Math.max(productPrice, pricing.price);
       }
 
@@ -499,6 +523,23 @@ export async function POST(request: NextRequest) {
               headers: authHeaders,
             }
           : undefined,
+    });
+
+    await captureFunnelEvent({
+      payload,
+      name: "order_created",
+      sessionId: request.headers.get("x-funnel-session"),
+      userId: authUser?.id ?? null,
+      orderId: result?.id ?? null,
+      amount:
+        typeof result?.total === "number" && Number.isFinite(result.total)
+          ? result.total
+          : null,
+      currency: "RUB",
+      path: request.nextUrl.pathname,
+      metadata: {
+        itemCount: Array.isArray(result?.items) ? result.items.length : 0,
+      },
     });
 
     try {
