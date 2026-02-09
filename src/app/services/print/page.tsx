@@ -352,8 +352,15 @@ const analyzeModel = (object: Object3D, unit: "mm" | "m") => {
   const boundsVolumeCm3 = (sizeMm.x * sizeMm.y * sizeMm.z) / 1000;
 
   let volumeCm3 = meshVolumeCm3;
-  if (!Number.isFinite(volumeCm3) || volumeCm3 <= 0) {
-    volumeCm3 = boundsVolumeCm3;
+  const maxAllowedMeshVolume =
+    boundsVolumeCm3 > 0 ? boundsVolumeCm3 * 1.15 : Number.POSITIVE_INFINITY;
+  if (
+    !Number.isFinite(volumeCm3) ||
+    volumeCm3 <= 0 ||
+    volumeCm3 > maxAllowedMeshVolume
+  ) {
+    // Mesh volume can explode for non-manifold/open meshes; use conservative occupancy.
+    volumeCm3 = boundsVolumeCm3 > 0 ? boundsVolumeCm3 * 0.32 : 0;
   }
 
   return {

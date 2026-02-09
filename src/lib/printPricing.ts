@@ -68,6 +68,9 @@ const DEFAULT_MATERIAL_BY_TECH: Record<PrintTech, string> = {
   fdm: "Standard PLA",
 };
 
+const MAX_EFFECTIVE_VOLUME_CM3 = 12_000;
+const MAX_SMART_PRICE = 250_000;
+
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
 
@@ -137,8 +140,14 @@ const computeSmartPrice = (
 ) => {
   const boundsVolumeCm3 = dimensions ? (dimensions.x * dimensions.y * dimensions.z) / 1000 : null;
   const estimatedInfill = tech === "fdm" ? 0.24 : 0.34;
-  const effectiveVolumeCm3 = volumeCm3 ?? (boundsVolumeCm3 ? boundsVolumeCm3 * estimatedInfill : null);
+  let effectiveVolumeCm3 = volumeCm3 ?? (boundsVolumeCm3 ? boundsVolumeCm3 * estimatedInfill : null);
+  if (boundsVolumeCm3 && effectiveVolumeCm3 && effectiveVolumeCm3 > boundsVolumeCm3 * 1.15) {
+    effectiveVolumeCm3 = boundsVolumeCm3 * estimatedInfill;
+  }
   if (!effectiveVolumeCm3 || effectiveVolumeCm3 <= 0) {
+    return null;
+  }
+  if (effectiveVolumeCm3 > MAX_EFFECTIVE_VOLUME_CM3) {
     return null;
   }
 
@@ -182,6 +191,9 @@ const computeSmartPrice = (
   const subtotal = BASE_FEE + materialCost + machineCost + postProcessCost;
   const smartRaw = subtotal * (1 + riskPct) * queueMultiplier;
   const smartPrice = Math.max(0, Math.round(smartRaw));
+  if (!Number.isFinite(smartPrice) || smartPrice > MAX_SMART_PRICE) {
+    return null;
+  }
 
   const confidence: "high" | "medium" | "low" = volumeCm3 && dimensions
     ? "high"
@@ -202,6 +214,18 @@ export const computePrintPrice = (
   const sourceFloorPrice = resolveSourceFloorPrice(input.sourcePrice);
   const legacyPrice = resolveLegacyPrice(tech, material, quality);
   const legacyFinal = Math.max(sourceFloorPrice, legacyPrice);
+
+  // For catalog-driven print orders we keep list pricing as the source of truth.
+  if (sourceFloorPrice > 0) {
+    return {
+      price: legacyFinal,
+      legacyPrice,
+      smartPrice: null,
+      model: "legacy",
+      confidence: "low",
+      queueMultiplier,
+    };
+  }
 
   const smartEnabled = input.enableSmart !== false;
   if (!smartEnabled) {
@@ -239,4 +263,3 @@ export const computePrintPrice = (
     queueMultiplier,
   };
 };
-
