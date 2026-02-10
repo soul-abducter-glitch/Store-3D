@@ -1,6 +1,11 @@
 ﻿import path from "path";
 
-import { postgresAdapter, sql } from "@payloadcms/db-postgres";
+import {
+  postgresAdapter,
+  sql,
+  type MigrateDownArgs,
+  type MigrateUpArgs,
+} from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import { s3Storage } from "@payloadcms/storage-s3";
 import { buildConfig } from "payload";
@@ -290,6 +295,19 @@ const ensurePayloadRelsColumns = async (payload: any) => {
   }
 };
 
+const ensureFunnelRelsColumnsMigrationUp = async ({ db }: MigrateUpArgs) => {
+  await db.execute(
+    sql`ALTER TABLE IF EXISTS payload_locked_documents_rels ADD COLUMN IF NOT EXISTS funnel_events_id integer;`
+  );
+  await db.execute(
+    sql`ALTER TABLE IF EXISTS payload_preferences_rels ADD COLUMN IF NOT EXISTS funnel_events_id integer;`
+  );
+};
+
+const ensureFunnelRelsColumnsMigrationDown = async (_args: MigrateDownArgs) => {
+  // no-op: we do not want to drop columns automatically
+};
+
 if (!payloadSecret) {
   throw new Error("PAYLOAD_SECRET is missing");
 }
@@ -328,6 +346,13 @@ export default buildConfig({
     await ensurePrintServiceProduct(payload);
   },
   db: postgresAdapter({
+    prodMigrations: [
+      {
+        name: "20260210_ensure_funnel_rel_columns",
+        up: ensureFunnelRelsColumnsMigrationUp,
+        down: ensureFunnelRelsColumnsMigrationDown,
+      },
+    ],
     pool: {
       connectionString: databaseURL,
       connectionTimeoutMillis: 20000,
