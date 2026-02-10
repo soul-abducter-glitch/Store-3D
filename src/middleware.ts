@@ -1,10 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-const isAdminMode =
-  process.env.NEXT_PUBLIC_MODE === "admin" ||
-  process.env.PORT === "3001" ||
-  (process.env.NEXT_PUBLIC_SERVER_URL || "").includes("3001");
+const isAdminMode = process.env.NEXT_PUBLIC_MODE === "admin";
 
 const allowlistRaw = process.env.ADMIN_IP_ALLOWLIST || "";
 const adminAllowlist = allowlistRaw
