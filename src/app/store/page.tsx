@@ -937,6 +937,7 @@ export default function Home() {
   const [useGlobalCatalog, setUseGlobalCatalog] = useState(false);
   const [activeCategory, setActiveCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
+  const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
@@ -1169,6 +1170,7 @@ export default function Home() {
 
   const commitSearch = useCallback((value: string) => {
     const term = value.trim();
+    setAppliedSearchQuery(term);
     if (!term) return;
     setRecentSearches((prev) => {
       const normalized = term.toLowerCase();
@@ -1587,7 +1589,8 @@ export default function Home() {
     });
   }, [products, categoriesById, categoryKeyById]);
 
-  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const normalizedSearchInput = searchQuery.trim().toLowerCase();
+  const normalizedQuery = appliedSearchQuery.trim().toLowerCase();
 
   const searchSuggestions = useMemo<SearchSuggestion[]>(() => {
     const suggestions: SearchSuggestion[] = [];
@@ -1600,7 +1603,7 @@ export default function Home() {
       suggestions.push({ id: key, label, type, slug });
     };
 
-    if (normalizedQuery.length < 2) {
+    if (normalizedSearchInput.length < 2) {
       recentSearches.forEach((entry) => {
         addSuggestion(entry, "recent");
       });
@@ -1608,21 +1611,21 @@ export default function Home() {
     }
 
     normalizedProducts.forEach((product) => {
-      if (product.name && matchesQuery(product.name, normalizedQuery)) {
+      if (product.name && matchesQuery(product.name, normalizedSearchInput)) {
         addSuggestion(product.name, "product", product.slug);
       }
-      if (product.sku && matchesQuery(product.sku, normalizedQuery)) {
+      if (product.sku && matchesQuery(product.sku, normalizedSearchInput)) {
         addSuggestion(product.sku, "sku", product.slug);
       }
       product.categoryTitles.forEach((title) => {
-        if (title && matchesQuery(title, normalizedQuery)) {
+        if (title && matchesQuery(title, normalizedSearchInput)) {
           addSuggestion(title, "category");
         }
       });
     });
 
     return suggestions.slice(0, 8);
-  }, [normalizedProducts, normalizedQuery, recentSearches]);
+  }, [normalizedProducts, normalizedSearchInput, recentSearches]);
 
   const filteredProducts = useMemo(() => {
     return normalizedProducts.filter((product) => {
@@ -3367,6 +3370,7 @@ export default function Home() {
                     setVerified(false);
                     setActiveCategory("");
                     setSearchQuery("");
+                    setAppliedSearchQuery("");
                   }}
                 >
                   СБРОС
@@ -3534,6 +3538,7 @@ function Header({
     setIsSearchOpen((prev) => {
       if (prev) {
         onSearchChange("");
+        onSearchCommit("");
       }
       return !prev;
     });
@@ -3545,6 +3550,7 @@ function Header({
     }
     if (event.key === "Escape") {
       onSearchChange("");
+      onSearchCommit("");
       setIsSearchOpen(false);
       event.currentTarget.blur();
     }
