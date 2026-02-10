@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import type { ServerFunctionClientArgs } from "payload";
 import "./globals.css";
 
 import ClientNotifications from "@/components/ClientNotifications";
@@ -14,49 +13,6 @@ const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
   variable: "--font-jetbrains-mono",
 });
-
-const mode = (process.env.NEXT_PUBLIC_MODE || "").toLowerCase();
-const vercelHost = (
-  process.env.VERCEL_PROJECT_PRODUCTION_URL ||
-  process.env.VERCEL_URL ||
-  ""
-).toLowerCase();
-const isVercel = Boolean(process.env.VERCEL);
-const isAdminHost = vercelHost.includes("admin");
-const isLocalAdmin =
-  !isVercel &&
-  (process.env.PORT === "3001" || (process.env.NEXT_PUBLIC_SERVER_URL || "").includes("3001"));
-const forceAdminMode = process.env.FORCE_ADMIN_MODE === "true";
-const isAdminMode = mode === "admin" && (isAdminHost || isLocalAdmin || forceAdminMode);
-
-const loadPayloadContext = async () => {
-  const [{ getPayload }, payloadConfigModule, importMapModule, payloadLayoutsModule] =
-    await Promise.all([
-    import("payload"),
-    import("../../payload.config"),
-    import("./(payload)/admin/importMap"),
-    import("@payloadcms/next/layouts"),
-  ]);
-
-  return {
-    getPayload,
-    payloadConfig: payloadConfigModule.default,
-    importMap: importMapModule.importMap,
-    PayloadRootLayout: payloadLayoutsModule.RootLayout,
-    handleServerFunctions: payloadLayoutsModule.handleServerFunctions,
-  };
-};
-
-async function serverFunction(args: ServerFunctionClientArgs) {
-  "use server";
-  const { getPayload, payloadConfig, importMap, handleServerFunctions } = await loadPayloadContext();
-  const payload = await getPayload({ config: payloadConfig, importMap });
-  return handleServerFunctions({
-    ...args,
-    config: Promise.resolve(payload.config),
-    importMap,
-  });
-}
 
 const sanitizeUrlInput = (value: string) =>
   value.trim().replace(/^['"]+|['"]+$/g, "");
@@ -125,23 +81,11 @@ export const metadata: Metadata = {
   },
 };
 
-export default async function RootLayout({
+export default function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  if (isAdminMode) {
-    const { getPayload, payloadConfig, importMap, PayloadRootLayout } = await loadPayloadContext();
-    const payload = await getPayload({ config: payloadConfig, importMap });
-
-    return PayloadRootLayout({
-      children,
-      config: Promise.resolve(payload.config),
-      importMap,
-      serverFunction,
-    });
-  }
-
   return (
     <html lang="ru" className="overflow-x-hidden">
       <body className={`${inter.variable} ${jetbrainsMono.variable} antialiased overflow-x-hidden`}>
