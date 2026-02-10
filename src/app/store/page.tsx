@@ -320,6 +320,75 @@ const matchesQuery = (value: string, query: string) => {
   return splitTokens(normalized).some((token) => token.startsWith(query));
 };
 
+type AiSearchIntent = {
+  format?: FormatMode;
+  technology?: TechMode;
+  verified?: boolean;
+  useGlobalCatalog?: boolean;
+  query: string;
+};
+
+const AI_FORMAT_RULES: Array<{ value: FormatMode; keywords: string[] }> = [
+  { value: "digital", keywords: ["digital", "stl", "цифров", "скач", "download"] },
+  { value: "physical", keywords: ["physical", "print", "печат", "фигур", "издел"] },
+];
+
+const AI_TECH_RULES: Array<{ value: TechMode; keywords: string[] }> = [
+  { value: "SLA Resin", keywords: ["sla", "resin", "смол", "фотопол"] },
+  { value: "FDM Plastic", keywords: ["fdm", "plastic", "pla", "petg", "пласт"] },
+];
+
+const AI_VERIFIED_POSITIVE = ["verified", "провер", "quality", "качеств"];
+const AI_VERIFIED_NEGATIVE = ["непровер", "без провер", "raw only"];
+const AI_GLOBAL_KEYWORDS = ["все", "люб", "any", "all", "без фильтра", "global"];
+
+const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+const extractAiSearchIntent = (input: string): AiSearchIntent => {
+  const normalized = input.toLowerCase().trim();
+  if (!normalized) {
+    return { query: "" };
+  }
+
+  const includesKeyword = (keyword: string) => normalized.includes(keyword);
+  const detectRule = <T extends string>(rules: Array<{ value: T; keywords: string[] }>) =>
+    rules.find((rule) => rule.keywords.some((keyword) => includesKeyword(keyword)))?.value;
+
+  const format = detectRule(AI_FORMAT_RULES);
+  const technology = detectRule(AI_TECH_RULES);
+  const verified = AI_VERIFIED_NEGATIVE.some(includesKeyword)
+    ? false
+    : AI_VERIFIED_POSITIVE.some(includesKeyword)
+      ? true
+      : undefined;
+  const useGlobalCatalog = AI_GLOBAL_KEYWORDS.some(includesKeyword) ? true : undefined;
+
+  let cleaned = ` ${normalized} `;
+  const stripKeywords = [
+    ...AI_FORMAT_RULES.flatMap((rule) => rule.keywords),
+    ...AI_TECH_RULES.flatMap((rule) => rule.keywords),
+    ...AI_VERIFIED_POSITIVE,
+    ...AI_VERIFIED_NEGATIVE,
+    ...AI_GLOBAL_KEYWORDS,
+  ];
+
+  stripKeywords.forEach((keyword) => {
+    if (!keyword.trim()) return;
+    const pattern = new RegExp(`\\b${escapeRegExp(keyword)}\\b`, "giu");
+    cleaned = cleaned.replace(pattern, " ");
+  });
+
+  const query = splitTokens(cleaned).join(" ").trim();
+
+  return {
+    format,
+    technology,
+    verified,
+    useGlobalCatalog,
+    query,
+  };
+};
+
 const MODEL_EXTENSIONS = [".glb", ".gltf", ".stl"];
 const INVALID_MEDIA_TOKENS = new Set(["null", "undefined", "nan", "none"]);
 
@@ -1113,6 +1182,54 @@ export default function Home() {
       return next;
     });
   }, []);
+
+  const handleAiSearch = useCallback(
+    (value: string) => {
+      const raw = value.trim();
+      if (!raw) {
+        showError("Введите запрос для AI-поиска.");
+        return;
+      }
+
+      const intent = extractAiSearchIntent(raw);
+      if (intent.format) {
+        setFormat(intent.format);
+      }
+      if (intent.technology) {
+        setTechnology(intent.technology);
+      }
+      if (typeof intent.verified === "boolean") {
+        setVerified(intent.verified);
+      }
+      if (typeof intent.useGlobalCatalog === "boolean") {
+        setUseGlobalCatalog(intent.useGlobalCatalog);
+      }
+      if (intent.query) {
+        setSearchQuery(intent.query);
+        commitSearch(intent.query);
+      } else {
+        setSearchQuery(raw);
+        commitSearch(raw);
+      }
+
+      const appliedFilters: string[] = [];
+      if (intent.format) appliedFilters.push(intent.format === "digital" ? "Digital STL" : "Physical");
+      if (intent.technology) appliedFilters.push(intent.technology);
+      if (typeof intent.verified === "boolean") {
+        appliedFilters.push(intent.verified ? "Проверенные" : "Без проверки");
+      }
+      if (intent.useGlobalCatalog) {
+        appliedFilters.push("Глобальный каталог");
+      }
+
+      if (appliedFilters.length) {
+        showSuccess(`AI-поиск применил фильтры: ${appliedFilters.join(", ")}`);
+      } else {
+        showSuccess("AI-поиск применен.");
+      }
+    },
+    [commitSearch, showError, showSuccess]
+  );
 
   const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     if (!source || typeof source !== "object") {
@@ -2289,6 +2406,7 @@ export default function Home() {
           onSearchChange={setSearchQuery}
           searchSuggestions={searchSuggestions}
           onSearchCommit={commitSearch}
+          onAiSearch={handleAiSearch}
           onSearchPick={(value) => {
             setSearchQuery(value);
             commitSearch(value);
@@ -3292,6 +3410,7 @@ type HeaderProps = {
   onSearchChange: (value: string) => void;
   searchSuggestions: SearchSuggestion[];
   onSearchCommit: (value: string) => void;
+  onAiSearch: (value: string) => void;
   onSearchPick: (value: string) => void;
   isSidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -3354,6 +3473,7 @@ function Header({
   onSearchChange,
   searchSuggestions,
   onSearchCommit,
+  onAiSearch,
   onSearchPick,
   isSidebarOpen,
   onToggleSidebar,
@@ -3542,6 +3662,14 @@ function Header({
                 placeholder="Поиск: название, категория, артикул"
                 className="w-52 bg-transparent text-xs uppercase tracking-[0.2em] text-white/80 placeholder:text-white/40 focus:outline-none"
               />
+              <button
+                type="button"
+                onClick={() => onAiSearch(searchQuery)}
+                className="inline-flex items-center gap-1 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:text-white"
+              >
+                <Sparkles className="h-3.5 w-3.5" />
+                AI
+              </button>
               <SearchSuggestions
                 suggestions={searchSuggestions}
                 onPick={onSearchPick}
@@ -3694,6 +3822,14 @@ function Header({
               placeholder="Поиск: название, категория, артикул"
               className="flex-1 bg-transparent text-[10px] uppercase tracking-[0.2em] text-white/80 placeholder:text-white/40 focus:outline-none"
             />
+            <button
+              type="button"
+              onClick={() => onAiSearch(searchQuery)}
+              className="inline-flex h-7 items-center gap-1 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-2 text-[8px] uppercase tracking-[0.2em] text-[#BFF4FF]"
+              aria-label="AI поиск"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </button>
             <button
               type="button"
               aria-label="Закрыть поиск"

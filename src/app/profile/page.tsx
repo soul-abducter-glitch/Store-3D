@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Download,
+  Gift,
   LogOut,
   RotateCcw,
   Package,
@@ -79,6 +80,7 @@ type PurchasedProduct = {
 
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const DEBUG_ERROR_EMAILS = (process.env.NEXT_PUBLIC_DEBUG_ERROR_EMAILS || "")
   .split(",")
   .map((entry) => entry.trim().toLowerCase())
@@ -225,6 +227,7 @@ export default function ProfilePage() {
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
   const [cancelingOrderItemKey, setCancelingOrderItemKey] = useState<string | null>(null);
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
+  const [creatingGiftForId, setCreatingGiftForId] = useState<string | null>(null);
   const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
   const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -1095,6 +1098,69 @@ export default function ProfilePage() {
     }
   };
 
+  const handleCreateGiftLink = async (item: { id: string; product: string; productId?: string }) => {
+    if (!item.productId) {
+      toast.error("Не удалось определить модель для подарка.", { className: "sonner-toast" });
+      return;
+    }
+
+    const recipientEmail = window.prompt("Введите email получателя подарка:")?.trim().toLowerCase();
+    if (!recipientEmail) {
+      return;
+    }
+    if (!EMAIL_REGEX.test(recipientEmail)) {
+      toast.error("Некорректный email получателя.", { className: "sonner-toast" });
+      return;
+    }
+
+    setCreatingGiftForId(item.id);
+    try {
+      const response = await fetch(`${apiBase}/api/gift/create`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: item.productId,
+          recipientEmail,
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success || typeof data?.giftUrl !== "string") {
+        throw new Error(data?.error || "Не удалось создать подарочную ссылку.");
+      }
+
+      const link = data.giftUrl;
+      let copied = false;
+      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+        try {
+          await navigator.clipboard.writeText(link);
+          copied = true;
+        } catch {
+          copied = false;
+        }
+      }
+
+      if (!copied) {
+        window.prompt("Скопируйте ссылку вручную:", link);
+      }
+
+      toast.success(
+        copied
+          ? `Подарочная ссылка для "${item.product}" скопирована.`
+          : `Подарочная ссылка для "${item.product}" создана.`,
+        { className: "sonner-toast" }
+      );
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось создать подарочную ссылку.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setCreatingGiftForId(null);
+    }
+  };
+
   const purchasedProducts: PurchasedProduct[] = Array.isArray(user?.purchasedProducts)
     ? user.purchasedProducts
     : [];
@@ -1119,6 +1185,7 @@ export default function ProfilePage() {
 
         return {
           id: String(product.id || product.slug || product.name),
+          productId: targetId,
           product: product.name || "Цифровой STL",
           fileSize,
           downloadUrl,
@@ -1663,23 +1730,34 @@ export default function ProfilePage() {
                           <p className="mt-1 text-sm text-white/60">Размер файла: {download.fileSize}</p>
                         </div>
                       </div>
-                      {download.ready ? (
-                        <a
-                          href={download.downloadUrl ?? undefined}
-                          target="_blank"
-                          rel="noreferrer"
-                          download
-                          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:w-auto"
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                        {download.ready ? (
+                          <a
+                            href={download.downloadUrl ?? undefined}
+                            target="_blank"
+                            rel="noreferrer"
+                            download
+                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:w-auto"
+                          >
+                            <Download className="h-4 w-4" />
+                            Скачать .STL
+                          </a>
+                        ) : (
+                          <span className="flex w-full items-center justify-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40 sm:w-auto">
+                            <Download className="h-4 w-4" />
+                            Готовится
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleCreateGiftLink(download)}
+                          disabled={!download.productId || creatingGiftForId === download.id}
+                          className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                         >
-                          <Download className="h-4 w-4" />
-                          Скачать .STL
-                        </a>
-                      ) : (
-                        <span className="flex w-full items-center justify-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40 sm:w-auto">
-                          <Download className="h-4 w-4" />
-                          Готовится
-                        </span>
-                      )}
+                          <Gift className="h-4 w-4" />
+                          {creatingGiftForId === download.id ? "Создаем..." : "Подарить"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
