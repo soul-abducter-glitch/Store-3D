@@ -8,6 +8,7 @@ import {
   ArrowLeft,
   Download,
   LogOut,
+  RotateCcw,
   Package,
   Plus,
   Minus,
@@ -44,9 +45,12 @@ type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
   uploadName?: string;
+  sourcePrice?: number;
   technology?: string;
   material?: string;
   quality?: string;
+  isHollow?: boolean;
+  infillPercent?: number;
   dimensions?: { x: number; y: number; z: number };
   volumeCm3?: number;
 };
@@ -203,6 +207,7 @@ export default function ProfilePage() {
     confirmPassword: "",
   });
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
+  const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
 
@@ -616,6 +621,160 @@ export default function ProfilePage() {
       return false;
     }
     return isWithinCancelWindow(order?.createdAt);
+  };
+
+  const resolveRelationshipId = (value: unknown) => {
+    const raw =
+      value && typeof value === "object"
+        ? (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+          (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+          (value as { id?: unknown; value?: unknown; _id?: unknown })._id
+        : value;
+    if (raw === null || raw === undefined) {
+      return null;
+    }
+    const normalized = String(raw).split(":")[0].trim();
+    if (!normalized || /\s/.test(normalized)) {
+      return null;
+    }
+    return normalized;
+  };
+
+  const handleRepeatOrder = (order: any) => {
+    const orderId = String(order?.id ?? "");
+    if (!orderId || reorderingOrderId) {
+      return;
+    }
+
+    const sourceItems = Array.isArray(order?.items) ? order.items : [];
+    if (!sourceItems.length) {
+      toast.error("В заказе нет позиций для повтора.", { className: "sonner-toast" });
+      return;
+    }
+
+    if (
+      typeof window !== "undefined" &&
+      cartItems.length > 0 &&
+      !window.confirm(`В корзине уже есть товары. Заменить корзину заказом №${orderId}?`)
+    ) {
+      return;
+    }
+
+    setReorderingOrderId(orderId);
+
+    try {
+      const rebuiltItems: CartItem[] = sourceItems
+        .map((item: any): CartItem | null => {
+          const product = item?.product;
+          const productId = resolveRelationshipId(product);
+          if (!productId) {
+            return null;
+          }
+
+          const formatKey: CartItem["formatKey"] = item?.format === "Physical" ? "physical" : "digital";
+          const quantity =
+            typeof item?.quantity === "number" && item.quantity > 0 ? Math.floor(item.quantity) : 1;
+          const unitPrice = typeof item?.unitPrice === "number" && item.unitPrice >= 0 ? item.unitPrice : 0;
+          const productName =
+            product && typeof product === "object" && typeof product?.name === "string" && product.name.trim()
+              ? product.name.trim()
+              : getOrderProductName(order);
+          const thumbnailUrl =
+            resolveMediaUrl(product?.paintedModel) ||
+            resolveMediaUrl(product?.rawModel) ||
+            buildCartThumbnail(productName);
+
+          const upload = item?.customerUpload;
+          const uploadId = resolveRelationshipId(upload);
+          const dimensions =
+            item?.printSpecs?.dimensions && typeof item.printSpecs.dimensions === "object"
+              ? {
+                  x: Number(item.printSpecs.dimensions.x) || 0,
+                  y: Number(item.printSpecs.dimensions.y) || 0,
+                  z: Number(item.printSpecs.dimensions.z) || 0,
+                }
+              : undefined;
+
+          const customPrint: CustomPrintMeta | null =
+            formatKey === "physical" && uploadId
+              ? {
+                  uploadId,
+                  uploadUrl: resolveMediaUrl(upload),
+                  uploadName:
+                    (typeof upload?.alt === "string" && upload.alt) ||
+                    (typeof upload?.filename === "string" && upload.filename) ||
+                    undefined,
+                  sourcePrice: unitPrice,
+                  technology:
+                    typeof item?.printSpecs?.technology === "string"
+                      ? item.printSpecs.technology
+                      : undefined,
+                  material:
+                    typeof item?.printSpecs?.material === "string" ? item.printSpecs.material : undefined,
+                  quality:
+                    typeof item?.printSpecs?.quality === "string" ? item.printSpecs.quality : undefined,
+                  isHollow:
+                    typeof item?.printSpecs?.isHollow === "boolean"
+                      ? item.printSpecs.isHollow
+                      : undefined,
+                  infillPercent:
+                    typeof item?.printSpecs?.infillPercent === "number"
+                      ? item.printSpecs.infillPercent
+                      : undefined,
+                  dimensions,
+                  volumeCm3:
+                    typeof item?.printSpecs?.volumeCm3 === "number"
+                      ? item.printSpecs.volumeCm3
+                      : undefined,
+                }
+              : null;
+
+          return {
+            id: customPrint?.uploadId ? `custom-print:${customPrint.uploadId}` : `${productId}:${formatKey}`,
+            productId,
+            name: productName,
+            formatKey,
+            formatLabel: getOrderFormatLabel(item?.format),
+            priceLabel: formatPrice(unitPrice),
+            priceValue: unitPrice,
+            quantity,
+            thumbnailUrl,
+            customPrint,
+          };
+        })
+        .filter((item: CartItem | null): item is CartItem => Boolean(item));
+
+      if (!rebuiltItems.length) {
+        throw new Error("Не удалось собрать товары для повтора.");
+      }
+
+      const mergedItems = rebuiltItems.reduce<CartItem[]>((acc, item) => {
+        const existingIndex = acc.findIndex((entry) => entry.id === item.id);
+        if (existingIndex >= 0) {
+          const existing = acc[existingIndex];
+          acc[existingIndex] = {
+            ...existing,
+            quantity: existing.quantity + item.quantity,
+          };
+          return acc;
+        }
+        acc.push(item);
+        return acc;
+      }, []);
+
+      writeCartStorage(cartStorageKey, mergedItems);
+      setCartItems(mergedItems);
+      toast.success(`Заказ №${orderId} добавлен в корзину.`, { className: "sonner-toast" });
+      router.push("/checkout");
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось повторить заказ. Попробуйте снова.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setReorderingOrderId(null);
+    }
   };
 
   const handleCancelOrder = async (orderId: string) => {
@@ -1060,6 +1219,16 @@ export default function ProfilePage() {
                           {totalLabel && (
                             <p className="mt-1 text-sm text-white/70">Итого: {totalLabel} ₽</p>
                           )}
+                          <button
+                            type="button"
+                            onClick={() => handleRepeatOrder(order)}
+                            disabled={reorderingOrderId === orderId}
+                            aria-disabled={reorderingOrderId === orderId}
+                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            <RotateCcw className="h-3.5 w-3.5" />
+                            {reorderingOrderId === orderId ? "Собираем..." : "Повторить заказ"}
+                          </button>
                           {canCancel && (
                             <button
                               type="button"
