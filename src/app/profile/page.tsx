@@ -1,6 +1,6 @@
 ﻿"use client";
 
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -12,6 +12,7 @@ import {
   Package,
   Plus,
   Minus,
+  Save,
   Settings,
   ShoppingCart,
   Trash2,
@@ -26,6 +27,12 @@ import {
   writeCartStorage,
   writeCheckoutSelection,
 } from "@/lib/cartStorage";
+import {
+  getCheckoutDraftKey,
+  readCheckoutDraftRecords,
+  removeCheckoutDraftRecord,
+  type CheckoutDraftRecord,
+} from "@/lib/checkoutDrafts";
 import {
   ORDER_PROGRESS_STEPS,
   ORDER_STATUS_UNREAD_KEY,
@@ -195,7 +202,7 @@ const resolveMediaUrl = (value?: any) => {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "settings">("orders");
+  const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "drafts" | "settings">("orders");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
@@ -218,8 +225,12 @@ export default function ProfilePage() {
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
   const [cancelingOrderItemKey, setCancelingOrderItemKey] = useState<string | null>(null);
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
+  const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
+  const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
+  const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
+  const checkoutDraftKey = useMemo(() => getCheckoutDraftKey(user?.id ?? null), [user?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -331,6 +342,74 @@ export default function ProfilePage() {
     }
     writeCheckoutSelection(cartStorageKey, selectedCartItemIds);
     router.push("/checkout");
+  };
+
+  const refreshCheckoutDrafts = useCallback(() => {
+    setCheckoutDrafts(readCheckoutDraftRecords(user?.id ?? null));
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    refreshCheckoutDrafts();
+
+    const handleStorage = (event: StorageEvent) => {
+      const key = event.key || "";
+      if (!key) return;
+      if (key.includes("checkout:drafts:v1") || key === checkoutDraftKey) {
+        refreshCheckoutDrafts();
+      }
+    };
+
+    const handleFocus = () => refreshCheckoutDrafts();
+    window.addEventListener("storage", handleStorage);
+    window.addEventListener("focus", handleFocus);
+    return () => {
+      window.removeEventListener("storage", handleStorage);
+      window.removeEventListener("focus", handleFocus);
+    };
+  }, [checkoutDraftKey, refreshCheckoutDrafts]);
+
+  const handleOpenCheckoutDraft = async (draft: CheckoutDraftRecord) => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    setOpeningDraftId(draft.id);
+    try {
+      const payload = {
+        form: draft.form || {},
+        paymentMethod: draft.paymentMethod || "card",
+        promoCodeInput: draft.promoCodeInput || "",
+        savedAt: draft.updatedAt || new Date().toISOString(),
+      };
+      window.localStorage.setItem(checkoutDraftKey, JSON.stringify(payload));
+
+      if (Array.isArray(draft.selectedItemIds) && draft.selectedItemIds.length > 0) {
+        writeCheckoutSelection(cartStorageKey, draft.selectedItemIds);
+      }
+
+      toast.success("Черновик открыт.");
+      router.push("/checkout");
+    } catch {
+      toast.error("Не удалось открыть черновик.");
+    } finally {
+      setOpeningDraftId(null);
+    }
+  };
+
+  const handleDeleteCheckoutDraft = async (draftId: string) => {
+    setDeletingDraftId(draftId);
+    try {
+      removeCheckoutDraftRecord(user?.id ?? null, draftId);
+      refreshCheckoutDrafts();
+      toast.success("Черновик удален.");
+    } catch {
+      toast.error("Не удалось удалить черновик.");
+    } finally {
+      setDeletingDraftId(null);
+    }
   };
 
   useEffect(() => {
@@ -1333,6 +1412,21 @@ export default function ProfilePage() {
             )}
           </button>
           <button
+            onClick={() => setActiveTab("drafts")}
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition sm:px-4 sm:py-3 sm:text-sm ${
+              activeTab === "drafts" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
+            }`}
+          >
+            <Save className="h-4 w-4" />
+            Черновики
+            {activeTab === "drafts" && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-4 -bottom-px h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.7)]"
+              />
+            )}
+          </button>
+          <button
             onClick={() => setActiveTab("settings")}
             className={`relative flex items-center gap-2 whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition sm:px-4 sm:py-3 sm:text-sm ${
               activeTab === "settings" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
@@ -1589,6 +1683,70 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 ))}
+            </div>
+          )}
+          {activeTab === "drafts" && (
+            <div className="space-y-4">
+              {checkoutDrafts.length === 0 && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  Черновиков пока нет. На странице оформления нажмите «Сохранить черновик».
+                </div>
+              )}
+              {checkoutDrafts.map((draft) => {
+                const itemCount =
+                  typeof draft.itemCount === "number" && draft.itemCount > 0
+                    ? draft.itemCount
+                    : Array.isArray(draft.selectedItemIds)
+                      ? draft.selectedItemIds.length
+                      : 0;
+                const subtotalLabel =
+                  typeof draft.subtotal === "number" && draft.subtotal > 0
+                    ? `${formatPrice(draft.subtotal)} ₽`
+                    : "N/A";
+                const namesPreview =
+                  Array.isArray(draft.itemNames) && draft.itemNames.length > 0
+                    ? draft.itemNames.slice(0, 2).join(", ")
+                    : "Состав будет восстановлен из корзины";
+                return (
+                  <div
+                    key={draft.id}
+                    className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                          Черновик
+                        </p>
+                        <h3 className="mt-2 text-xl font-semibold text-white">{namesPreview}</h3>
+                        <p className="mt-1 text-sm text-white/60">
+                          {itemCount} поз. • Сумма: {subtotalLabel}
+                        </p>
+                        <p className="mt-2 text-xs text-white/50">
+                          Обновлен: {formatDate(draft.updatedAt)}
+                        </p>
+                      </div>
+                      <div className="flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCheckoutDraft(draft)}
+                          disabled={openingDraftId === draft.id}
+                          className="rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {openingDraftId === draft.id ? "Открываем..." : "Открыть"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCheckoutDraft(draft.id)}
+                          disabled={deletingDraftId === draft.id}
+                          className="rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {deletingDraftId === draft.id ? "Удаляем..." : "Удалить"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
           {activeTab === "settings" && (

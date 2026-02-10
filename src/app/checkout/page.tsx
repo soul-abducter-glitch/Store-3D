@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Loader2, ShieldCheck } from "lucide-react";
+import { ArrowLeft, Loader2, Save, ShieldCheck } from "lucide-react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeCardElement, StripeCardElementChangeEvent } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
@@ -34,6 +34,7 @@ import {
   removeCartStorage,
   writeCartStorage,
 } from "@/lib/cartStorage";
+import { getCheckoutDraftKey, saveCheckoutDraftRecord } from "@/lib/checkoutDrafts";
 
 type CartItem = {
   id: string;
@@ -212,7 +213,6 @@ const resolveDeliveryCost = (method?: string) => {
   return deliveryCostMap[method] ?? 0;
 };
 
-const CHECKOUT_DRAFT_KEY = "checkout:draft:v1";
 const CHECKOUT_LOG_KEY = "checkout:events:v1";
 const CHECKOUT_LOG_MAX = 50;
 const DRAFT_SAVE_DEBOUNCE_MS = 450;
@@ -891,6 +891,7 @@ const CheckoutPage = () => {
   const [sbpQrError, setSbpQrError] = useState<string | null>(null);
   const [submitLock, setSubmitLock] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [lastManualDraftAt, setLastManualDraftAt] = useState<string | null>(null);
   const [promoCodeInput, setPromoCodeInput] = useState("");
   const [promoApplied, setPromoApplied] = useState<AppliedPromo | null>(null);
   const [promoError, setPromoError] = useState<string | null>(null);
@@ -925,7 +926,7 @@ const CheckoutPage = () => {
     [userId, userReady]
   );
   const checkoutDraftKey = useMemo(
-    () => `${CHECKOUT_DRAFT_KEY}:${userReady ? userId ?? "guest" : "guest"}`,
+    () => getCheckoutDraftKey(userReady ? userId : null),
     [userId, userReady]
   );
 
@@ -1379,6 +1380,15 @@ const CheckoutPage = () => {
     () => discountedSubtotal + deliveryCost,
     [deliveryCost, discountedSubtotal]
   );
+  const lastManualDraftTimeLabel = useMemo(() => {
+    if (!lastManualDraftAt) return null;
+    const date = new Date(lastManualDraftAt);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toLocaleTimeString("ru-RU", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  }, [lastManualDraftAt]);
   const sbpQrPayload = useMemo(() => {
     const orderRef = pendingOrderId ? String(pendingOrderId) : "pending";
     const amount = Math.max(0, grandTotal);
@@ -1544,6 +1554,45 @@ const CheckoutPage = () => {
     step === "form" &&
     !submitLock &&
     !promoLoading;
+
+  const handleSaveDraftRecord = useCallback(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+    const savedAt = new Date().toISOString();
+    const draftPayload = {
+      form,
+      paymentMethod,
+      promoCodeInput,
+      savedAt,
+    };
+    window.localStorage.setItem(checkoutDraftKey, JSON.stringify(draftPayload));
+    saveCheckoutDraftRecord(userReady ? userId : null, {
+      form,
+      paymentMethod,
+      promoCodeInput,
+      selectedItemIds: cartItems.map((item) => item.id),
+      itemCount: cartItems.reduce((sum, item) => sum + item.quantity, 0),
+      subtotal: totalValue,
+      itemNames: cartItems.map((item) => item.name),
+    });
+    setLastManualDraftAt(savedAt);
+    logCheckoutEvent("draft:manual-save", {
+      itemCount: cartItems.length,
+      subtotal: totalValue,
+      hasPromoCode: promoCodeInput.trim().length > 0,
+    });
+  }, [
+    cartItems,
+    checkoutDraftKey,
+    form,
+    logCheckoutEvent,
+    paymentMethod,
+    promoCodeInput,
+    totalValue,
+    userId,
+    userReady,
+  ]);
 
   const focusField = useCallback((field: keyof typeof fieldErrors) => {
     const ref =
@@ -2074,12 +2123,24 @@ const CheckoutPage = () => {
             </p>
             <h1 className="mt-3 text-3xl font-semibold text-white">Оформление заказа</h1>
           </div>
-          <Link
-            href="/store"
-            className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
-          >
-            Назад в магазин
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {step === "form" && (
+              <button
+                type="button"
+                onClick={handleSaveDraftRecord}
+                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20 hover:text-white"
+              >
+                <Save className="h-3.5 w-3.5" />
+                {lastManualDraftTimeLabel ? `Сохранено ${lastManualDraftTimeLabel}` : "Сохранить черновик"}
+              </button>
+            )}
+            <Link
+              href="/store"
+              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
+            >
+              Назад в магазин
+            </Link>
+          </div>
         </div>
 
         <AnimatePresence mode="wait">
