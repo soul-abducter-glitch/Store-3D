@@ -16,6 +16,8 @@ interface StickyOrderSummaryProps {
   items: CartItem[];
   subtotal: number;
   deliveryCost: number;
+  discount?: number;
+  promoCode?: string;
   total: number;
   onCheckout: () => void;
   canCheckout?: boolean;
@@ -27,6 +29,8 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   items,
   subtotal,
   deliveryCost,
+  discount = 0,
+  promoCode,
   total,
   onCheckout,
   canCheckout = true,
@@ -36,8 +40,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   const formatPrice = (value: number) => new Intl.NumberFormat('ru-RU').format(value);
   const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const discount = 0;
-  const canPay = !isProcessing;
+  const canPay = !isProcessing && canCheckout;
   const buttonLabel = ctaLabel ?? 'ПОДТВЕРДИТЬ';
 
   return (
@@ -107,7 +110,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 
               {discount > 0 && (
                 <div className="flex items-center justify-between text-emerald-300">
-                  <span>Скидка</span>
+                  <span>{promoCode ? `Скидка (${promoCode})` : "Скидка"}</span>
                   <span className="font-medium tabular-nums">-{formatPrice(discount)}₽</span>
                 </div>
               )}

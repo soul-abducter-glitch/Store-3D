@@ -62,6 +62,12 @@ type CustomPrintMeta = {
   volumeCm3?: number;
 };
 
+type AppliedPromo = {
+  code: string;
+  discountAmount: number;
+  description?: string;
+};
+
 const formatPrice = (value?: number) => {
   if (typeof value !== "number" || Number.isNaN(value)) {
     return "N/A";
@@ -879,6 +885,11 @@ const CheckoutPage = () => {
   const [sbpQrError, setSbpQrError] = useState<string | null>(null);
   const [submitLock, setSubmitLock] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
+  const [promoCodeInput, setPromoCodeInput] = useState("");
+  const [promoApplied, setPromoApplied] = useState<AppliedPromo | null>(null);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoLoading, setPromoLoading] = useState(false);
+  const promoValidationRef = useRef("");
   const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
@@ -968,6 +979,7 @@ const CheckoutPage = () => {
   
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";
+  const promoValidateUrl = "/api/promocodes/validate";
   const paymentsIntentUrl = "/api/payments/create-intent";
   const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
@@ -1083,10 +1095,14 @@ const CheckoutPage = () => {
         setPaymentMethod(nextMethod);
       }
     }
+    if (typeof stored.promoCodeInput === "string") {
+      setPromoCodeInput(stored.promoCodeInput.toUpperCase());
+    }
 
     logCheckoutEvent("draft:load", {
       hasForm: Boolean(draftForm),
       hasPaymentMethod: typeof stored.paymentMethod === "string",
+      hasPromoCode: typeof stored.promoCodeInput === "string",
     });
     setDraftLoaded(true);
   }, [cartReady, checkoutDraftKey, draftLoaded, logCheckoutEvent, userReady]);
@@ -1102,6 +1118,7 @@ const CheckoutPage = () => {
       const payload = {
         form,
         paymentMethod,
+        promoCodeInput,
         savedAt: new Date().toISOString(),
       };
       localStorage.setItem(checkoutDraftKey, JSON.stringify(payload));
@@ -1109,6 +1126,7 @@ const CheckoutPage = () => {
         paymentMethod,
         city: form.city,
         shippingMethod: form.shippingMethod,
+        hasPromoCode: promoCodeInput.trim().length > 0,
       });
     }, DRAFT_SAVE_DEBOUNCE_MS);
     return () => {
@@ -1121,6 +1139,7 @@ const CheckoutPage = () => {
     form,
     logCheckoutEvent,
     paymentMethod,
+    promoCodeInput,
     step,
   ]);
 
@@ -1187,6 +1206,125 @@ const CheckoutPage = () => {
     return { valid: false, invalidProducts: items };
   };
 
+  const cartPricingSignature = useMemo(
+    () =>
+      cartItems
+        .map((item) => `${item.id}:${item.quantity}:${item.priceValue}:${item.formatKey}`)
+        .join("|"),
+    [cartItems]
+  );
+
+  const validateAndApplyPromo = useCallback(
+    async (rawCode?: string) => {
+      const nextCode = (rawCode ?? promoCodeInput).trim().toUpperCase();
+      if (!nextCode) {
+        setPromoError("Введите промокод.");
+        setPromoApplied(null);
+        promoValidationRef.current = "";
+        return false;
+      }
+
+      setPromoLoading(true);
+      setPromoError(null);
+
+      try {
+        const response = await fetch(promoValidateUrl, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          credentials: "include",
+          body: JSON.stringify({
+            code: nextCode,
+            items: cartItems.map((item) => ({
+              formatKey: item.formatKey,
+              quantity: item.quantity,
+              priceValue: item.priceValue,
+            })),
+          }),
+        });
+
+        const result = await response.json().catch(() => null);
+        if (!response.ok || !result?.valid) {
+          const message = result?.error || result?.message || "Промокод не применен.";
+          setPromoApplied(null);
+          setPromoError(message);
+          promoValidationRef.current = "";
+          return false;
+        }
+
+        setPromoCodeInput(nextCode);
+        setPromoApplied({
+          code: result.code || nextCode,
+          discountAmount:
+            typeof result.discountAmount === "number" && result.discountAmount > 0
+              ? result.discountAmount
+              : 0,
+          description: typeof result.description === "string" ? result.description : undefined,
+        });
+        promoValidationRef.current = `${nextCode}|${cartPricingSignature}`;
+        setPromoError(null);
+        return true;
+      } catch {
+        setPromoApplied(null);
+        setPromoError("Не удалось проверить промокод. Попробуйте еще раз.");
+        promoValidationRef.current = "";
+        return false;
+      } finally {
+        setPromoLoading(false);
+      }
+    },
+    [cartItems, cartPricingSignature, promoCodeInput, promoValidateUrl]
+  );
+
+  const clearPromo = useCallback(() => {
+    setPromoApplied(null);
+    setPromoError(null);
+    setPromoCodeInput("");
+    promoValidationRef.current = "";
+  }, []);
+
+  const handlePromoInputChange = useCallback(
+    (event: ChangeEvent<HTMLInputElement>) => {
+      const nextValue = event.target.value.toUpperCase();
+      setPromoCodeInput(nextValue);
+      if (promoError) {
+        setPromoError(null);
+      }
+      if (promoApplied && nextValue.trim() !== promoApplied.code) {
+        setPromoApplied(null);
+        promoValidationRef.current = "";
+      }
+    },
+    [promoApplied, promoError]
+  );
+
+  const handleApplyPromo = useCallback(async () => {
+    await validateAndApplyPromo();
+  }, [validateAndApplyPromo]);
+
+  useEffect(() => {
+    if (!cartReady || !promoApplied?.code) {
+      return;
+    }
+
+    const syncKey = `${promoApplied.code}|${cartPricingSignature}`;
+    if (promoValidationRef.current === syncKey) {
+      return;
+    }
+
+    void validateAndApplyPromo(promoApplied.code);
+  }, [cartPricingSignature, cartReady, promoApplied?.code, validateAndApplyPromo]);
+
+  useEffect(() => {
+    if (!cartReady) {
+      return;
+    }
+    if (cartItems.length === 0) {
+      clearPromo();
+    }
+  }, [cartItems.length, cartReady, clearPromo]);
+
   const hasPhysical = useMemo(
     () => cartItems.some((item) => item.formatKey === "physical"),
     [cartItems]
@@ -1218,12 +1356,23 @@ const CheckoutPage = () => {
     () => cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0),
     [cartItems]
   );
-  const totalLabel = formatPrice(totalValue);
+  const promoDiscount = useMemo(() => {
+    const raw = typeof promoApplied?.discountAmount === "number" ? promoApplied.discountAmount : 0;
+    const safe = Math.max(0, raw);
+    return Math.min(safe, totalValue);
+  }, [promoApplied?.discountAmount, totalValue]);
+  const discountedSubtotal = useMemo(
+    () => Math.max(0, totalValue - promoDiscount),
+    [promoDiscount, totalValue]
+  );
   const deliveryCost = useMemo(
     () => (hasPhysical ? resolveDeliveryCost(form.shippingMethod) : 0),
     [hasPhysical, form.shippingMethod]
   );
-  const grandTotal = useMemo(() => totalValue + deliveryCost, [totalValue, deliveryCost]);
+  const grandTotal = useMemo(
+    () => discountedSubtotal + deliveryCost,
+    [deliveryCost, discountedSubtotal]
+  );
   const sbpQrPayload = useMemo(() => {
     const orderRef = pendingOrderId ? String(pendingOrderId) : "pending";
     const amount = Math.max(0, grandTotal);
@@ -1387,7 +1536,8 @@ const CheckoutPage = () => {
   const canCheckout =
     cartItems.length > 0 &&
     step === "form" &&
-    !submitLock;
+    !submitLock &&
+    !promoLoading;
 
   const focusField = useCallback((field: keyof typeof fieldErrors) => {
     const ref =
@@ -1766,6 +1916,9 @@ const CheckoutPage = () => {
           email,
         },
       };
+      if (promoApplied?.code) {
+        payload.promoCode = promoApplied.code;
+      }
 
       if (hasPhysical) {
         const shippingPayload: Record<string, any> = {
@@ -2124,6 +2277,58 @@ const CheckoutPage = () => {
                   </div>
                 )}
                 <div className="space-y-3 rounded-[22px] border border-white/10 bg-white/[0.03] p-5">
+                  <p className="text-xs uppercase tracking-[0.3em] text-white/50">Промокод</p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
+                    <input
+                      type="text"
+                      value={promoCodeInput}
+                      onChange={handlePromoInputChange}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") {
+                          event.preventDefault();
+                          void handleApplyPromo();
+                        }
+                      }}
+                      placeholder="Например, WELCOME10"
+                      className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm uppercase tracking-[0.08em] text-white outline-none transition focus:border-[#2ED1FF]/60"
+                      maxLength={32}
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyPromo}
+                      disabled={promoLoading || cartItems.length === 0}
+                      className="rounded-2xl border border-[#2ED1FF]/50 bg-[#0b1014] px-5 py-3 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {promoLoading ? "Проверка..." : "Применить"}
+                    </button>
+                  </div>
+                  {promoApplied && (
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
+                      <div>
+                        <p className="text-xs uppercase tracking-[0.22em] text-emerald-200/80">
+                          Промокод активен: {promoApplied.code}
+                        </p>
+                        <p className="mt-1 text-sm">
+                          Скидка: -{formatPrice(promoDiscount)} ₽
+                        </p>
+                        {promoApplied.description && (
+                          <p className="mt-1 text-xs text-emerald-100/70">
+                            {promoApplied.description}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearPromo}
+                        className="rounded-full border border-emerald-300/50 px-3 py-1 text-[10px] uppercase tracking-[0.28em] text-emerald-100 transition hover:border-emerald-100"
+                      >
+                        Убрать
+                      </button>
+                    </div>
+                  )}
+                  {promoError && <p className="text-xs text-rose-300">{promoError}</p>}
+                </div>
+                <div className="space-y-3 rounded-[22px] border border-white/10 bg-white/[0.03] p-5">
                   <p className="text-xs uppercase tracking-[0.3em] text-white/50">Оплата</p>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {availablePaymentOptions.map((option) => (
@@ -2170,6 +2375,8 @@ const CheckoutPage = () => {
                   }))}
                   subtotal={totalValue}
                   deliveryCost={deliveryCost}
+                  discount={promoDiscount}
+                  promoCode={promoApplied?.code}
                   total={grandTotal}
                   onCheckout={() => formRef.current?.requestSubmit()}
                   canCheckout={canCheckout}

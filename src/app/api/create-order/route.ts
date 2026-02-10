@@ -8,6 +8,7 @@ import {
   normalizeNameInput,
 } from "@/lib/cities";
 import { computePrintPrice } from "@/lib/printPricing";
+import { applyPromoDiscountToItems, validatePromoCode } from "@/lib/promocodes";
 
 export const dynamic = "force-dynamic";
 
@@ -190,6 +191,7 @@ export async function POST(request: NextRequest) {
             delete next.paymentProvider;
             delete next.paymentIntentId;
             delete next.paidAt;
+            delete next.promoCode;
             return next;
           })()
         : {};
@@ -234,6 +236,8 @@ export async function POST(request: NextRequest) {
 
     const incomingCustomFile = normalizeRelationshipId(data?.customFile);
     const incomingSpecs = normalizePrintSpecs(data?.technicalSpecs);
+    const incomingPromoCode =
+      typeof data?.promoCode === "string" ? data.promoCode.trim().toUpperCase() : "";
     const hasPhysical = items.some((item: { format?: string }) => item.format === "Physical");
     const paymentsMode = resolvePaymentsMode();
     const requestedPaymentMethod = normalizePaymentMethod(data?.paymentMethod);
@@ -432,7 +436,7 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const normalizedItems = items.map(
+    let normalizedItems = items.map(
       (item: {
         product: unknown;
         quantity?: number;
@@ -484,6 +488,38 @@ export async function POST(request: NextRequest) {
         unitPrice,
       };
     });
+
+    if (incomingPromoCode) {
+      const subtotalBeforePromo = normalizedItems.reduce((sum: number, item: any) => {
+        const qty = typeof item?.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+        const unitPrice =
+          typeof item?.unitPrice === "number" && item.unitPrice >= 0 ? item.unitPrice : 0;
+        return sum + unitPrice * qty;
+      }, 0);
+      const hasDigitalItems = normalizedItems.some((item: any) => item?.format === "Digital");
+      const hasPhysicalItems = normalizedItems.some((item: any) => item?.format === "Physical");
+      const promoValidation = validatePromoCode({
+        code: incomingPromoCode,
+        subtotal: subtotalBeforePromo,
+        hasDigital: hasDigitalItems,
+        hasPhysical: hasPhysicalItems,
+      });
+
+      if (!promoValidation.valid) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: promoValidation.message || "Промокод не применен.",
+          },
+          { status: 400 }
+        );
+      }
+
+      normalizedItems = applyPromoDiscountToItems(
+        normalizedItems,
+        promoValidation.discountAmount
+      );
+    }
 
     orderData.items = normalizedItems;
 
