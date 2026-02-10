@@ -269,6 +269,12 @@ const stripePromise = stripePublicKey ? loadStripe(stripePublicKey) : null;
 const sbpQrPayloadOverride = (process.env.NEXT_PUBLIC_SBP_QR_PAYLOAD || "").trim();
 const sbpQrImageOverride = (process.env.NEXT_PUBLIC_SBP_QR_IMAGE_URL || "").trim();
 const sbpMerchant = (process.env.NEXT_PUBLIC_SBP_MERCHANT || "3D-STORE").trim();
+const promoPlaceholderExample = (
+  process.env.NEXT_PUBLIC_PROMO_PLACEHOLDER_EXAMPLE || "WELCOME10"
+).trim();
+const showAppliedPromoCode =
+  (process.env.NEXT_PUBLIC_SHOW_APPLIED_PROMO_CODE || "true").trim().toLowerCase() !==
+  "false";
 const STRIPE_TEST_CARDS = [
   { number: "4242 4242 4242 4242", label: "Успешная оплата" },
   { number: "4000 0000 0000 0002", label: "Карта отклонена" },
@@ -2289,7 +2295,11 @@ const CheckoutPage = () => {
                           void handleApplyPromo();
                         }
                       }}
-                      placeholder="Например, WELCOME10"
+                      placeholder={
+                        promoPlaceholderExample
+                          ? `Например, ${promoPlaceholderExample}`
+                          : "Введите промокод"
+                      }
                       className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm uppercase tracking-[0.08em] text-white outline-none transition focus:border-[#2ED1FF]/60"
                       maxLength={32}
                     />
@@ -2306,7 +2316,9 @@ const CheckoutPage = () => {
                     <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">
                       <div>
                         <p className="text-xs uppercase tracking-[0.22em] text-emerald-200/80">
-                          Промокод активен: {promoApplied.code}
+                          {showAppliedPromoCode
+                            ? `Промокод активен: ${promoApplied.code}`
+                            : "Промокод применен"}
                         </p>
                         <p className="mt-1 text-sm">
                           Скидка: -{formatPrice(promoDiscount)} ₽
@@ -2376,7 +2388,7 @@ const CheckoutPage = () => {
                   subtotal={totalValue}
                   deliveryCost={deliveryCost}
                   discount={promoDiscount}
-                  promoCode={promoApplied?.code}
+                  promoCode={showAppliedPromoCode ? promoApplied?.code : undefined}
                   total={grandTotal}
                   onCheckout={() => formRef.current?.requestSubmit()}
                   canCheckout={canCheckout}

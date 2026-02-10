@@ -36,7 +36,7 @@ type DiscountableItem = {
   unitPrice?: number;
 };
 
-const PROMO_RULES: PromoRule[] = [
+const DEFAULT_PROMO_RULES: PromoRule[] = [
   {
     code: "WELCOME10",
     type: "percent",
@@ -51,6 +51,124 @@ const PROMO_RULES: PromoRule[] = [
 const normalizeCode = (value: string) => value.trim().toUpperCase();
 const roundMoney = (value: number) => Math.round(value * 100) / 100;
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const toPositiveNumber = (value: unknown): number | null => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const toOptionalNonNegative = (value: unknown): number | undefined => {
+  if (value === null || value === undefined || value === "") return undefined;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return undefined;
+  return parsed;
+};
+
+const toBoolean = (value: unknown, fallback = true): boolean => {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+};
+
+const normalizeScope = (value: unknown): PromoScope => {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "digital") return "digital";
+  if (normalized === "physical") return "physical";
+  return "all";
+};
+
+const normalizeType = (value: unknown): PromoType | null => {
+  const normalized = String(value ?? "")
+    .trim()
+    .toLowerCase();
+  if (normalized === "percent") return "percent";
+  if (normalized === "fixed") return "fixed";
+  return null;
+};
+
+const normalizeDateString = (value: unknown): string | undefined => {
+  if (typeof value !== "string" || !value.trim()) return undefined;
+  const trimmed = value.trim();
+  const timestamp = Date.parse(trimmed);
+  if (!Number.isFinite(timestamp)) return undefined;
+  return trimmed;
+};
+
+const toPromoRule = (raw: any): PromoRule | null => {
+  if (!raw || typeof raw !== "object") return null;
+  const code = normalizeCode(String(raw.code || ""));
+  const type = normalizeType(raw.type);
+  const value = toPositiveNumber(raw.value);
+  if (!code || !type || value === null) return null;
+
+  return {
+    code,
+    type,
+    value,
+    scope: normalizeScope(raw.scope),
+    minSubtotal: toOptionalNonNegative(raw.minSubtotal),
+    active: toBoolean(raw.active, true),
+    startsAt: normalizeDateString(raw.startsAt),
+    endsAt: normalizeDateString(raw.endsAt),
+    maxDiscount: toOptionalNonNegative(raw.maxDiscount),
+    description:
+      typeof raw.description === "string" && raw.description.trim()
+        ? raw.description.trim()
+        : undefined,
+  };
+};
+
+const parsePromoRulesFromJsonEnv = (): PromoRule[] => {
+  const raw = process.env.PROMO_RULES_JSON;
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((entry) => toPromoRule(entry))
+      .filter((entry): entry is PromoRule => Boolean(entry));
+  } catch {
+    return [];
+  }
+};
+
+const parseSinglePromoFromEnv = (): PromoRule | null => {
+  const code = normalizeCode(String(process.env.PROMO_CODE || ""));
+  if (!code) return null;
+  const type = normalizeType(process.env.PROMO_TYPE || "percent");
+  const value = toPositiveNumber(process.env.PROMO_VALUE || "");
+  if (!type || value === null) return null;
+
+  return {
+    code,
+    type,
+    value,
+    scope: normalizeScope(process.env.PROMO_SCOPE || "all"),
+    minSubtotal: toOptionalNonNegative(process.env.PROMO_MIN_SUBTOTAL),
+    active: toBoolean(process.env.PROMO_ACTIVE, true),
+    startsAt: normalizeDateString(process.env.PROMO_STARTS_AT),
+    endsAt: normalizeDateString(process.env.PROMO_ENDS_AT),
+    maxDiscount: toOptionalNonNegative(process.env.PROMO_MAX_DISCOUNT),
+    description:
+      typeof process.env.PROMO_DESCRIPTION === "string" && process.env.PROMO_DESCRIPTION.trim()
+        ? process.env.PROMO_DESCRIPTION.trim()
+        : undefined,
+  };
+};
+
+const getPromoRules = (): PromoRule[] => {
+  const jsonRules = parsePromoRulesFromJsonEnv();
+  if (jsonRules.length > 0) return jsonRules;
+  const singleRule = parseSinglePromoFromEnv();
+  if (singleRule) return [singleRule];
+  return DEFAULT_PROMO_RULES;
+};
 
 const isRuleActiveByDate = (rule: PromoRule, now: Date) => {
   const startsAt = rule.startsAt ? new Date(rule.startsAt).getTime() : null;
@@ -90,7 +208,7 @@ export const validatePromoCode = (input: PromoValidationInput): PromoValidationR
     };
   }
 
-  const rule = PROMO_RULES.find((entry) => normalizeCode(entry.code) === code);
+  const rule = getPromoRules().find((entry) => normalizeCode(entry.code) === code);
   if (!rule || rule.active === false) {
     return {
       valid: false,
@@ -197,3 +315,4 @@ export const applyPromoDiscountToItems = <T extends DiscountableItem>(
 
   return nextItems;
 };
+
