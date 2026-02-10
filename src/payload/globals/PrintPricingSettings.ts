@@ -3,10 +3,8 @@ import type { GlobalConfig } from "payload";
 import { hasFunnelAdminAccess } from "@/lib/funnelEvents";
 import { DEFAULT_PRINT_PRICING_RUNTIME_SETTINGS } from "@/lib/printPricingSettings";
 
-const canUpdateSettings = (args: any) => {
-  const req = args?.req;
-  return Boolean(req?.user && hasFunnelAdminAccess(req.user?.email));
-};
+const canUpdateSettings = ({ req }: any) =>
+  Boolean(req?.user && hasFunnelAdminAccess(req.user?.email));
 
 const defaults = DEFAULT_PRINT_PRICING_RUNTIME_SETTINGS;
 

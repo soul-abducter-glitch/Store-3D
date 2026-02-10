@@ -7,8 +7,7 @@ import {
   type FunnelEventName,
 } from "@/lib/funnelEvents";
 
-const canReadFunnelEvents = (args: any) => {
-  const req = args?.req;
+const canReadFunnelEvents = ({ req }: any) => {
   if (!req?.user) return false;
   return hasFunnelAdminAccess(req.user?.email);
 };
@@ -104,3 +103,4 @@ export const FunnelEvents: CollectionConfig = {
     },
   ],
 };
+
