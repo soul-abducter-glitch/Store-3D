@@ -1,9 +1,6 @@
 const { withPayload } = require("@payloadcms/next/withPayload");
 
-const isAdminMode =
-  process.env.NEXT_PUBLIC_MODE === "admin" ||
-  process.env.PORT === "3001" ||
-  (process.env.NEXT_PUBLIC_SERVER_URL || "").includes("3001");
+const isAdminMode = process.env.NEXT_PUBLIC_MODE === "admin";
 
 const securityHeaders = [
   { key: "X-DNS-Prefetch-Control", value: "off" },

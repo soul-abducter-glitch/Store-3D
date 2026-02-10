@@ -1,6 +1,5 @@
 import type { Metadata } from "next";
 import { Inter, JetBrains_Mono } from "next/font/google";
-import { RootLayout as PayloadRootLayout, handleServerFunctions } from "@payloadcms/next/layouts";
 import type { ServerFunctionClientArgs } from "payload";
 import "./globals.css";
 
@@ -19,22 +18,26 @@ const jetbrainsMono = JetBrains_Mono({
 const isAdminMode = process.env.NEXT_PUBLIC_MODE === "admin";
 
 const loadPayloadContext = async () => {
-  const [{ getPayload }, payloadConfigModule, importMapModule] = await Promise.all([
+  const [{ getPayload }, payloadConfigModule, importMapModule, payloadLayoutsModule] =
+    await Promise.all([
     import("payload"),
     import("../../payload.config"),
     import("./(payload)/admin/importMap"),
+    import("@payloadcms/next/layouts"),
   ]);
 
   return {
     getPayload,
     payloadConfig: payloadConfigModule.default,
     importMap: importMapModule.importMap,
+    PayloadRootLayout: payloadLayoutsModule.RootLayout,
+    handleServerFunctions: payloadLayoutsModule.handleServerFunctions,
   };
 };
 
 async function serverFunction(args: ServerFunctionClientArgs) {
   "use server";
-  const { getPayload, payloadConfig, importMap } = await loadPayloadContext();
+  const { getPayload, payloadConfig, importMap, handleServerFunctions } = await loadPayloadContext();
   const payload = await getPayload({ config: payloadConfig, importMap });
   return handleServerFunctions({
     ...args,
@@ -116,7 +119,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   if (isAdminMode) {
-    const { getPayload, payloadConfig, importMap } = await loadPayloadContext();
+    const { getPayload, payloadConfig, importMap, PayloadRootLayout } = await loadPayloadContext();
     const payload = await getPayload({ config: payloadConfig, importMap });
 
     return PayloadRootLayout({
