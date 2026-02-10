@@ -84,13 +84,14 @@ const formatPrice = (value?: number) => {
   return new Intl.NumberFormat("ru-RU").format(value);
 };
 
-const CANCEL_WINDOW_MINUTES = 30;
+const DIGITAL_CANCEL_WINDOW_MINUTES = 30;
+const PHYSICAL_CANCEL_WINDOW_MINUTES = 12 * 60;
 
-const isWithinCancelWindow = (createdAt?: string) => {
+const isWithinCancelWindow = (createdAt: unknown, windowMinutes: number) => {
   if (!createdAt) return false;
-  const createdAtMs = new Date(createdAt).getTime();
+  const createdAtMs = new Date(String(createdAt)).getTime();
   if (!Number.isFinite(createdAtMs)) return false;
-  return Date.now() - createdAtMs <= CANCEL_WINDOW_MINUTES * 60 * 1000;
+  return Date.now() - createdAtMs <= windowMinutes * 60 * 1000;
 };
 
 const buildCartThumbnail = (label: string) => {
@@ -215,6 +216,7 @@ export default function ProfilePage() {
     confirmPassword: "",
   });
   const [cancelingOrderId, setCancelingOrderId] = useState<string | null>(null);
+  const [cancelingOrderItemKey, setCancelingOrderItemKey] = useState<string | null>(null);
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
@@ -628,8 +630,10 @@ export default function ProfilePage() {
     return `${formatted} ${units[unitIndex]}`;
   };
 
+  const getOrderItems = (order: any) => (Array.isArray(order?.items) ? order.items : []);
+
   const getOrderProduct = (order: any) => {
-    const items = Array.isArray(order?.items) ? order.items : [];
+    const items = getOrderItems(order);
     const firstItem = items[0];
     const product = firstItem?.product ?? order?.product;
     if (product && typeof product === "object") {
@@ -653,12 +657,12 @@ export default function ProfilePage() {
   };
 
   const getOrderPrimaryFormat = (order: any) => {
-    const items = Array.isArray(order?.items) ? order.items : [];
+    const items = getOrderItems(order);
     return getOrderFormatLabel(items[0]?.format);
   };
 
   const getOrderPrintInfo = (order: any) => {
-    const items = Array.isArray(order?.items) ? order.items : [];
+    const items = getOrderItems(order);
     const printItem =
       items.find(
         (item: { printSpecs?: unknown; customerUpload?: unknown }) =>
@@ -678,19 +682,75 @@ export default function ProfilePage() {
   const getOrderStatusClass = (status?: string) => getOrderStatusTone(status);
 
   const isDigitalOrder = (order: any) => {
-    const items = Array.isArray(order?.items) ? order.items : [];
+    const items = getOrderItems(order);
     return items.some((item: { format?: string }) => item?.format === "Digital");
   };
 
-  const canCancelOrder = (order: any) => {
-    if (isDigitalOrder(order)) {
-      return false;
+  const resolveCancelWindowForItem = (item: any) =>
+    item?.format === "Physical" ? PHYSICAL_CANCEL_WINDOW_MINUTES : DIGITAL_CANCEL_WINDOW_MINUTES;
+
+  const resolveCancelWindowForOrder = (order: any) => {
+    const items = getOrderItems(order);
+    if (!items.length) {
+      return DIGITAL_CANCEL_WINDOW_MINUTES;
     }
+    const hasPhysical = items.some((item: { format?: string }) => item?.format === "Physical");
+    const hasDigital = items.some((item: { format?: string }) => item?.format !== "Physical");
+    if (hasPhysical && !hasDigital) {
+      return PHYSICAL_CANCEL_WINDOW_MINUTES;
+    }
+    return DIGITAL_CANCEL_WINDOW_MINUTES;
+  };
+
+  const canCancelByStatus = (order: any) => {
     const key = normalizeOrderStatus(order?.status);
     if (key === "ready" || key === "completed" || key === "cancelled") {
       return false;
     }
-    return isWithinCancelWindow(order?.createdAt);
+    return true;
+  };
+
+  const canCancelOrder = (order: any) => {
+    if (!canCancelByStatus(order)) {
+      return false;
+    }
+    const items = getOrderItems(order);
+    if (!items.length) {
+      return false;
+    }
+    return isWithinCancelWindow(order?.createdAt, resolveCancelWindowForOrder(order));
+  };
+
+  const canCancelOrderItem = (order: any, item: any) => {
+    if (!canCancelByStatus(order)) {
+      return false;
+    }
+    return isWithinCancelWindow(order?.createdAt, resolveCancelWindowForItem(item));
+  };
+
+  const getOrderItemKey = (item: any, index: number) =>
+    typeof item?.id === "string" && item.id.trim() ? item.id : `idx:${index}`;
+
+  const getOrderItemProductName = (item: any) => {
+    const product = item?.product;
+    if (product && typeof product === "object" && typeof product?.name === "string") {
+      return product.name;
+    }
+    if (typeof product === "string" && product.trim()) {
+      return product;
+    }
+    return "Товар";
+  };
+
+  const getOrderItemTotalLabel = (item: any) => {
+    const quantity = typeof item?.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+    const unitPrice = typeof item?.unitPrice === "number" && item.unitPrice >= 0 ? item.unitPrice : 0;
+    return {
+      quantity,
+      unitPrice,
+      lineTotal: formatPrice(quantity * unitPrice),
+      unitPriceLabel: formatPrice(unitPrice),
+    };
   };
 
   const resolveRelationshipId = (value: unknown) => {
@@ -887,11 +947,72 @@ export default function ProfilePage() {
       const message =
         error instanceof Error && error.message
           ? error.message
-          : "Не удалось отменить заказ. Отмена доступна в течение 30 минут после оформления.";
+          : "Не удалось отменить заказ. Проверьте лимит времени отмены (digital 30 минут, physical 12 часов).";
       toast.error(message, { className: "sonner-toast" });
       setOrdersError(null);
     } finally {
       setCancelingOrderId(null);
+    }
+  };
+
+  const handleCancelOrderItem = async (orderId: string, itemKey: string, itemIndex: number) => {
+    if (cancelingOrderItemKey || cancelingOrderId) {
+      return;
+    }
+    if (typeof window !== "undefined") {
+      const confirmed = window.confirm("Отменить выбранную позицию в заказе?");
+      if (!confirmed) {
+        return;
+      }
+    }
+
+    const requestKey = `${orderId}:${itemKey}`;
+    setCancelingOrderItemKey(requestKey);
+    setOrdersError(null);
+
+    try {
+      const response = await fetch(`${apiBase}/api/orders/${orderId}/cancel`, {
+        method: "POST",
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          itemId: itemKey.startsWith("idx:") ? undefined : itemKey,
+          itemIndex,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorBody = await response.json().catch(() => null);
+        const errorMessage =
+          errorBody?.errors?.[0]?.message ||
+          errorBody?.message ||
+          errorBody?.error ||
+          "Не удалось отменить позицию заказа.";
+        throw new Error(errorMessage);
+      }
+
+      const data = await response.json().catch(() => null);
+      const updatedDoc = data?.doc ?? null;
+      if (updatedDoc?.id) {
+        setOrders((prev) =>
+          prev.map((order) =>
+            String(order.id) === String(updatedDoc.id) ? updatedDoc : order
+          )
+        );
+      } else {
+        window.dispatchEvent(new Event("orders-updated"));
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось отменить позицию. Проверьте лимит времени отмены (digital 30 минут, physical 12 часов).";
+      toast.error(message, { className: "sonner-toast" });
+      setOrdersError(null);
+    } finally {
+      setCancelingOrderItemKey(null);
     }
   };
 
@@ -1249,6 +1370,12 @@ export default function ProfilePage() {
               {!ordersLoading &&
                 !ordersError &&
                 orders.map((order) => {
+                  const orderItems = getOrderItems(order);
+                  const orderItemsCount = orderItems.reduce((sum: number, item: any) => {
+                    const qty =
+                      typeof item?.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+                    return sum + qty;
+                  }, 0);
                   const totalLabel = typeof order.total === "number" ? formatPrice(order.total) : null;
                   const progressStage = getOrderProgressStage(order.status);
                   const statusKey = normalizeOrderStatus(order.status);
@@ -1274,7 +1401,9 @@ export default function ProfilePage() {
                             {getOrderProductName(order)}
                           </h3>
                           <p className="mt-1 text-sm text-white/60">
-                            {getOrderPrimaryFormat(order)}
+                            {orderItems.length > 1
+                              ? `${orderItems.length} позиций • ${orderItemsCount} шт.`
+                              : getOrderPrimaryFormat(order)}
                           </p>
                           {printInfo.filename && (
                             <p className="mt-2 text-xs text-white/50">Файл: {printInfo.filename}</p>
@@ -1341,11 +1470,58 @@ export default function ProfilePage() {
                               onClick={() => handleCancelOrder(orderId)}
                               className="mt-3 rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {cancelingOrderId === orderId ? "Отменяем..." : "Отменить заказ"}
+                              {cancelingOrderId === orderId ? "Отменяем..." : "Отменить весь заказ"}
                             </button>
                           )}
                         </div>
                       </div>
+                      {orderItems.length > 0 && (
+                        <div className="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+                          <p className="text-[10px] uppercase tracking-[0.3em] text-white/50">
+                            Состав заказа
+                          </p>
+                          <div className="mt-3 space-y-2">
+                            {orderItems.map((item: any, itemIndex: number) => {
+                              const itemKey = getOrderItemKey(item, itemIndex);
+                              const actionKey = `${orderId}:${itemKey}`;
+                              const totals = getOrderItemTotalLabel(item);
+                              const itemFormat = getOrderFormatLabel(item?.format);
+                              const canCancelItem = canCancelOrderItem(order, item);
+                              return (
+                                <div
+                                  key={actionKey}
+                                  className="flex flex-col gap-3 rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                                >
+                                  <div>
+                                    <p className="text-sm font-semibold text-white">
+                                      {getOrderItemProductName(item)}
+                                    </p>
+                                    <p className="text-xs text-white/60">
+                                      {itemFormat} • {totals.quantity} x {totals.unitPriceLabel} ₽
+                                    </p>
+                                  </div>
+                                  <div className="flex items-center gap-2 sm:justify-end">
+                                    <p className="text-sm font-semibold text-white">{totals.lineTotal} ₽</p>
+                                    {canCancelItem && (
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCancelOrderItem(orderId, itemKey, itemIndex)}
+                                        disabled={cancelingOrderItemKey === actionKey}
+                                        aria-disabled={cancelingOrderItemKey === actionKey}
+                                        className="rounded-full border border-red-400/20 bg-transparent px-3 py-1.5 text-[10px] uppercase tracking-[0.2em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                      >
+                                        {cancelingOrderItemKey === actionKey
+                                          ? "Отменяем..."
+                                          : "Отменить позицию"}
+                                      </button>
+                                    )}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   );
                 })}

@@ -166,7 +166,8 @@ const normalizePaymentMethod = (value?: string) => {
   return "card";
 };
 
-const CANCEL_WINDOW_MINUTES = 30;
+const DIGITAL_CANCEL_WINDOW_MINUTES = 30;
+const PHYSICAL_CANCEL_WINDOW_MINUTES = 12 * 60;
 
 const resolveCreatedAtMs = (value?: unknown) => {
   if (!value) return null;
@@ -175,10 +176,20 @@ const resolveCreatedAtMs = (value?: unknown) => {
   return Number.isFinite(ms) ? ms : null;
 };
 
-const isWithinCancelWindow = (createdAt?: unknown) => {
+const isWithinCancelWindow = (createdAt: unknown, windowMinutes: number) => {
   const createdAtMs = resolveCreatedAtMs(createdAt);
   if (!createdAtMs) return false;
-  return Date.now() - createdAtMs <= CANCEL_WINDOW_MINUTES * 60 * 1000;
+  return Date.now() - createdAtMs <= windowMinutes * 60 * 1000;
+};
+
+const resolveCancelWindowForItems = (items: any[]) => {
+  const hasPhysical = items.some((item) => !isDigitalFormat(item?.format));
+  const hasDigital = items.some((item) => isDigitalFormat(item?.format));
+
+  if (hasPhysical && !hasDigital) {
+    return PHYSICAL_CANCEL_WINDOW_MINUTES;
+  }
+  return DIGITAL_CANCEL_WINDOW_MINUTES;
 };
 
 export const Orders: CollectionConfig = {
@@ -222,15 +233,15 @@ export const Orders: CollectionConfig = {
           }
           if (nextStatus === "cancelled" && !privileged) {
             const originalItems = Array.isArray(originalDoc?.items) ? originalDoc.items : [];
-            const hasPhysical =
-              originalItems.length > 0
-                ? originalItems.some((item: any) => !isDigitalFormat(item?.format))
-                : false;
-            if (!hasPhysical) {
-              throw new Error("Цифровые заказы нельзя отменить.");
+            if (originalItems.length === 0) {
+              throw new Error("В заказе нет позиций для отмены.");
             }
-            if (!isWithinCancelWindow(originalDoc?.createdAt)) {
-              throw new Error("Отмена доступна в течение 30 минут после оформления.");
+            const cancelWindowMinutes = resolveCancelWindowForItems(originalItems);
+            if (!isWithinCancelWindow(originalDoc?.createdAt, cancelWindowMinutes)) {
+              if (cancelWindowMinutes === PHYSICAL_CANCEL_WINDOW_MINUTES) {
+                throw new Error("Физические заказы можно отменить в течение 12 часов после оформления.");
+              }
+              throw new Error("Цифровые заказы можно отменить в течение 30 минут после оформления.");
             }
           }
         }
