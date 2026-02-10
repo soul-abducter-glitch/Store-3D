@@ -15,7 +15,19 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
 });
 
-const isAdminMode = process.env.NEXT_PUBLIC_MODE === "admin";
+const mode = (process.env.NEXT_PUBLIC_MODE || "").toLowerCase();
+const vercelHost = (
+  process.env.VERCEL_PROJECT_PRODUCTION_URL ||
+  process.env.VERCEL_URL ||
+  ""
+).toLowerCase();
+const isVercel = Boolean(process.env.VERCEL);
+const isAdminHost = vercelHost.includes("admin");
+const isLocalAdmin =
+  !isVercel &&
+  (process.env.PORT === "3001" || (process.env.NEXT_PUBLIC_SERVER_URL || "").includes("3001"));
+const forceAdminMode = process.env.FORCE_ADMIN_MODE === "true";
+const isAdminMode = mode === "admin" && (isAdminHost || isLocalAdmin || forceAdminMode);
 
 const loadPayloadContext = async () => {
   const [{ getPayload }, payloadConfigModule, importMapModule, payloadLayoutsModule] =
