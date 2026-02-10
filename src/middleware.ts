@@ -138,10 +138,7 @@ export function middleware(request: NextRequest) {
     pathname.startsWith("/admin") ||
     pathname.startsWith("/api") ||
     pathname.startsWith("/_next") ||
-    pathname.startsWith("/favicon") ||
-    pathname === "/manifest.webmanifest" ||
-    pathname === "/icon.svg" ||
-    pathname.startsWith("/icons")
+    pathname.startsWith("/favicon")
   ) {
     return NextResponse.next();
   }
