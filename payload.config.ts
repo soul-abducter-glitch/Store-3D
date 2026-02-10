@@ -34,7 +34,6 @@ const serverURL =
   "http://localhost:3000";
 const payloadSecret = process.env.PAYLOAD_SECRET;
 const databaseURL = process.env.DATABASE_URL;
-const enableProdMigrations = process.env.ENABLE_PAYLOAD_PROD_MIGRATIONS === "true";
 const s3AccessKeyId = process.env.S3_ACCESS_KEY_ID;
 const s3SecretAccessKey = process.env.S3_SECRET_ACCESS_KEY;
 const s3Bucket = process.env.S3_BUCKET;
@@ -347,17 +346,13 @@ export default buildConfig({
     await ensurePrintServiceProduct(payload);
   },
   db: postgresAdapter({
-    ...(enableProdMigrations
-      ? {
-          prodMigrations: [
-            {
-              name: "20260210_ensure_funnel_rel_columns",
-              up: ensureFunnelRelsColumnsMigrationUp,
-              down: ensureFunnelRelsColumnsMigrationDown,
-            },
-          ],
-        }
-      : {}),
+    prodMigrations: [
+      {
+        name: "20260210_ensure_funnel_rel_columns",
+        up: ensureFunnelRelsColumnsMigrationUp,
+        down: ensureFunnelRelsColumnsMigrationDown,
+      },
+    ],
     pool: {
       connectionString: databaseURL,
       connectionTimeoutMillis: 20000,
