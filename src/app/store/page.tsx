@@ -46,7 +46,6 @@ import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
 import { ORDER_STATUS_UNREAD_KEY } from "@/lib/orderStatus";
 import { useFavorites, type FavoriteItem } from "@/lib/favorites";
-import { trackFunnelEvent } from "@/lib/analyticsClient";
 import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 
 type TechMode = "SLA Resin" | "FDM Plastic";
@@ -896,8 +895,6 @@ export default function Home() {
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
   const cartLoadedKeyRef = useRef<string | null>(null);
-  const hasTrackedStoreViewRef = useRef(false);
-  const viewedProductIdsRef = useRef<Set<string>>(new Set());
   const heroSectionRef = useRef<HTMLDivElement | null>(null);
   const heroEntranceRef = useRef<HTMLDivElement | null>(null);
   const fullscreenRef = useRef<HTMLDivElement | null>(null);
@@ -998,12 +995,6 @@ export default function Home() {
 
   useEffect(() => {
     setIsMounted(true);
-  }, []);
-
-  useEffect(() => {
-    if (hasTrackedStoreViewRef.current) return;
-    hasTrackedStoreViewRef.current = true;
-    void trackFunnelEvent("store_view");
   }, []);
 
   useEffect(() => {
@@ -1698,20 +1689,6 @@ export default function Home() {
     return filteredProducts.find((product) => product.id === currentModelId) ?? null;
   }, [filteredProducts, currentModelId]);
 
-  useEffect(() => {
-    if (!currentProduct?.id) return;
-    if (viewedProductIdsRef.current.has(currentProduct.id)) return;
-    viewedProductIdsRef.current.add(currentProduct.id);
-    void trackFunnelEvent("product_view", {
-      productId: currentProduct.id,
-      amount:
-        typeof currentProduct.priceValue === "number"
-          ? currentProduct.priceValue
-          : undefined,
-      currency: "RUB",
-    });
-  }, [currentProduct?.id, currentProduct?.priceValue]);
-
   const interiorBackgroundUrl = useMemo(
     () => pickInteriorBackground(currentProduct),
     [currentProduct]
@@ -2126,14 +2103,6 @@ export default function Home() {
           : item
       );
     });
-    void trackFunnelEvent("add_to_cart", {
-      productId: product.id,
-      amount: priceValue,
-      currency: "RUB",
-      metadata: {
-        format: resolvedFormatKey,
-      },
-    });
     showSuccess("Товар добавлен");
   };
 
@@ -2153,10 +2122,6 @@ export default function Home() {
 
   const handleCheckout = () => {
     setIsCartOpen(false);
-    void trackFunnelEvent("checkout_submit", {
-      amount: cartTotal,
-      currency: "RUB",
-    });
     router.push("/checkout");
   };
 

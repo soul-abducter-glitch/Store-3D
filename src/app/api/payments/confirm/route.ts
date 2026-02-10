@@ -3,7 +3,6 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { captureFunnelEvent } from "@/lib/funnelServer";
 
 export const dynamic = "force-dynamic";
 
@@ -162,38 +161,6 @@ export async function POST(request: NextRequest) {
         } as any,
       });
 
-      if (status === "paid") {
-        await captureFunnelEvent({
-          payload,
-          name: "payment_paid",
-          sessionId: request.headers.get("x-funnel-session"),
-          userId: authUser?.id ?? null,
-          orderId: order.id,
-          amount:
-            typeof order?.total === "number" && Number.isFinite(order.total)
-              ? order.total
-              : null,
-          currency: "RUB",
-          path: request.nextUrl.pathname,
-          metadata: { provider: "mock" },
-        });
-      } else {
-        await captureFunnelEvent({
-          payload,
-          name: "payment_failed",
-          sessionId: request.headers.get("x-funnel-session"),
-          userId: authUser?.id ?? null,
-          orderId: order.id,
-          amount:
-            typeof order?.total === "number" && Number.isFinite(order.total)
-              ? order.total
-              : null,
-          currency: "RUB",
-          path: request.nextUrl.pathname,
-          metadata: { provider: "mock", status },
-        });
-      }
-
       return NextResponse.json(
         { success: true, orderId, paymentStatus: status },
         { status: 200 }
@@ -273,21 +240,6 @@ export async function POST(request: NextRequest) {
           "x-internal-payment": "stripe",
         }),
       } as any,
-    });
-
-    await captureFunnelEvent({
-      payload,
-      name: "payment_paid",
-      sessionId: request.headers.get("x-funnel-session"),
-      userId: authUser?.id ?? null,
-      orderId: order.id,
-      amount:
-        typeof order?.total === "number" && Number.isFinite(order.total)
-          ? order.total
-          : null,
-      currency: "RUB",
-      path: request.nextUrl.pathname,
-      metadata: { provider: "stripe" },
     });
 
     return NextResponse.json(

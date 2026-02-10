@@ -538,16 +538,6 @@ export const Orders: CollectionConfig = {
               type: "number",
               min: 0,
             },
-            {
-              name: "isHollow",
-              type: "checkbox",
-            },
-            {
-              name: "infillPercent",
-              type: "number",
-              min: 0,
-              max: 100,
-            },
           ],
         },
       ],
@@ -566,14 +556,6 @@ export const Orders: CollectionConfig = {
           type: "text",
         },
         {
-          name: "technology",
-          type: "text",
-        },
-        {
-          name: "quality",
-          type: "text",
-        },
-        {
           name: "dimensions",
           type: "group",
           fields: [
@@ -586,16 +568,6 @@ export const Orders: CollectionConfig = {
           name: "volumeCm3",
           type: "number",
           min: 0,
-        },
-        {
-          name: "isHollow",
-          type: "checkbox",
-        },
-        {
-          name: "infillPercent",
-          type: "number",
-          min: 0,
-          max: 100,
         },
       ],
     },

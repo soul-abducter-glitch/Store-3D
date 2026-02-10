@@ -40,12 +40,6 @@ import {
 } from "lucide-react";
 import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 import { computePrintPrice } from "@/lib/printPricing";
-import {
-  DEFAULT_PRINT_PRICING_RUNTIME_SETTINGS,
-  normalizePrintPricingRuntimeSettings,
-  type PrintPricingRuntimeSettings,
-} from "@/lib/printPricingSettings";
-import { trackFunnelEvent } from "@/lib/analyticsClient";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -601,8 +595,6 @@ function PrintServiceContent() {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
   const [technologyLocked, setTechnologyLocked] = useState(false);
-  const [pricingSettings, setPricingSettings] = useState<PrintPricingRuntimeSettings | null>(null);
-  const hasTrackedViewRef = useRef(false);
   const apiBase = "";
   const cartStorageKey = useMemo(
     () => getCartStorageKey(isLoggedIn ? userId : null),
@@ -616,34 +608,6 @@ function PrintServiceContent() {
     if (typeof window === "undefined") return;
     const ua = navigator.userAgent || "";
     setIsMobileUa(/android|iphone|ipad|ipod|iemobile|mobile/i.test(ua));
-  }, []);
-
-  useEffect(() => {
-    if (hasTrackedViewRef.current) return;
-    hasTrackedViewRef.current = true;
-    void trackFunnelEvent("print_service_view");
-  }, []);
-
-  useEffect(() => {
-    let isMounted = true;
-    const loadPricingSettings = async () => {
-      try {
-        const response = await fetch("/api/print-pricing-settings", {
-          cache: "no-store",
-        });
-        const data = await response.json().catch(() => null);
-        if (!isMounted) return;
-        const normalized = normalizePrintPricingRuntimeSettings(data?.settings);
-        setPricingSettings(normalized);
-      } catch {
-        if (!isMounted) return;
-        setPricingSettings(DEFAULT_PRINT_PRICING_RUNTIME_SETTINGS);
-      }
-    };
-    void loadPricingSettings();
-    return () => {
-      isMounted = false;
-    };
   }, []);
 
   const clearRetryTimer = useCallback(() => {
@@ -837,16 +801,13 @@ function PrintServiceContent() {
         volumeCm3: scaledMetrics?.volumeCm3,
         isHollow: technology === "sla" ? isHollowModel : undefined,
         infillPercent: technology === "fdm" ? infillPercent : undefined,
-        enableSmart: pricingSettings?.smartEnabled ?? SMART_PRICING_ENABLED,
-        queueMultiplier: pricingSettings?.queueMultiplier ?? SMART_QUEUE_MULTIPLIER,
-      }, pricingSettings?.coefficients),
+        enableSmart: SMART_PRICING_ENABLED,
+        queueMultiplier: SMART_QUEUE_MULTIPLIER,
+      }),
     [
       infillPercent,
       isHollowModel,
       material,
-      pricingSettings?.coefficients,
-      pricingSettings?.queueMultiplier,
-      pricingSettings?.smartEnabled,
       quality,
       technology,
       scaledMetrics?.size,
@@ -1899,11 +1860,6 @@ function PrintServiceContent() {
       persistPendingCart(cartItem);
       const success = commitCartItem(cartItem);
       if (success) {
-        void trackFunnelEvent("add_to_cart_print", {
-          productId: serviceProductId ?? undefined,
-          amount: Math.round(price),
-          currency: "RUB",
-        });
         showSuccess("Файл добавлен в корзину. Войдите, чтобы оформить заказ.");
       } else {
         showError("Не удалось обновить корзину.");
@@ -1915,11 +1871,6 @@ function PrintServiceContent() {
     setIsAdding(true);
     const success = commitCartItem(cartItem);
     if (success) {
-      void trackFunnelEvent("add_to_cart_print", {
-        productId: serviceProductId ?? undefined,
-        amount: Math.round(price),
-        currency: "RUB",
-      });
       showSuccess("Файл добавлен в корзину.");
     } else {
       showError("Не удалось обновить корзину.");
@@ -2517,7 +2468,7 @@ function PrintServiceContent() {
                 <p className="mt-1 text-xs uppercase tracking-[0.2em] text-[#D4AF37]/60">
                   {pricing.model === "smart"
                     ? `SMART ESTIMATE • Q:${formatNumber(pricing.queueMultiplier, 2)}`
-                    : `BASE ${pricingSettings?.coefficients.baseFee ?? BASE_FEE} + ОПЦИИ`}
+                    : `BASE ${BASE_FEE} + ОПЦИИ`}
                 </p>
               </div>
 

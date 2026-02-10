@@ -26,7 +26,6 @@ import {
   normalizeCityInput,
   normalizeNameInput,
 } from "@/lib/cities";
-import { getFunnelSessionId, trackFunnelEvent } from "@/lib/analyticsClient";
 import { getCartStorageKey, readCartStorage, removeCartStorage } from "@/lib/cartStorage";
 
 type CartItem = {
@@ -52,8 +51,6 @@ type CustomPrintMeta = {
   technology?: string;
   material?: string;
   quality?: string;
-  isHollow?: boolean;
-  infillPercent?: number;
   dimensions?: { x: number; y: number; z: number };
   volumeCm3?: number;
 };
@@ -108,9 +105,6 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     technology: typeof raw.technology === "string" ? raw.technology : undefined,
     material: typeof raw.material === "string" ? raw.material : undefined,
     quality: typeof raw.quality === "string" ? raw.quality : undefined,
-    isHollow: typeof raw.isHollow === "boolean" ? raw.isHollow : undefined,
-    infillPercent:
-      typeof raw.infillPercent === "number" ? raw.infillPercent : undefined,
     dimensions,
     volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
   };
@@ -878,7 +872,6 @@ const CheckoutPage = () => {
   const [sbpQrError, setSbpQrError] = useState<string | null>(null);
   const [submitLock, setSubmitLock] = useState(false);
   const [draftLoaded, setDraftLoaded] = useState(false);
-  const checkoutViewTrackedRef = useRef(false);
   const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
@@ -948,15 +941,6 @@ const CheckoutPage = () => {
   const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
   const checkoutCtaLabel = "ПОДТВЕРДИТЬ";
-  const getFunnelHeaders = useCallback((): Record<string, string> => {
-    const sessionId = getFunnelSessionId();
-    if (!sessionId) {
-      return {};
-    }
-    return {
-      "x-funnel-session": sessionId,
-    };
-  }, []);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1196,21 +1180,6 @@ const CheckoutPage = () => {
     [hasPhysical, form.shippingMethod]
   );
   const grandTotal = useMemo(() => totalValue + deliveryCost, [totalValue, deliveryCost]);
-  useEffect(() => {
-    if (!cartReady || cartItems.length === 0 || checkoutViewTrackedRef.current) {
-      return;
-    }
-    checkoutViewTrackedRef.current = true;
-    void trackFunnelEvent("checkout_view", {
-      amount: grandTotal,
-      currency: "RUB",
-      metadata: {
-        hasPhysical,
-        hasDigital,
-      },
-    });
-  }, [cartItems.length, cartReady, grandTotal, hasDigital, hasPhysical]);
-
   const sbpQrPayload = useMemo(() => {
     const orderRef = pendingOrderId ? String(pendingOrderId) : "pending";
     const amount = Math.max(0, grandTotal);
@@ -1462,7 +1431,6 @@ const CheckoutPage = () => {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...getFunnelHeaders(),
         },
         credentials: "include",
         body: JSON.stringify({ orderId, paymentIntentId }),
@@ -1473,7 +1441,7 @@ const CheckoutPage = () => {
       }
       return response.json();
     },
-    [getFunnelHeaders, paymentsConfirmUrl]
+    [paymentsConfirmUrl]
   );
 
   const createOrder = useCallback(
@@ -1494,7 +1462,6 @@ const CheckoutPage = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...getFunnelHeaders(),
           },
           credentials: "include",
           body: JSON.stringify(payload),
@@ -1561,16 +1528,6 @@ const CheckoutPage = () => {
         paymentStatus,
         paymentMode: paymentsMode,
       });
-      if (createdOrderId) {
-        void trackFunnelEvent("order_created", {
-          orderId: createdOrderId,
-          amount:
-            typeof payload?.total === "number" && Number.isFinite(payload.total)
-              ? payload.total
-              : undefined,
-          currency: "RUB",
-        });
-      }
 
       return {
         createdOrderId,
@@ -1580,7 +1537,7 @@ const CheckoutPage = () => {
         paymentIntentError,
       };
     },
-    [getFunnelHeaders, ordersApiUrl, paymentMethod, paymentsMode, requestPaymentIntent]
+    [ordersApiUrl, paymentMethod, paymentsMode, requestPaymentIntent]
   );
 
   const handlePaymentSimulation = useCallback(
@@ -1611,7 +1568,6 @@ const CheckoutPage = () => {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            ...getFunnelHeaders(),
           },
           credentials: "include",
           body: JSON.stringify({ orderId, status }),
@@ -1621,11 +1577,6 @@ const CheckoutPage = () => {
           throw new Error(errorText || "Не удалось обновить статус оплаты.");
         }
         if (status === "paid") {
-          void trackFunnelEvent("payment_paid", {
-            orderId,
-            amount: grandTotal,
-            currency: "RUB",
-          });
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("orders-updated"));
           }
@@ -1643,13 +1594,6 @@ const CheckoutPage = () => {
         setPaymentStageError(
           error instanceof Error ? error.message : "Не удалось обновить статус оплаты."
         );
-        if (pendingOrderId) {
-          void trackFunnelEvent("payment_failed", {
-            orderId: pendingOrderId,
-            amount: grandTotal,
-            currency: "RUB",
-          });
-        }
         logCheckoutEvent("payment:simulate:error", {
           message: error instanceof Error ? error.message : "Не удалось обновить статус оплаты.",
         });
@@ -1661,8 +1605,6 @@ const CheckoutPage = () => {
       cartStorageKey,
       clearCheckoutDraft,
       createOrder,
-      getFunnelHeaders,
-      grandTotal,
       logCheckoutEvent,
       pendingOrderId,
       pendingOrderPayload,
@@ -1706,14 +1648,6 @@ const CheckoutPage = () => {
     setSubmitError(null);
     setSubmitLock(true);
     logCheckoutEvent("checkout:submit");
-    void trackFunnelEvent("checkout_submit", {
-      amount: grandTotal,
-      currency: "RUB",
-      metadata: {
-        hasPhysical,
-        hasDigital,
-      },
-    });
 
     try {
       // Validate products before creating order
@@ -1740,8 +1674,6 @@ const CheckoutPage = () => {
           technology?: string;
           material?: string;
           quality?: string;
-          isHollow?: boolean;
-          infillPercent?: number;
           dimensions?: { x: number; y: number; z: number };
           volumeCm3?: number;
         };
@@ -1764,8 +1696,6 @@ const CheckoutPage = () => {
               technology: item.customPrint.technology,
               material: item.customPrint.material,
               quality: item.customPrint.quality,
-              isHollow: item.customPrint.isHollow,
-              infillPercent: item.customPrint.infillPercent,
               dimensions: item.customPrint.dimensions,
               volumeCm3: item.customPrint.volumeCm3,
             }

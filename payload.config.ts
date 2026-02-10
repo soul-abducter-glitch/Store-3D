@@ -9,9 +9,7 @@ import { Categories } from "@/payload/collections/Categories";
 import { Media } from "@/payload/collections/Media";
 import { Orders } from "@/payload/collections/Orders";
 import { Products } from "@/payload/collections/Products";
-import { FunnelEvents } from "@/payload/collections/FunnelEvents";
 import { Users } from "@/payload/collections/Users";
-import { PrintPricingSettings } from "@/payload/globals/PrintPricingSettings";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -297,8 +295,7 @@ export default buildConfig({
       fileSize: 200 * 1024 * 1024, // 200MB
     },
   },
-  collections: [Users, Categories, Media, Products, Orders, FunnelEvents],
-  globals: [PrintPricingSettings],
+  collections: [Users, Categories, Media, Products, Orders],
   onInit: async (payload) => {
     await ensureBaseCategories(payload);
     await ensurePrintServiceProduct(payload);
