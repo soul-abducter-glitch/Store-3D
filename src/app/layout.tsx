@@ -16,7 +16,10 @@ const jetbrainsMono = JetBrains_Mono({
   variable: "--font-jetbrains-mono",
 });
 
-const isAdminMode = process.env.NEXT_PUBLIC_MODE === "admin";
+const isAdminMode =
+  process.env.NEXT_PUBLIC_MODE === "admin" ||
+  process.env.PORT === "3001" ||
+  (process.env.NEXT_PUBLIC_SERVER_URL || "").includes("3001");
 
 const loadPayloadContext = async () => {
   const [{ getPayload }, payloadConfigModule, importMapModule] = await Promise.all([
