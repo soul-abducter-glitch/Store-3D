@@ -325,6 +325,7 @@ type AiSearchIntent = {
   technology?: TechMode;
   verified?: boolean;
   useGlobalCatalog?: boolean;
+  priceMax?: number;
   query: string;
 };
 
@@ -341,6 +342,11 @@ const AI_TECH_RULES: Array<{ value: TechMode; keywords: string[] }> = [
 const AI_VERIFIED_POSITIVE = ["verified", "провер", "quality", "качеств"];
 const AI_VERIFIED_NEGATIVE = ["непровер", "без провер", "raw only"];
 const AI_GLOBAL_KEYWORDS = ["все", "люб", "any", "all", "без фильтра", "global"];
+const AI_PRINT_PRESET_KEYWORDS = ["для печати", "на печать", "печать на заказ", "to print"];
+const AI_DOWNLOAD_PRESET_KEYWORDS = ["для скачивания", "скачать", "download only", "to download"];
+const AI_PRICE_PATTERN =
+  /(?:до|дешевле|не дороже|under|less than)\s*([0-9][0-9\s.,]*)(?:\s*(k|к|тыс))?/giu;
+const AI_CURRENCY_TOKENS = ["руб", "руб.", "рублей", "₽", "rur", "rub"];
 
 const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
@@ -354,22 +360,48 @@ const extractAiSearchIntent = (input: string): AiSearchIntent => {
   const detectRule = <T extends string>(rules: Array<{ value: T; keywords: string[] }>) =>
     rules.find((rule) => rule.keywords.some((keyword) => includesKeyword(keyword)))?.value;
 
-  const format = detectRule(AI_FORMAT_RULES);
-  const technology = detectRule(AI_TECH_RULES);
-  const verified = AI_VERIFIED_NEGATIVE.some(includesKeyword)
+  const hasPrintPreset = AI_PRINT_PRESET_KEYWORDS.some(includesKeyword);
+  const hasDownloadPreset = AI_DOWNLOAD_PRESET_KEYWORDS.some(includesKeyword);
+  const format = hasPrintPreset
+    ? "physical"
+    : hasDownloadPreset
+      ? "digital"
+      : detectRule(AI_FORMAT_RULES);
+  const detectedTechnology = detectRule(AI_TECH_RULES);
+  const technology = hasPrintPreset ? detectedTechnology ?? "SLA Resin" : detectedTechnology;
+  const detectedVerified = AI_VERIFIED_NEGATIVE.some(includesKeyword)
     ? false
     : AI_VERIFIED_POSITIVE.some(includesKeyword)
       ? true
       : undefined;
+  const verified = hasPrintPreset ? detectedVerified ?? true : detectedVerified;
   const useGlobalCatalog = AI_GLOBAL_KEYWORDS.some(includesKeyword) ? true : undefined;
+  const priceMatch = AI_PRICE_PATTERN.exec(normalized);
+  AI_PRICE_PATTERN.lastIndex = 0;
+  let priceMax: number | undefined;
+  if (priceMatch) {
+    const rawNumber = (priceMatch[1] || "").replace(/[^\d.,]/g, "").replace(",", ".");
+    const base = Number.parseFloat(rawNumber);
+    if (Number.isFinite(base) && base > 0) {
+      const multiplier = priceMatch[2] ? 1000 : 1;
+      const resolved = Math.round(base * multiplier);
+      if (resolved > 0) {
+        priceMax = resolved;
+      }
+    }
+  }
 
   let cleaned = ` ${normalized} `;
+  cleaned = cleaned.replace(AI_PRICE_PATTERN, " ");
   const stripKeywords = [
     ...AI_FORMAT_RULES.flatMap((rule) => rule.keywords),
     ...AI_TECH_RULES.flatMap((rule) => rule.keywords),
     ...AI_VERIFIED_POSITIVE,
     ...AI_VERIFIED_NEGATIVE,
     ...AI_GLOBAL_KEYWORDS,
+    ...AI_PRINT_PRESET_KEYWORDS,
+    ...AI_DOWNLOAD_PRESET_KEYWORDS,
+    ...AI_CURRENCY_TOKENS,
   ];
 
   stripKeywords.forEach((keyword) => {
@@ -385,6 +417,7 @@ const extractAiSearchIntent = (input: string): AiSearchIntent => {
     technology,
     verified,
     useGlobalCatalog,
+    priceMax,
     query,
   };
 };
@@ -935,9 +968,11 @@ export default function Home() {
   const [technology, setTechnology] = useState<TechMode>("SLA Resin");
   const [verified, setVerified] = useState(false);
   const [useGlobalCatalog, setUseGlobalCatalog] = useState(false);
+  const [aiPriceMax, setAiPriceMax] = useState<number | null>(null);
   const [activeCategory, setActiveCategory] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [appliedSearchQuery, setAppliedSearchQuery] = useState("");
+  const [aiSearchHighlight, setAiSearchHighlight] = useState(false);
   const [recentSearches, setRecentSearches] = useState<string[]>([]);
   const [currentModelId, setCurrentModelId] = useState<string | null>(null);
   const [isAuthModalOpen, setAuthModalOpen] = useState(false);
@@ -971,6 +1006,7 @@ export default function Home() {
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [showFullscreenUI, setShowFullscreenUI] = useState(true);
   const uiHideTimeoutRef = useRef<number | null>(null);
+  const aiHighlightTimeoutRef = useRef<number | null>(null);
   const [canAutoHideUi, setCanAutoHideUi] = useState(true);
   const scrollYRef = useRef(0);
   const wasFullscreenRef = useRef(false);
@@ -1065,6 +1101,15 @@ export default function Home() {
 
   useEffect(() => {
     setIsMounted(true);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (aiHighlightTimeoutRef.current) {
+        window.clearTimeout(aiHighlightTimeoutRef.current);
+        aiHighlightTimeoutRef.current = null;
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -1185,6 +1230,17 @@ export default function Home() {
     });
   }, []);
 
+  const triggerAiSearchHighlight = useCallback(() => {
+    setAiSearchHighlight(true);
+    if (aiHighlightTimeoutRef.current) {
+      window.clearTimeout(aiHighlightTimeoutRef.current);
+    }
+    aiHighlightTimeoutRef.current = window.setTimeout(() => {
+      setAiSearchHighlight(false);
+      aiHighlightTimeoutRef.current = null;
+    }, 1200);
+  }, []);
+
   const handleAiSearch = useCallback(
     (value: string) => {
       const raw = value.trim();
@@ -1194,6 +1250,8 @@ export default function Home() {
       }
 
       const intent = extractAiSearchIntent(raw);
+      triggerAiSearchHighlight();
+
       if (intent.format) {
         setFormat(intent.format);
       }
@@ -1205,10 +1263,28 @@ export default function Home() {
       }
       if (typeof intent.useGlobalCatalog === "boolean") {
         setUseGlobalCatalog(intent.useGlobalCatalog);
+      } else if (
+        intent.format ||
+        intent.technology ||
+        typeof intent.verified === "boolean" ||
+        typeof intent.priceMax === "number"
+      ) {
+        setUseGlobalCatalog(false);
       }
+      setAiPriceMax(typeof intent.priceMax === "number" ? intent.priceMax : null);
+
+      const hasFilters =
+        Boolean(intent.format) ||
+        Boolean(intent.technology) ||
+        typeof intent.verified === "boolean" ||
+        typeof intent.useGlobalCatalog === "boolean" ||
+        typeof intent.priceMax === "number";
       if (intent.query) {
         setSearchQuery(intent.query);
         commitSearch(intent.query);
+      } else if (hasFilters) {
+        setSearchQuery("");
+        commitSearch("");
       } else {
         setSearchQuery(raw);
         commitSearch(raw);
@@ -1223,6 +1299,9 @@ export default function Home() {
       if (intent.useGlobalCatalog) {
         appliedFilters.push("Глобальный каталог");
       }
+      if (typeof intent.priceMax === "number") {
+        appliedFilters.push(`До ₽${formatPrice(intent.priceMax)}`);
+      }
 
       if (appliedFilters.length) {
         showSuccess(`AI-поиск применил фильтры: ${appliedFilters.join(", ")}`);
@@ -1230,7 +1309,7 @@ export default function Home() {
         showSuccess("AI-поиск применен.");
       }
     },
-    [commitSearch, showError, showSuccess]
+    [commitSearch, showError, showSuccess, triggerAiSearchHighlight]
   );
 
   const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
@@ -1632,6 +1711,10 @@ export default function Home() {
       const matchesFormat = useGlobalCatalog ? true : product.formatKey === format;
       const matchesTech = useGlobalCatalog ? true : product.techKey === technology;
       const matchesVerified = useGlobalCatalog ? true : !verified || product.verified;
+      const matchesPrice =
+        aiPriceMax === null
+          ? true
+          : typeof product.priceValue === "number" && product.priceValue <= aiPriceMax;
       const matchesCategory = activeCategory
         ? product.categoryKeys.includes(activeCategory)
         : true;
@@ -1643,13 +1726,21 @@ export default function Home() {
           product.slug,
           ...product.categoryTitles,
         ].some((value) => value && matchesQuery(String(value), normalizedQuery));
-      return matchesFormat && matchesTech && matchesVerified && matchesCategory && matchesSearch;
+      return (
+        matchesFormat &&
+        matchesTech &&
+        matchesVerified &&
+        matchesPrice &&
+        matchesCategory &&
+        matchesSearch
+      );
     });
   }, [
     normalizedProducts,
     format,
     technology,
     verified,
+    aiPriceMax,
     activeCategory,
     normalizedQuery,
     useGlobalCatalog,
@@ -1660,6 +1751,10 @@ export default function Home() {
       const matchesFormat = useGlobalCatalog ? true : product.formatKey === format;
       const matchesTech = useGlobalCatalog ? true : product.techKey === technology;
       const matchesVerified = useGlobalCatalog ? true : !verified || product.verified;
+      const matchesPrice =
+        aiPriceMax === null
+          ? true
+          : typeof product.priceValue === "number" && product.priceValue <= aiPriceMax;
       const matchesSearch =
         !normalizedQuery ||
         [
@@ -1668,9 +1763,9 @@ export default function Home() {
           product.slug,
           ...product.categoryTitles,
         ].some((value) => value && matchesQuery(String(value), normalizedQuery));
-      return matchesFormat && matchesTech && matchesVerified && matchesSearch;
+      return matchesFormat && matchesTech && matchesVerified && matchesPrice && matchesSearch;
     });
-  }, [normalizedProducts, format, technology, verified, normalizedQuery, useGlobalCatalog]);
+  }, [normalizedProducts, format, technology, verified, aiPriceMax, normalizedQuery, useGlobalCatalog]);
 
   const categoryCountsByKey = useMemo(() => {
     const counts = new Map<string, number>();
@@ -2406,6 +2501,7 @@ export default function Home() {
       >
         <Header
           searchQuery={searchQuery}
+          aiSearchHighlight={aiSearchHighlight}
           onSearchChange={setSearchQuery}
           searchSuggestions={searchSuggestions}
           onSearchCommit={commitSearch}
@@ -3368,6 +3464,7 @@ export default function Home() {
                   onClick={() => {
                     setUseGlobalCatalog(false);
                     setVerified(false);
+                    setAiPriceMax(null);
                     setActiveCategory("");
                     setSearchQuery("");
                     setAppliedSearchQuery("");
@@ -3411,6 +3508,7 @@ export default function Home() {
 
 type HeaderProps = {
   searchQuery: string;
+  aiSearchHighlight: boolean;
   onSearchChange: (value: string) => void;
   searchSuggestions: SearchSuggestion[];
   onSearchCommit: (value: string) => void;
@@ -3474,6 +3572,7 @@ function SearchSuggestions({ suggestions, onPick, className }: SearchSuggestions
 
 function Header({
   searchQuery,
+  aiSearchHighlight,
   onSearchChange,
   searchSuggestions,
   onSearchCommit,
@@ -3671,7 +3770,11 @@ function Header({
               <button
                 type="button"
                 onClick={() => onAiSearch(searchQuery)}
-                className="inline-flex items-center gap-1 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:text-white"
+                className={`inline-flex items-center gap-1 rounded-full border px-2.5 py-1 text-[9px] uppercase tracking-[0.22em] transition ${
+                  aiSearchHighlight
+                    ? "animate-pulse border-[#7FE7FF] bg-[#2ED1FF]/25 text-white shadow-[0_0_18px_rgba(46,209,255,0.65)]"
+                    : "border-[#2ED1FF]/40 bg-[#2ED1FF]/10 text-[#BFF4FF] hover:border-[#2ED1FF]/70 hover:text-white"
+                }`}
               >
                 <Sparkles className="h-3.5 w-3.5" />
                 AI
@@ -3831,7 +3934,11 @@ function Header({
             <button
               type="button"
               onClick={() => onAiSearch(searchQuery)}
-              className="inline-flex h-7 items-center gap-1 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-2 text-[8px] uppercase tracking-[0.2em] text-[#BFF4FF]"
+              className={`inline-flex h-7 items-center gap-1 rounded-full border px-2 text-[8px] uppercase tracking-[0.2em] ${
+                aiSearchHighlight
+                  ? "animate-pulse border-[#7FE7FF] bg-[#2ED1FF]/25 text-white shadow-[0_0_14px_rgba(46,209,255,0.55)]"
+                  : "border-[#2ED1FF]/40 bg-[#2ED1FF]/10 text-[#BFF4FF]"
+              }`}
               aria-label="AI поиск"
             >
               <Sparkles className="h-3.5 w-3.5" />
