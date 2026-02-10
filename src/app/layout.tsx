@@ -46,24 +46,36 @@ async function serverFunction(args: ServerFunctionClientArgs) {
   });
 }
 
+const sanitizeUrlInput = (value: string) =>
+  value.trim().replace(/^['"]+|['"]+$/g, "");
+
 const resolveSiteUrl = () => {
   const raw =
     process.env.NEXT_PUBLIC_SITE_URL ||
-    (process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : "") ||
+    process.env.VERCEL_URL ||
     "http://localhost:3000";
-  const withProtocol = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+  const cleaned = sanitizeUrlInput(raw);
+  const withProtocol = /^https?:\/\//i.test(cleaned) ? cleaned : `https://${cleaned}`;
 
   try {
-    return new URL(withProtocol).toString().replace(/\/$/, "");
+    const url = new URL(withProtocol);
+    return url.origin.replace(/\/$/, "");
   } catch {
     return "http://localhost:3000";
   }
 };
 
 const siteUrl = resolveSiteUrl();
+const metadataBase = (() => {
+  try {
+    return new URL(siteUrl);
+  } catch {
+    return undefined;
+  }
+})();
 
 export const metadata: Metadata = {
-  metadataBase: new URL(siteUrl),
+  ...(metadataBase ? { metadataBase } : {}),
   title: {
     default: "3D-STORE",
     template: "%s · 3D-STORE",
