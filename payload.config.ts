@@ -296,52 +296,12 @@ const ensurePayloadRelsColumns = async (payload: any) => {
   }
 };
 
-const ensureOrdersColumns = async (payload: any) => {
-  try {
-    const drizzle = payload?.db?.drizzle;
-    if (!drizzle || typeof drizzle.execute !== "function") {
-      return;
-    }
-
-    // Backfill columns that can be missing in existing DBs after Orders schema expansion.
-    await drizzle.execute(
-      sql`ALTER TABLE IF EXISTS orders_items ADD COLUMN IF NOT EXISTS print_specs_is_hollow boolean;`
-    );
-    await drizzle.execute(
-      sql`ALTER TABLE IF EXISTS orders_items ADD COLUMN IF NOT EXISTS print_specs_infill_percent numeric;`
-    );
-    await drizzle.execute(
-      sql`ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS technical_specs_is_hollow boolean;`
-    );
-    await drizzle.execute(
-      sql`ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS technical_specs_infill_percent numeric;`
-    );
-  } catch (error) {
-    payload.logger?.warn({
-      msg: "Failed to ensure Orders columns",
-      err: error,
-    });
-  }
-};
-
 const ensureFunnelRelsColumnsMigrationUp = async ({ db }: MigrateUpArgs) => {
   await db.execute(
     sql`ALTER TABLE IF EXISTS payload_locked_documents_rels ADD COLUMN IF NOT EXISTS funnel_events_id integer;`
   );
   await db.execute(
     sql`ALTER TABLE IF EXISTS payload_preferences_rels ADD COLUMN IF NOT EXISTS funnel_events_id integer;`
-  );
-  await db.execute(
-    sql`ALTER TABLE IF EXISTS orders_items ADD COLUMN IF NOT EXISTS print_specs_is_hollow boolean;`
-  );
-  await db.execute(
-    sql`ALTER TABLE IF EXISTS orders_items ADD COLUMN IF NOT EXISTS print_specs_infill_percent numeric;`
-  );
-  await db.execute(
-    sql`ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS technical_specs_is_hollow boolean;`
-  );
-  await db.execute(
-    sql`ALTER TABLE IF EXISTS orders ADD COLUMN IF NOT EXISTS technical_specs_infill_percent numeric;`
   );
 };
 
@@ -383,7 +343,6 @@ export default buildConfig({
   globals: [PrintPricingSettings],
   onInit: async (payload) => {
     await ensurePayloadRelsColumns(payload);
-    await ensureOrdersColumns(payload);
     await ensureBaseCategories(payload);
     await ensurePrintServiceProduct(payload);
   },
