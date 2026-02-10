@@ -1,6 +1,6 @@
 ﻿import path from "path";
 
-import { postgresAdapter, sql } from "@payloadcms/db-postgres";
+import { postgresAdapter } from "@payloadcms/db-postgres";
 import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import { s3Storage } from "@payloadcms/storage-s3";
 import { buildConfig } from "payload";
@@ -267,29 +267,6 @@ const ensurePrintServiceProduct = async (payload: any) => {
   }
 };
 
-const ensurePayloadRelsColumns = async (payload: any) => {
-  try {
-    const drizzle = payload?.db?.drizzle;
-    if (!drizzle || typeof drizzle.execute !== "function") {
-      return;
-    }
-
-    // In serverless deploys schema changes can lag behind code changes.
-    // This keeps admin boot stable for newly added collections.
-    await drizzle.execute(
-      sql`ALTER TABLE IF EXISTS payload_locked_documents_rels ADD COLUMN IF NOT EXISTS funnel_events_id integer;`
-    );
-    await drizzle.execute(
-      sql`ALTER TABLE IF EXISTS payload_preferences_rels ADD COLUMN IF NOT EXISTS funnel_events_id integer;`
-    );
-  } catch (error) {
-    payload.logger?.warn({
-      msg: "Failed to ensure Payload relation columns",
-      err: error,
-    });
-  }
-};
-
 if (!payloadSecret) {
   throw new Error("PAYLOAD_SECRET is missing");
 }
@@ -323,7 +300,6 @@ export default buildConfig({
   collections: [Users, Categories, Media, Products, Orders, FunnelEvents],
   globals: [PrintPricingSettings],
   onInit: async (payload) => {
-    await ensurePayloadRelsColumns(payload);
     await ensureBaseCategories(payload);
     await ensurePrintServiceProduct(payload);
   },
