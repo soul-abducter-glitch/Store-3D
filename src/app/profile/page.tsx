@@ -18,7 +18,14 @@ import {
   User,
 } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
-import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
+import {
+  clearCheckoutSelection,
+  getCartStorageKey,
+  readCartStorage,
+  readCheckoutSelection,
+  writeCartStorage,
+  writeCheckoutSelection,
+} from "@/lib/cartStorage";
 import {
   ORDER_PROGRESS_STEPS,
   ORDER_STATUS_UNREAD_KEY,
@@ -195,6 +202,7 @@ export default function ProfilePage() {
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [cartItemCount, setCartItemCount] = useState(0);
+  const [selectedCartItemIds, setSelectedCartItemIds] = useState<string[]>([]);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
@@ -260,6 +268,68 @@ export default function ProfilePage() {
     const count = cartItems.reduce((sum, item) => sum + item.quantity, 0);
     setCartItemCount(count);
   }, [cartItems]);
+
+  useEffect(() => {
+    const availableIds = new Set(cartItems.map((item) => item.id));
+
+    if (availableIds.size === 0) {
+      setSelectedCartItemIds([]);
+      clearCheckoutSelection(cartStorageKey);
+      return;
+    }
+
+    setSelectedCartItemIds((prev) => {
+      const prevValid = prev.filter((id) => availableIds.has(id));
+      if (prevValid.length > 0) {
+        writeCheckoutSelection(cartStorageKey, prevValid);
+        return prevValid;
+      }
+
+      const stored = readCheckoutSelection(cartStorageKey).filter((id) => availableIds.has(id));
+      if (stored.length > 0) {
+        writeCheckoutSelection(cartStorageKey, stored);
+        return stored;
+      }
+
+      const fallback = cartItems.map((item) => item.id);
+      writeCheckoutSelection(cartStorageKey, fallback);
+      return fallback;
+    });
+  }, [cartItems, cartStorageKey]);
+
+  const selectedCartIdSet = useMemo(() => new Set(selectedCartItemIds), [selectedCartItemIds]);
+  const selectedCartItems = useMemo(
+    () => cartItems.filter((item) => selectedCartIdSet.has(item.id)),
+    [cartItems, selectedCartIdSet]
+  );
+  const selectedItemCount = selectedCartItems.reduce((sum, item) => sum + item.quantity, 0);
+
+  const toggleCartItemSelection = (id: string) => {
+    setSelectedCartItemIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id];
+      writeCheckoutSelection(cartStorageKey, next);
+      return next;
+    });
+  };
+
+  const selectAllCartItems = () => {
+    const next = cartItems.map((item) => item.id);
+    setSelectedCartItemIds(next);
+    writeCheckoutSelection(cartStorageKey, next);
+  };
+
+  const clearCartItemsSelection = () => {
+    setSelectedCartItemIds([]);
+    writeCheckoutSelection(cartStorageKey, []);
+  };
+
+  const handleCheckoutSelected = () => {
+    if (selectedCartItems.length === 0) {
+      return;
+    }
+    writeCheckoutSelection(cartStorageKey, selectedCartItemIds);
+    router.push("/checkout");
+  };
 
   useEffect(() => {
     if (activeTab !== "orders") {
@@ -858,9 +928,9 @@ export default function ProfilePage() {
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item)) ?? [];
 
-  const cartTotal = cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
+  const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
   const cartTotalLabel = formatPrice(cartTotal);
-  const canCheckout = cartItems.length > 0;
+  const canCheckout = selectedCartItems.length > 0;
 
   if (loading) {
     return (
@@ -965,17 +1035,19 @@ export default function ProfilePage() {
                 <p className="mt-1 text-lg font-semibold text-white">
                   {cartItemCount > 0 ? `${cartItemCount} позиций` : "Корзина пуста"}
                 </p>
+                {cartItems.length > 0 && (
+                  <p className="mt-1 text-xs text-white/50">
+                    Выбрано: {selectedItemCount} шт.
+                  </p>
+                )}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Link
-                href={canCheckout ? "/checkout" : "#"}
+              <button
+                type="button"
+                onClick={handleCheckoutSelected}
+                disabled={!canCheckout}
                 aria-disabled={!canCheckout}
-                onClick={(event) => {
-                  if (!canCheckout) {
-                    event.preventDefault();
-                  }
-                }}
                 className={`rounded-full px-4 py-2 text-xs uppercase tracking-[0.3em] transition ${
                   canCheckout
                     ? "border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 text-[#2ED1FF] hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20"
@@ -983,7 +1055,7 @@ export default function ProfilePage() {
                 }`}
               >
                 Оформить заказ
-              </Link>
+              </button>
               <Link
                 href="/store"
                 className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/20 hover:text-white"
@@ -997,18 +1069,49 @@ export default function ProfilePage() {
             {cartItems.length === 0 ? (
               <p className="text-sm text-white/60">Добавьте товары, чтобы оформить заказ.</p>
             ) : (
-              cartItems.map((item) => {
+              <>
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.2em] text-white/50">
+                  <span>
+                    Выбрано {selectedCartItems.length} из {cartItems.length}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={selectAllCartItems}
+                      className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/30 hover:text-white"
+                    >
+                      Выбрать все
+                    </button>
+                    <button
+                      type="button"
+                      onClick={clearCartItemsSelection}
+                      className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/30 hover:text-white"
+                    >
+                      Снять выбор
+                    </button>
+                  </div>
+                </div>
+                {cartItems.map((item) => {
                 const lineTotal = formatPrice(item.priceValue * item.quantity);
                 const resolvedThumb =
                   typeof item.thumbnailUrl === "string"
                     ? item.thumbnailUrl
                     : buildCartThumbnail(item.name);
+                const isSelected = selectedCartIdSet.has(item.id);
                 return (
                   <div
                     key={item.id}
                     className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3 sm:justify-between"
                   >
                     <div className="flex w-full items-center gap-3 sm:w-auto">
+                      <label className="flex cursor-pointer items-center justify-center">
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          onChange={() => toggleCartItemSelection(item.id)}
+                          className="h-4 w-4 rounded border-white/30 bg-white/10 text-[#2ED1FF] focus:ring-[#2ED1FF]/60"
+                        />
+                      </label>
                       <div className="h-14 w-14 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
                         <img
                           src={resolvedThumb}
@@ -1065,7 +1168,8 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 );
-              })
+                })}
+              </>
             )}
           </div>
           {cartItems.length > 0 && (

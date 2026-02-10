@@ -26,7 +26,14 @@ import {
   normalizeCityInput,
   normalizeNameInput,
 } from "@/lib/cities";
-import { getCartStorageKey, readCartStorage, removeCartStorage } from "@/lib/cartStorage";
+import {
+  clearCheckoutSelection,
+  getCartStorageKey,
+  readCartStorage,
+  readCheckoutSelection,
+  removeCartStorage,
+  writeCartStorage,
+} from "@/lib/cartStorage";
 
 type CartItem = {
   id: string;
@@ -905,6 +912,30 @@ const CheckoutPage = () => {
     [userId, userReady]
   );
 
+  const clearPurchasedFromCartStorage = useCallback(
+    (purchasedItems: CartItem[]) => {
+      if (typeof window === "undefined") {
+        return;
+      }
+
+      const purchasedIds = new Set(purchasedItems.map((item) => item.id));
+      const parsed = readCartStorage(cartStorageKey, { migrateLegacy: true });
+      const normalized = parsed
+        .map((item) => normalizeStoredItem(item))
+        .filter((item): item is CartItem => Boolean(item));
+      const remaining = normalized.filter((item) => !purchasedIds.has(item.id));
+
+      if (remaining.length > 0) {
+        writeCartStorage(cartStorageKey, remaining);
+      } else {
+        removeCartStorage(cartStorageKey);
+      }
+
+      clearCheckoutSelection(cartStorageKey);
+    },
+    [cartStorageKey]
+  );
+
   const logCheckoutEvent = useCallback(
     (event: string, data?: Record<string, unknown>) => {
       if (typeof window === "undefined") {
@@ -953,7 +984,20 @@ const CheckoutPage = () => {
     const normalized = parsed
       .map((item) => normalizeStoredItem(item))
       .filter((item): item is CartItem => Boolean(item));
-    setCartItems(normalized);
+
+    const selectedIds = readCheckoutSelection(cartStorageKey);
+    if (selectedIds.length > 0) {
+      const selectedSet = new Set(selectedIds);
+      const filtered = normalized.filter((item) => selectedSet.has(item.id));
+      if (filtered.length > 0) {
+        setCartItems(filtered);
+      } else {
+        clearCheckoutSelection(cartStorageKey);
+        setCartItems(normalized);
+      }
+    } else {
+      setCartItems(normalized);
+    }
     setCartReady(true);
   }, [cartStorageKey, userReady]);
 
@@ -1580,9 +1624,7 @@ const CheckoutPage = () => {
           if (typeof window !== "undefined") {
             window.dispatchEvent(new Event("orders-updated"));
           }
-          if (typeof window !== "undefined") {
-            removeCartStorage(cartStorageKey);
-          }
+          clearPurchasedFromCartStorage(cartItems);
           clearCheckoutDraft();
           setCartItems([]);
           setPendingOrderPayload(null);
@@ -1602,8 +1644,9 @@ const CheckoutPage = () => {
       }
     },
     [
-      cartStorageKey,
+      cartItems,
       clearCheckoutDraft,
+      clearPurchasedFromCartStorage,
       createOrder,
       logCheckoutEvent,
       pendingOrderId,
@@ -1760,8 +1803,8 @@ const CheckoutPage = () => {
         throw new Error("Не удалось создать заказ.");
       }
 
+      clearPurchasedFromCartStorage(cartItems);
       if (typeof window !== "undefined") {
-        removeCartStorage(cartStorageKey);
         window.dispatchEvent(new Event("orders-updated"));
       }
       clearCheckoutDraft();
@@ -1827,8 +1870,8 @@ const CheckoutPage = () => {
         throw new Error(errorText || "Не удалось завершить оплату.");
       }
 
+      clearPurchasedFromCartStorage(cartItems);
       if (typeof window !== "undefined") {
-        removeCartStorage(cartStorageKey);
         window.dispatchEvent(new Event("orders-updated"));
       }
       clearCheckoutDraft();
@@ -1846,8 +1889,9 @@ const CheckoutPage = () => {
       setPaymentLoading(false);
     }
   }, [
-    cartStorageKey,
+    cartItems,
     clearCheckoutDraft,
+    clearPurchasedFromCartStorage,
     createOrder,
     logCheckoutEvent,
     pendingOrderPayload,
@@ -2201,6 +2245,8 @@ const CheckoutPage = () => {
                         onSetPaymentLoading={setPaymentLoading}
                         onConfirmPayment={confirmStripePayment}
                         onPaid={(orderId) => {
+                          clearPurchasedFromCartStorage(cartItems);
+                          setCartItems([]);
                           if (typeof window !== "undefined") {
                             window.dispatchEvent(new Event("orders-updated"));
                           }

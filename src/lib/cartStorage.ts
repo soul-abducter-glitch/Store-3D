@@ -1,4 +1,5 @@
 export const LEGACY_CART_KEY = "store3d_cart";
+const CHECKOUT_SELECTION_SUFFIX = "checkout-selection";
 
 const normalizeUserId = (value?: string | null) => {
   if (!value) return null;
@@ -57,6 +58,45 @@ export const removeCartStorage = (key: string) => {
   }
   window.localStorage.removeItem(key);
   window.dispatchEvent(new CustomEvent("cart-updated"));
+};
+
+export const getCheckoutSelectionKey = (cartStorageKey: string) =>
+  `${cartStorageKey}:${CHECKOUT_SELECTION_SUFFIX}`;
+
+export const readCheckoutSelection = (cartStorageKey: string): string[] => {
+  if (typeof window === "undefined") {
+    return [];
+  }
+  const raw = window.localStorage.getItem(getCheckoutSelectionKey(cartStorageKey));
+  if (!raw) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return parsed.filter((id): id is string => typeof id === "string" && id.trim().length > 0);
+  } catch {
+    return [];
+  }
+};
+
+export const writeCheckoutSelection = (cartStorageKey: string, ids: string[]) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  const cleaned = Array.from(
+    new Set(ids.filter((id): id is string => typeof id === "string" && id.trim().length > 0))
+  );
+  window.localStorage.setItem(getCheckoutSelectionKey(cartStorageKey), JSON.stringify(cleaned));
+};
+
+export const clearCheckoutSelection = (cartStorageKey: string) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  window.localStorage.removeItem(getCheckoutSelectionKey(cartStorageKey));
 };
 
 export const mergeGuestCartIntoUser = (userId: string) => {
