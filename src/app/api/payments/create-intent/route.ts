@@ -40,6 +40,16 @@ const resolveOrderAmount = (order: any) => {
   return Math.round(total * 100);
 };
 
+const isStripePaymentIntentId = (value?: unknown) =>
+  typeof value === "string" && value.trim().startsWith("pi_");
+
+const REUSABLE_STRIPE_STATUSES = new Set([
+  "requires_payment_method",
+  "requires_confirmation",
+  "requires_action",
+  "processing",
+]);
+
 export async function POST(request: NextRequest) {
   try {
     const data = await request.json().catch(() => null);
@@ -80,6 +90,85 @@ export async function POST(request: NextRequest) {
           { status: 500 }
         );
       }
+      const currentPaymentStatus = String(order?.paymentStatus || "pending").toLowerCase();
+      if (currentPaymentStatus === "paid") {
+        return NextResponse.json(
+          {
+            success: true,
+            orderId,
+            paymentStatus: "paid",
+            paymentIntentId:
+              typeof order?.paymentIntentId === "string" ? order.paymentIntentId : null,
+          },
+          { status: 200 }
+        );
+      }
+
+      const existingPaymentIntentId =
+        typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
+      if (isStripePaymentIntentId(existingPaymentIntentId)) {
+        try {
+          const existingIntent = await stripe.paymentIntents.retrieve(existingPaymentIntentId);
+          if (existingIntent.status === "succeeded") {
+            await payload.update({
+              collection: "orders",
+              id: orderId,
+              data: {
+                paymentStatus: "paid",
+                paymentProvider: "stripe",
+                paymentIntentId: existingIntent.id,
+                paidAt: new Date().toISOString(),
+              },
+              overrideAccess: true,
+              req: {
+                headers: new Headers({
+                  "x-internal-payment": "stripe",
+                }),
+              } as any,
+            });
+
+            return NextResponse.json(
+              {
+                success: true,
+                orderId,
+                paymentStatus: "paid",
+                paymentIntentId: existingIntent.id,
+              },
+              { status: 200 }
+            );
+          }
+
+          if (
+            REUSABLE_STRIPE_STATUSES.has(existingIntent.status) &&
+            existingIntent.client_secret
+          ) {
+            await payload.update({
+              collection: "orders",
+              id: orderId,
+              data: {
+                paymentStatus: "pending",
+                paymentProvider: "stripe",
+                paymentIntentId: existingIntent.id,
+              },
+              overrideAccess: true,
+            });
+
+            return NextResponse.json(
+              {
+                success: true,
+                orderId,
+                paymentStatus: "pending",
+                paymentIntentId: existingIntent.id,
+                clientSecret: existingIntent.client_secret,
+              },
+              { status: 200 }
+            );
+          }
+        } catch {
+          // Failed to reuse existing intent, create a new one below.
+        }
+      }
+
       const amount = resolveOrderAmount(order);
       if (!amount) {
         return NextResponse.json(

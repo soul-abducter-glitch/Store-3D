@@ -290,6 +290,65 @@ const applySbpTemplate = (
     .replace(/\{\{amount\}\}/g, String(params.amount))
     .replace(/\{\{merchant\}\}/g, params.merchant);
 
+const createCheckoutRequestId = () => {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return `chk_${crypto.randomUUID().replace(/-/g, "")}`;
+  }
+  return `chk_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 12)}`;
+};
+
+const buildCheckoutPayloadSignature = (payload: Record<string, any>) => {
+  const items = Array.isArray(payload?.items)
+    ? payload.items
+        .map((item: any) =>
+          [
+            String(item?.product ?? ""),
+            String(item?.format ?? ""),
+            String(item?.quantity ?? 1),
+            String(item?.customerUpload ?? ""),
+            String(item?.unitPrice ?? 0),
+          ].join(":")
+        )
+        .sort()
+        .join("|")
+    : "";
+
+  const customerName =
+    typeof payload?.customer?.name === "string" ? payload.customer.name.trim() : "";
+  const customerEmail =
+    typeof payload?.customer?.email === "string"
+      ? payload.customer.email.trim().toLowerCase()
+      : "";
+  const shippingMethod =
+    typeof payload?.shipping?.method === "string" ? payload.shipping.method : "";
+  const shippingCity =
+    typeof payload?.shipping?.city === "string"
+      ? payload.shipping.city.trim().toLowerCase()
+      : "";
+  const shippingAddress =
+    typeof payload?.shipping?.address === "string"
+      ? payload.shipping.address.trim().toLowerCase()
+      : "";
+  const promoCode =
+    typeof payload?.promoCode === "string" ? payload.promoCode.trim().toUpperCase() : "";
+  const total =
+    typeof payload?.total === "number" && Number.isFinite(payload.total) ? payload.total : 0;
+  const paymentMethod =
+    typeof payload?.paymentMethod === "string" ? payload.paymentMethod : "";
+
+  return [
+    customerName,
+    customerEmail,
+    shippingMethod,
+    shippingCity,
+    shippingAddress,
+    promoCode,
+    String(total),
+    paymentMethod,
+    items,
+  ].join("||");
+};
+
 type StripePaymentFormProps = {
   orderId: string;
   clientSecret: string;
@@ -897,6 +956,8 @@ const CheckoutPage = () => {
   const [promoError, setPromoError] = useState<string | null>(null);
   const [promoLoading, setPromoLoading] = useState(false);
   const promoValidationRef = useRef("");
+  const checkoutRequestIdRef = useRef<string | null>(null);
+  const checkoutRequestSignatureRef = useRef<string>("");
   const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
@@ -983,6 +1044,25 @@ const CheckoutPage = () => {
     localStorage.removeItem(checkoutDraftKey);
     logCheckoutEvent("draft:clear");
   }, [checkoutDraftKey, logCheckoutEvent]);
+
+  const ensureCheckoutRequestId = useCallback((payload: Record<string, any>) => {
+    const signature = buildCheckoutPayloadSignature(payload);
+    if (
+      checkoutRequestIdRef.current &&
+      checkoutRequestSignatureRef.current === signature
+    ) {
+      return checkoutRequestIdRef.current;
+    }
+    const nextId = createCheckoutRequestId();
+    checkoutRequestIdRef.current = nextId;
+    checkoutRequestSignatureRef.current = signature;
+    return nextId;
+  }, []);
+
+  const resetCheckoutRequestId = useCallback(() => {
+    checkoutRequestIdRef.current = null;
+    checkoutRequestSignatureRef.current = "";
+  }, []);
   
   // Always use the Next.js API route, not direct backend URL
   const ordersApiUrl = "/api/create-order";
@@ -1706,12 +1786,21 @@ const CheckoutPage = () => {
         );
       });
 
+      const checkoutRequestId =
+        typeof payload?.checkoutRequestId === "string"
+          ? payload.checkoutRequestId.trim()
+          : "";
+      const requestHeaders: Record<string, string> = {
+        "Content-Type": "application/json",
+      };
+      if (checkoutRequestId) {
+        requestHeaders["x-idempotency-key"] = checkoutRequestId;
+      }
+
       const response = (await Promise.race([
         fetch(ordersApiUrl, {
           method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
+          headers: requestHeaders,
           credentials: "include",
           body: JSON.stringify(payload),
         }),
@@ -1809,6 +1898,7 @@ const CheckoutPage = () => {
           }
           orderId = createdOrderId;
           setPendingOrderId(createdOrderId);
+          resetCheckoutRequestId();
         }
         if (!orderId) {
           throw new Error("Не удалось создать заказ.");
@@ -1857,6 +1947,7 @@ const CheckoutPage = () => {
       pendingOrderId,
       pendingOrderPayload,
       paymentsConfirmUrl,
+      resetCheckoutRequestId,
       router,
     ]
   );
@@ -1986,6 +2077,7 @@ const CheckoutPage = () => {
         }
         payload.shipping = shippingPayload;
       }
+      payload.checkoutRequestId = ensureCheckoutRequestId(payload);
 
       const isMockPayment = isPaymentsMock;
       if (isMockPayment) {
@@ -2010,6 +2102,7 @@ const CheckoutPage = () => {
       if (!createdOrderId) {
         throw new Error("Не удалось создать заказ.");
       }
+      resetCheckoutRequestId();
 
       clearPurchasedFromCartStorage(cartItems);
       if (typeof window !== "undefined") {
@@ -2063,6 +2156,7 @@ const CheckoutPage = () => {
       }
 
       setPendingOrderId(createdOrderId);
+      resetCheckoutRequestId();
 
       const response = await fetch(paymentsConfirmUrl, {
         method: "POST",
@@ -2104,6 +2198,7 @@ const CheckoutPage = () => {
     logCheckoutEvent,
     pendingOrderPayload,
     paymentsConfirmUrl,
+    resetCheckoutRequestId,
     router,
   ]);
 

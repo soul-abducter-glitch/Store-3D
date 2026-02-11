@@ -1,5 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
+import { createHash } from "crypto";
 
 import payloadConfig from "../../../../payload.config";
 import {
@@ -164,6 +165,56 @@ const collectDigitalProductIds = (items: Array<{ format?: string; product?: unkn
   return Array.from(new Set(ids));
 };
 
+const IDEMPOTENCY_HEADER = "x-idempotency-key";
+const IDEMPOTENCY_MARKER_PREFIX = "checkout:req:";
+const IDEMPOTENCY_WINDOW_MINUTES = 30;
+
+const sanitizeIdempotencyKey = (value?: unknown) => {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) return null;
+  if (!/^[a-z0-9][a-z0-9:_-]{7,120}$/.test(trimmed)) {
+    return null;
+  }
+  return trimmed;
+};
+
+const buildFallbackIdempotencyKey = (args: {
+  userId?: string | number | null;
+  customerEmail?: string;
+  paymentMethod?: string;
+  promoCode?: string;
+  total?: number;
+  items: Array<{
+    product: string | number;
+    format: string;
+    quantity: number;
+    customerUpload?: string | number;
+  }>;
+}) => {
+  const payload = {
+    userId: args.userId ? String(args.userId) : "",
+    email: (args.customerEmail || "").trim().toLowerCase(),
+    paymentMethod: args.paymentMethod || "",
+    promoCode: args.promoCode || "",
+    total: Number.isFinite(Number(args.total)) ? Number(args.total) : 0,
+    items: args.items
+      .map((item) => ({
+        product: String(item.product),
+        format: String(item.format),
+        quantity: Number(item.quantity) || 1,
+        customerUpload: item.customerUpload ? String(item.customerUpload) : "",
+      }))
+      .sort((a, b) => {
+        const aKey = `${a.product}|${a.format}|${a.quantity}|${a.customerUpload}`;
+        const bKey = `${b.product}|${b.format}|${b.quantity}|${b.customerUpload}`;
+        return aKey.localeCompare(bKey);
+      }),
+  };
+
+  return createHash("sha256").update(JSON.stringify(payload)).digest("hex").slice(0, 40);
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
@@ -178,6 +229,12 @@ export async function POST(request: NextRequest) {
       authUser = null;
     }
     const data = await request.json();
+    const headerIdempotencyKey = sanitizeIdempotencyKey(
+      request.headers.get(IDEMPOTENCY_HEADER) ?? undefined
+    );
+    const bodyIdempotencyKey = sanitizeIdempotencyKey(
+      typeof data?.checkoutRequestId === "string" ? data.checkoutRequestId : undefined
+    );
     const baseData =
       data && typeof data === "object"
         ? (() => {
@@ -192,6 +249,7 @@ export async function POST(request: NextRequest) {
             delete next.paymentIntentId;
             delete next.paidAt;
             delete next.promoCode;
+            delete next.checkoutRequestId;
             return next;
           })()
         : {};
@@ -344,6 +402,72 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+
+    const fallbackIdempotencyKey = buildFallbackIdempotencyKey({
+      userId: authUser?.id ?? null,
+      customerEmail,
+      paymentMethod,
+      promoCode: incomingPromoCode,
+      total: typeof data?.total === "number" ? data.total : undefined,
+      items: items.map((item: {
+        product: unknown;
+        format?: string;
+        quantity?: number;
+        customerUpload?: unknown;
+      }) => ({
+        product: item.product as string | number,
+        format: item.format as string,
+        quantity: item.quantity as number,
+        customerUpload: item.customerUpload as string | number | undefined,
+      })),
+    });
+    const effectiveIdempotencyKey =
+      headerIdempotencyKey ?? bodyIdempotencyKey ?? fallbackIdempotencyKey;
+    const idempotencyMarker = `${IDEMPOTENCY_MARKER_PREFIX}${effectiveIdempotencyKey}`;
+
+    const ownerConditions: any[] = [];
+    if (authUser?.id) {
+      ownerConditions.push({ user: { equals: authUser.id } });
+    }
+    if (customerEmail) {
+      ownerConditions.push({ "customer.email": { equals: customerEmail } });
+    }
+
+    if (ownerConditions.length > 0) {
+      const dedupeWindowStart = new Date(
+        Date.now() - IDEMPOTENCY_WINDOW_MINUTES * 60 * 1000
+      ).toISOString();
+      const dedupeWhere: any = {
+        and: [
+          { paymentIntentId: { equals: idempotencyMarker } },
+          { createdAt: { greater_than_equal: dedupeWindowStart } },
+        ],
+      };
+      if (ownerConditions.length === 1) {
+        dedupeWhere.and.push(ownerConditions[0]);
+      } else {
+        dedupeWhere.and.push({ or: ownerConditions });
+      }
+
+      const existingOrderResult = await payload.find({
+        collection: "orders",
+        depth: 0,
+        limit: 1,
+        overrideAccess: true,
+        sort: "-createdAt",
+        where: dedupeWhere,
+      });
+
+      if (existingOrderResult?.docs?.[0]) {
+        const existingOrder = existingOrderResult.docs[0];
+        return NextResponse.json(
+          { success: true, doc: existingOrder, deduplicated: true },
+          { status: 200 }
+        );
+      }
+    }
+
+    (orderData as any).paymentIntentId = idempotencyMarker;
 
     const productCache = new Map<string, any>();
     const physicalUploadIds = new Set(
