@@ -42,6 +42,7 @@ import {
   getOrderStatusTone,
   normalizeOrderStatus,
 } from "@/lib/orderStatus";
+import { getPaymentProviderLabel, getPaymentStatusLabel } from "@/lib/paymentStatus";
 
 type CartItem = {
   id: string;
@@ -759,6 +760,29 @@ export default function ProfilePage() {
       return `${formatPrice(major)} ₽`;
     }
     return `${formatPrice(major)} ${code}`;
+  };
+
+  const formatAuditStatusLabel = (status?: string) => {
+    if (!status) return "";
+    const raw = status.trim().toLowerCase();
+    if (
+      raw === "pending" ||
+      raw === "paid" ||
+      raw === "failed" ||
+      raw === "error" ||
+      raw === "refunded" ||
+      raw === "refund" ||
+      raw === "success"
+    ) {
+      return getPaymentStatusLabel(raw);
+    }
+    if (raw === "succeeded") return "Оплачено";
+    if (raw === "processing") return "В обработке";
+    if (raw === "requires_payment_method") return "Требуется способ оплаты";
+    if (raw === "requires_action") return "Требуется действие";
+    if (raw === "requires_confirmation") return "Требуется подтверждение";
+    if (raw === "canceled" || raw === "cancelled") return "Отменено";
+    return status;
   };
 
   const formatFileSize = (bytes?: number) => {
@@ -1840,13 +1864,22 @@ export default function ProfilePage() {
                             <div className="mt-3 space-y-3">
                               <div className="grid grid-cols-1 gap-2 text-xs text-white/70 sm:grid-cols-2">
                                 <p>
-                                  Провайдер: <span className="text-white">{paymentAudit.paymentProvider}</span>
+                                  Провайдер:{" "}
+                                  <span className="text-white">
+                                    {getPaymentProviderLabel(paymentAudit.paymentProvider)}
+                                  </span>
                                 </p>
                                 <p>
-                                  Статус оплаты: <span className="text-white">{paymentAudit.paymentStatus}</span>
+                                  Статус оплаты:{" "}
+                                  <span className="text-white">
+                                    {getPaymentStatusLabel(paymentAudit.paymentStatus)}
+                                  </span>
                                 </p>
                                 <p>
-                                  Статус заказа: <span className="text-white">{paymentAudit.orderStatus}</span>
+                                  Статус заказа:{" "}
+                                  <span className="text-white">
+                                    {getOrderStatusLabel(paymentAudit.orderStatus)}
+                                  </span>
                                 </p>
                                 <p>
                                   Сумма:{" "}
@@ -1876,7 +1909,7 @@ export default function ProfilePage() {
                                     </div>
                                     <div className="mt-1 flex flex-wrap items-center gap-3 text-[10px] uppercase tracking-[0.18em] text-white/45">
                                       {event.at && <span>{formatDateTime(event.at)}</span>}
-                                      {event.status && <span>{event.status}</span>}
+                                      {event.status && <span>{formatAuditStatusLabel(event.status)}</span>}
                                       {event.source && <span>{event.source}</span>}
                                     </div>
                                   </div>

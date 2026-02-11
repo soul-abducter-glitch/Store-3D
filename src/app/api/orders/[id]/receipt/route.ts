@@ -2,6 +2,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
+import { getOrderStatusLabel } from "@/lib/orderStatus";
+import { getPaymentProviderLabel, getPaymentStatusLabel } from "@/lib/paymentStatus";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -96,10 +98,16 @@ const renderReceiptHtml = (args: {
   const createdAt = formatDateTime(order?.createdAt || order?.updatedAt);
   const customerName = order?.customer?.name || "Покупатель";
   const customerEmail = order?.customer?.email || "—";
-  const paymentStatus = order?.paymentStatus || "pending";
-  const orderStatus = order?.status || "accepted";
-  const paymentProvider = order?.paymentProvider || "unknown";
+  const paymentStatusRaw = typeof order?.paymentStatus === "string" ? order.paymentStatus : "pending";
+  const orderStatusRaw = typeof order?.status === "string" ? order.status : "accepted";
+  const paymentProviderRaw =
+    typeof order?.paymentProvider === "string" ? order.paymentProvider : "unknown";
+  const paymentStatus = getPaymentStatusLabel(paymentStatusRaw);
+  const orderStatus = getOrderStatusLabel(orderStatusRaw);
+  const paymentProvider = getPaymentProviderLabel(paymentProviderRaw);
   const paymentIntentId = order?.paymentIntentId || "—";
+  const isInternalCheckoutMarker =
+    typeof paymentIntentId === "string" && paymentIntentId.startsWith("checkout:req:");
 
   const rows = items
     .map((item) => {
@@ -237,7 +245,9 @@ const renderReceiptHtml = (args: {
       <div class="meta">
         <div>Дата: ${escapeHtml(createdAt || "—")}</div>
         <div>Покупатель: ${escapeHtml(customerName)} (${escapeHtml(customerEmail)})</div>
-        <div>Payment intent: ${escapeHtml(paymentIntentId)}</div>
+        <div>${
+          isInternalCheckoutMarker ? "Идентификатор запроса" : "Payment intent"
+        }: ${escapeHtml(paymentIntentId)}</div>
       </div>
       <div class="badges">
         <span class="badge">Статус заказа: ${escapeHtml(String(orderStatus))}</span>
