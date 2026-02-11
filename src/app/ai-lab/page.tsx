@@ -31,6 +31,27 @@ type GeneratedAsset = {
   localOnly?: boolean;
 };
 
+type AiGenerationJob = {
+  id: string;
+  status: "queued" | "processing" | "completed" | "failed";
+  mode: "image" | "text";
+  provider: string;
+  progress: number;
+  prompt: string;
+  sourceType: "none" | "url" | "image";
+  sourceUrl: string;
+  errorMessage: string;
+  result: {
+    modelUrl: string;
+    previewUrl: string;
+    format: string;
+  };
+  createdAt?: string;
+  updatedAt?: string;
+  startedAt?: string;
+  completedAt?: string;
+};
+
 const statusStages = [
   "GENETIC_MAPPING",
   "TOPOLOGY_SYNTH",
@@ -60,6 +81,7 @@ const SAMPLE_MODELS = [
 const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
+const AI_GENERATE_API_URL = "/api/ai/generate";
 
 const createId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -291,7 +313,11 @@ function AiLabContent() {
   const [progress, setProgress] = useState(0);
   const [statusLine, setStatusLine] = useState(statusStages[0]);
   const [isSynthRunning, setIsSynthRunning] = useState(false);
+  const [serverJob, setServerJob] = useState<AiGenerationJob | null>(null);
+  const [serverJobLoading, setServerJobLoading] = useState(false);
+  const [serverJobError, setServerJobError] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const completedServerJobRef = useRef<string | null>(null);
 
   const { toasts, showError, removeToast } = useToast();
 
@@ -483,6 +509,152 @@ function AiLabContent() {
     setResultAsset(null);
     setIsSynthRunning(true);
   };
+
+  const registerGeneratedAsset = useCallback(
+    (args: {
+      name: string;
+      modelUrl: string;
+      previewImage?: string | null;
+      format?: string;
+      localOnly?: boolean;
+    }) => {
+      const normalizedFormat =
+        args.format === "gltf" || args.modelUrl.toLowerCase().endsWith(".gltf")
+          ? "gltf"
+          : "glb";
+      const asset: GeneratedAsset = {
+        id: createId(),
+        name: args.name.trim().slice(0, 48) || "AI Model",
+        createdAt: Date.now(),
+        previewImage: args.previewImage ?? null,
+        modelUrl: args.modelUrl,
+        format: normalizedFormat,
+        localOnly: args.localOnly ?? false,
+      };
+      setGallery((prev) => [asset, ...prev].slice(0, GALLERY_LIMIT));
+      setResultAsset(asset);
+      setShowResult(true);
+      setGeneratedPreviewModel(asset.modelUrl ?? null);
+      setGeneratedPreviewLabel(asset.name);
+    },
+    []
+  );
+
+  const handleStartServerSynthesis = useCallback(async () => {
+    if (serverJobLoading) return;
+    if (!prompt.trim() && !uploadPreview && !localPreviewModel && !previewModel) {
+      showError("Добавьте prompt или референс перед запуском.");
+      return;
+    }
+
+    setServerJobLoading(true);
+    setServerJobError(null);
+    setShowResult(false);
+    setResultAsset(null);
+
+    try {
+      const response = await fetch(AI_GENERATE_API_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({
+          mode,
+          prompt: prompt.trim(),
+          sourceUrl: previewModel || "",
+          hasImageReference: Boolean(uploadPreview || localPreviewModel),
+        }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        const message =
+          typeof data?.error === "string" ? data.error : "Не удалось создать AI-задачу.";
+        throw new Error(message);
+      }
+      const nextJob = data?.job as AiGenerationJob | undefined;
+      if (!nextJob?.id) {
+        throw new Error("Сервер вернул некорректный ответ по задаче.");
+      }
+      completedServerJobRef.current = null;
+      setServerJob(nextJob);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Не удалось создать AI-задачу.";
+      setServerJobError(message);
+      showError(message);
+    } finally {
+      setServerJobLoading(false);
+    }
+  }, [
+    localPreviewModel,
+    mode,
+    previewModel,
+    prompt,
+    serverJobLoading,
+    showError,
+    uploadPreview,
+  ]);
+
+  useEffect(() => {
+    if (!serverJob?.id) return;
+    if (serverJob.status === "completed" || serverJob.status === "failed") return;
+
+    let cancelled = false;
+
+    const poll = async () => {
+      try {
+        const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(serverJob.id)}`, {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          const message =
+            typeof data?.error === "string"
+              ? data.error
+              : "Не удалось получить статус AI-задачи.";
+          throw new Error(message);
+        }
+
+        const nextJob = data?.job as AiGenerationJob | undefined;
+        if (!nextJob?.id || cancelled) return;
+
+        setServerJob(nextJob);
+        if (nextJob.status === "failed") {
+          const message = nextJob.errorMessage || "AI-задача завершилась с ошибкой.";
+          setServerJobError(message);
+          showError(message);
+        } else if (
+          nextJob.status === "completed" &&
+          nextJob.result?.modelUrl &&
+          completedServerJobRef.current !== nextJob.id
+        ) {
+          completedServerJobRef.current = nextJob.id;
+          registerGeneratedAsset({
+            name: nextJob.prompt || "AI Model",
+            modelUrl: nextJob.result.modelUrl,
+            previewImage: nextJob.result.previewUrl || uploadPreview || null,
+            format: nextJob.result.format,
+            localOnly: false,
+          });
+        }
+      } catch (error) {
+        if (cancelled) return;
+        const message =
+          error instanceof Error ? error.message : "Не удалось обновить статус AI-задачи.";
+        setServerJobError(message);
+      }
+    };
+
+    void poll();
+    const interval = window.setInterval(() => {
+      void poll();
+    }, 1600);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [registerGeneratedAsset, serverJob?.id, serverJob?.status, showError, uploadPreview]);
 
   const handleSelectAsset = (asset: GeneratedAsset) => {
     if (!asset.modelUrl) {
@@ -800,6 +972,17 @@ function AiLabContent() {
             <Zap className="h-4 w-4 text-[#2ED1FF] transition group-hover:text-white" />
             {isSynthRunning ? "СИНТЕЗ В ПРОЦЕССЕ" : "ЗАПУСТИТЬ СИНТЕЗ"}
           </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handleStartServerSynthesis();
+            }}
+            disabled={serverJobLoading}
+            className="group flex items-center justify-center gap-3 rounded-2xl border border-emerald-400/60 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition hover:border-emerald-300 hover:bg-emerald-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <Cpu className="h-4 w-4 text-emerald-300 transition group-hover:text-white" />
+            {serverJobLoading ? "������� JOB..." : "��������� SERVER JOB (MVP)"}
+          </button>
 
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
             <div className="flex items-center justify-between">
@@ -820,7 +1003,31 @@ function AiLabContent() {
               />
             </div>
           </div>
-
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.26em] text-emerald-100/80">
+            <div className="flex items-center justify-between gap-3">
+              <span>SERVER JOB</span>
+              <span>{serverJob?.status || "idle"}</span>
+            </div>
+            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
+              <div
+                className="h-full bg-gradient-to-r from-emerald-400 via-emerald-300 to-white transition-all"
+                style={{ width: `${Math.max(0, Math.min(100, serverJob?.progress || 0))}%` }}
+              />
+            </div>
+            {serverJob?.id && (
+              <p className="mt-2 break-all text-[9px] tracking-[0.2em] text-emerald-100/70">
+                ID: {serverJob.id}
+              </p>
+            )}
+            {serverJob?.provider && (
+              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
+                Provider: {serverJob.provider}
+              </p>
+            )}
+            {serverJobError && (
+              <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
+            )}
+          </div>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>AI ВИТРИНА</span>
@@ -928,3 +1135,4 @@ function AiLabContent() {
 export default function AiLabPage() {
   return <AiLabContent />;
 }
+

@@ -10,6 +10,7 @@ import { Media } from "./src/payload/collections/Media.ts";
 import { Orders } from "./src/payload/collections/Orders.ts";
 import { Products } from "./src/payload/collections/Products.ts";
 import { Users } from "./src/payload/collections/Users.ts";
+import { AiJobs } from "./src/payload/collections/AiJobs.ts";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -310,7 +311,7 @@ export default buildConfig({
       fileSize: 200 * 1024 * 1024, // 200MB
     },
   },
-  collections: [Users, Categories, Media, Products, Orders],
+  collections: [Users, Categories, Media, Products, Orders, AiJobs],
   onInit: async (payload) => {
     if (!enableBootstrapSeed) {
       payload.logger?.info("Bootstrap seed is disabled (PAYLOAD_ENABLE_BOOTSTRAP_SEED=false)");
