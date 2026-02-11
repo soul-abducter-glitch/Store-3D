@@ -1,4 +1,5 @@
 ﻿import type { Access, CollectionConfig } from "payload";
+import { notifyOrderEventIfNeeded } from "../../lib/orderNotifications";
 
 const normalizeEmail = (value?: string) => {
   if (!value) return "";
@@ -338,7 +339,7 @@ export const Orders: CollectionConfig = {
       },
     ],
     afterChange: [
-      async ({ doc, req, operation }) => {
+      async ({ doc, req, operation, previousDoc }) => {
         if (!doc) return doc;
         const payloadInstance = req?.payload;
         if (!payloadInstance) return doc;
@@ -418,6 +419,13 @@ export const Orders: CollectionConfig = {
             }
           }
         }
+
+        await notifyOrderEventIfNeeded({
+          doc,
+          previousDoc,
+          operation,
+          logger: payloadInstance.logger,
+        });
 
         return doc;
       },
@@ -652,5 +660,8 @@ export const Orders: CollectionConfig = {
     },
   ],
 };
+
+
+
 
 
