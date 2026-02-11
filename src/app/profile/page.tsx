@@ -127,6 +127,13 @@ const formatPrice = (value?: number) => {
 
 const DIGITAL_CANCEL_WINDOW_MINUTES = 30;
 const PHYSICAL_CANCEL_WINDOW_MINUTES = 12 * 60;
+const DELIVERY_COST_MAP: Record<string, number> = {
+  cdek: 200,
+  yandex: 150,
+  ozon: 100,
+  pochta: 250,
+  pickup: 0,
+};
 
 const isWithinCancelWindow = (createdAt: unknown, windowMinutes: number) => {
   if (!createdAt) return false;
@@ -918,6 +925,29 @@ export default function ProfilePage() {
       unitPrice,
       lineTotal: formatPrice(quantity * unitPrice),
       unitPriceLabel: formatPrice(unitPrice),
+    };
+  };
+
+  const resolveOrderDeliveryCost = (order: any) => {
+    const shippingMethod =
+      typeof order?.shipping?.method === "string" ? order.shipping.method.trim().toLowerCase() : "";
+    if (!shippingMethod) return 0;
+    return DELIVERY_COST_MAP[shippingMethod] ?? 0;
+  };
+
+  const getOrderPricingSummary = (order: any) => {
+    const items = getOrderItems(order);
+    const subtotal = items.reduce((sum: number, item: any) => {
+      const quantity = typeof item?.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
+      const unitPrice =
+        typeof item?.unitPrice === "number" && item.unitPrice >= 0 ? item.unitPrice : 0;
+      return sum + quantity * unitPrice;
+    }, 0);
+    const deliveryCost = resolveOrderDeliveryCost(order);
+    return {
+      subtotal,
+      deliveryCost,
+      total: subtotal + deliveryCost,
     };
   };
 
@@ -1731,7 +1761,7 @@ export default function ProfilePage() {
                       typeof item?.quantity === "number" && item.quantity > 0 ? item.quantity : 1;
                     return sum + qty;
                   }, 0);
-                  const totalLabel = typeof order.total === "number" ? formatPrice(order.total) : null;
+                  const pricingSummary = getOrderPricingSummary(order);
                   const progressStage = getOrderProgressStage(order.status);
                   const statusKey = normalizeOrderStatus(order.status);
                   const isDigital = isDigitalOrder(order);
@@ -1808,9 +1838,17 @@ export default function ProfilePage() {
                               </div>
                             </div>
                           )}
-                          {totalLabel && (
-                            <p className="mt-1 text-sm text-white/70">Итого: {totalLabel} ₽</p>
+                          <p className="mt-1 text-sm text-white/60">
+                            Товары: {formatPrice(pricingSummary.subtotal)} ₽
+                          </p>
+                          {pricingSummary.deliveryCost > 0 && (
+                            <p className="mt-1 text-sm text-white/60">
+                              Доставка: {formatPrice(pricingSummary.deliveryCost)} ₽
+                            </p>
                           )}
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            Итого: {formatPrice(pricingSummary.total)} ₽
+                          </p>
                           <button
                             type="button"
                             onClick={() => handleRepeatOrder(order)}
@@ -1963,6 +2001,22 @@ export default function ProfilePage() {
                                 </div>
                               );
                             })}
+                          </div>
+                          <div className="mt-4 border-t border-white/10 pt-3 text-sm text-white/70">
+                            <div className="flex items-center justify-between">
+                              <span>Подытог</span>
+                              <span>{formatPrice(pricingSummary.subtotal)} ₽</span>
+                            </div>
+                            {pricingSummary.deliveryCost > 0 && (
+                              <div className="mt-1 flex items-center justify-between">
+                                <span>Доставка</span>
+                                <span>{formatPrice(pricingSummary.deliveryCost)} ₽</span>
+                              </div>
+                            )}
+                            <div className="mt-2 flex items-center justify-between text-base font-semibold text-white">
+                              <span>Итого</span>
+                              <span>{formatPrice(pricingSummary.total)} ₽</span>
+                            </div>
                           </div>
                         </div>
                       )}
