@@ -9,7 +9,35 @@ import { getPaymentProviderLabel, getPaymentStatusLabel } from "@/lib/paymentSta
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const PdfPrinter = require("pdfmake");
+const resolvePdfPrinterConstructor = () => {
+  const mainModule = require("pdfmake");
+  const mainCtor =
+    (mainModule as { default?: unknown; PdfPrinter?: unknown }).default ??
+    (mainModule as { default?: unknown; PdfPrinter?: unknown }).PdfPrinter ??
+    mainModule;
+  if (typeof mainCtor === "function") {
+    return mainCtor as new (fonts: Record<string, unknown>) => {
+      createPdfKitDocument: (docDefinition: unknown) => {
+        on: (event: string, handler: (arg?: any) => void) => void;
+        end: () => void;
+      };
+    };
+  }
+
+  const printerModule = require("pdfmake/src/printer");
+  const printerCtor =
+    (printerModule as { default?: unknown }).default ?? printerModule;
+  if (typeof printerCtor === "function") {
+    return printerCtor as new (fonts: Record<string, unknown>) => {
+      createPdfKitDocument: (docDefinition: unknown) => {
+        on: (event: string, handler: (arg?: any) => void) => void;
+        end: () => void;
+      };
+    };
+  }
+
+  throw new Error("pdfmake printer constructor is unavailable");
+};
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
@@ -406,6 +434,7 @@ const createReceiptPdf = async (args: {
     },
   };
 
+  const PdfPrinter = resolvePdfPrinterConstructor();
   const printer = new PdfPrinter(fonts);
   const pdfDoc = printer.createPdfKitDocument(docDefinition);
 
