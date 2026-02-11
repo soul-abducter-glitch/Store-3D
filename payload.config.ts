@@ -5,11 +5,11 @@ import { lexicalEditor } from "@payloadcms/richtext-lexical";
 import { s3Storage } from "@payloadcms/storage-s3";
 import { buildConfig } from "payload";
 
-import { Categories } from "@/payload/collections/Categories";
-import { Media } from "@/payload/collections/Media";
-import { Orders } from "@/payload/collections/Orders";
-import { Products } from "@/payload/collections/Products";
-import { Users } from "@/payload/collections/Users";
+import { Categories } from "./src/payload/collections/Categories.ts";
+import { Media } from "./src/payload/collections/Media.ts";
+import { Orders } from "./src/payload/collections/Orders.ts";
+import { Products } from "./src/payload/collections/Products.ts";
+import { Users } from "./src/payload/collections/Users.ts";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -37,6 +37,21 @@ const s3PublicSecretAccessKey =
 const s3PublicBucket = process.env.S3_PUBLIC_BUCKET || s3Bucket;
 const s3PublicEndpoint = process.env.S3_PUBLIC_ENDPOINT || s3Endpoint;
 const s3PublicRegion = process.env.S3_PUBLIC_REGION || process.env.S3_REGION || "us-east-1";
+const nodeEnv = process.env.NODE_ENV || "development";
+
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+};
+
+const enableSchemaPush = parseBoolean(process.env.PAYLOAD_DB_PUSH, nodeEnv !== "production");
+const enableBootstrapSeed = parseBoolean(
+  process.env.PAYLOAD_ENABLE_BOOTSTRAP_SEED,
+  nodeEnv !== "production"
+);
 const allowedOrigins = Array.from(
   new Set(
     [
@@ -297,10 +312,16 @@ export default buildConfig({
   },
   collections: [Users, Categories, Media, Products, Orders],
   onInit: async (payload) => {
+    if (!enableBootstrapSeed) {
+      payload.logger?.info("Bootstrap seed is disabled (PAYLOAD_ENABLE_BOOTSTRAP_SEED=false)");
+      return;
+    }
     await ensureBaseCategories(payload);
     await ensurePrintServiceProduct(payload);
   },
   db: postgresAdapter({
+    push: enableSchemaPush,
+    migrationDir: path.resolve(process.cwd(), "src/migrations"),
     pool: {
       connectionString: databaseURL,
       connectionTimeoutMillis: 20000,

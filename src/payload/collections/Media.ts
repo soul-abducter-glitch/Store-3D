@@ -1,6 +1,6 @@
 ﻿import type { CollectionConfig } from "payload";
 
-import { isAuthenticated } from "../access";
+import { isAuthenticated } from "../access.ts";
 
 export const Media: CollectionConfig = {
   slug: "media",
