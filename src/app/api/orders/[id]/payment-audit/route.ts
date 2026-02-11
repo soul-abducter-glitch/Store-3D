@@ -155,6 +155,21 @@ export async function GET(
     },
   ];
 
+  if (paymentProvider === "stripe" || paymentProvider === "mock") {
+    events.push({
+      id: `idempotency-note-${String(order?.id)}`,
+      code: "note",
+      label: "Повторные webhook-события автоматически игнорируются как дубль.",
+      at:
+        typeof order?.updatedAt === "string"
+          ? order.updatedAt
+          : typeof order?.createdAt === "string"
+            ? order.createdAt
+            : undefined,
+      source: "system",
+    });
+  }
+
   if (typeof order?.paidAt === "string" && order.paidAt) {
     events.push({
       id: `order-paid-${String(order?.id)}`,
