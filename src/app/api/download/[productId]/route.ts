@@ -4,6 +4,7 @@ import { Readable } from "stream";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { verifyDownloadToken } from "@/lib/downloadTokens";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -57,6 +58,8 @@ const uploadSecretAccessKey =
 const uploadRegion = process.env.S3_UPLOAD_REGION || process.env.S3_REGION || "us-east-1";
 const storagePrefix = "media";
 const mediaProxyPrefix = "api/media-file/";
+const requireSignedDownloadToken =
+  (process.env.DOWNLOAD_REQUIRE_TOKEN || "true").trim().toLowerCase() !== "false";
 
 const buildS3Client = (
   endpoint: string | undefined,
@@ -490,6 +493,23 @@ export async function GET(
   const user = await fetchUser(payload, request);
   if (!user?.id) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+  }
+
+  const token = (request.nextUrl.searchParams.get("token") || "").trim();
+  if (requireSignedDownloadToken) {
+    if (!token) {
+      return NextResponse.json({ error: "Download link is required." }, { status: 403 });
+    }
+    const verifiedToken = verifyDownloadToken(token);
+    if (!verifiedToken.valid) {
+      return NextResponse.json({ error: verifiedToken.error }, { status: 403 });
+    }
+    if (
+      normalizeId(verifiedToken.payload.userId) !== normalizeId(user.id) ||
+      normalizeId(verifiedToken.payload.productId) !== target
+    ) {
+      return NextResponse.json({ error: "Download link is invalid." }, { status: 403 });
+    }
   }
 
   const purchasedProducts = Array.isArray(user?.purchasedProducts)

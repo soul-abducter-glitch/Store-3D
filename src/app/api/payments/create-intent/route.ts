@@ -4,16 +4,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
 
 export const dynamic = "force-dynamic";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
-
-const resolvePaymentsMode = () => {
-  const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
-  if (raw === "mock" || raw === "live" || raw === "stripe") return raw;
-  return "off";
-};
 
 const buildIntentId = () => `mock_${randomUUID().slice(0, 12)}`;
 
@@ -50,15 +45,65 @@ const REUSABLE_STRIPE_STATUSES = new Set([
   "processing",
 ]);
 
+const normalizeEmail = (value?: string) => {
+  if (!value) return "";
+  return value.trim().toLowerCase();
+};
+
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const raw = String(value).trim();
+  if (!raw) {
+    return null;
+  }
+  const base = raw.split(":")[0].trim();
+  if (!base || /\s/.test(base)) {
+    return null;
+  }
+  if (/^\d+$/.test(base)) {
+    return Number(base);
+  }
+  return base;
+};
+
+const extractRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    const candidate =
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+    return normalizeRelationshipId(candidate);
+  }
+  return normalizeRelationshipId(value);
+};
+
 export async function POST(request: NextRequest) {
   try {
+    const payload = await getPayloadClient();
+    let authUser: any = null;
+    try {
+      const authResult = await payload.auth({ headers: request.headers });
+      authUser = authResult?.user ?? null;
+    } catch {
+      authUser = null;
+    }
+    if (!authUser) {
+      return NextResponse.json(
+        { success: false, error: "Unauthorized." },
+        { status: 401 }
+      );
+    }
+
     const data = await request.json().catch(() => null);
     const orderId = data?.orderId ? String(data.orderId).trim() : "";
     if (!orderId) {
       return NextResponse.json({ success: false, error: "Missing orderId." }, { status: 400 });
     }
 
-    const payload = await getPayloadClient();
     const order = await payload.findByID({
       collection: "orders",
       id: orderId,
@@ -70,7 +115,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Order not found." }, { status: 404 });
     }
 
-    const paymentsMode = resolvePaymentsMode();
+    const userId = authUser?.id ? String(authUser.id) : "";
+    const orderUser = extractRelationshipId(order?.user);
+    const orderUserId = orderUser !== null ? String(orderUser) : "";
+    const orderEmail = normalizeEmail(order?.customer?.email);
+    const userEmail = normalizeEmail(authUser?.email);
+    const isOwner = (userId && orderUserId === userId) || (userEmail && orderEmail === userEmail);
+    if (!isOwner) {
+      return NextResponse.json(
+        { success: false, error: "Forbidden." },
+        { status: 403 }
+      );
+    }
+
+    const paymentsMode = resolveServerPaymentsMode();
     if (paymentsMode === "off") {
       return NextResponse.json(
         {

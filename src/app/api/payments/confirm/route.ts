@@ -3,16 +3,11 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
 
 export const dynamic = "force-dynamic";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
-
-const resolvePaymentsMode = () => {
-  const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
-  if (raw === "mock" || raw === "live" || raw === "stripe") return raw;
-  return "off";
-};
 
 const normalizePaymentStatus = (value?: string) => {
   if (!value) return "pending";
@@ -25,6 +20,24 @@ const normalizePaymentStatus = (value?: string) => {
 
 const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
 const stripe = stripeSecretKey !== "" ? new Stripe(stripeSecretKey) : null;
+
+const deliveryCostMap: Record<string, number> = {
+  cdek: 200,
+  yandex: 150,
+  ozon: 100,
+  pochta: 250,
+  pickup: 0,
+};
+
+const resolveExpectedAmountCents = (order: any) => {
+  const baseTotal =
+    typeof order?.total === "number" && Number.isFinite(order.total) ? order.total : 0;
+  const shippingMethod =
+    typeof order?.shipping?.method === "string" ? order.shipping.method : "";
+  const deliveryCost = deliveryCostMap[shippingMethod] ?? 0;
+  const total = Math.max(0, baseTotal + deliveryCost);
+  return Math.round(total * 100);
+};
 
 const normalizeEmail = (value?: string) => {
   if (!value) return "";
@@ -137,7 +150,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const paymentsMode = resolvePaymentsMode();
+    const paymentsMode = resolveServerPaymentsMode();
     if (paymentsMode === "mock") {
       const status = normalizePaymentStatus(data?.status ?? data?.paymentStatus);
       const updateData: Record<string, unknown> = {
@@ -219,6 +232,23 @@ export async function POST(request: NextRequest) {
     if (paymentIntent.status !== "succeeded") {
       return NextResponse.json(
         { success: false, error: `Payment status: ${paymentIntent.status}` },
+        { status: 422 }
+      );
+    }
+
+    const expectedAmount = resolveExpectedAmountCents(order);
+    const paidAmount =
+      typeof paymentIntent.amount_received === "number" && paymentIntent.amount_received > 0
+        ? paymentIntent.amount_received
+        : paymentIntent.amount;
+    if (expectedAmount > 0 && paidAmount < expectedAmount) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Paid amount is less than order total.",
+          paidAmount,
+          expectedAmount,
+        },
         { status: 422 }
       );
     }

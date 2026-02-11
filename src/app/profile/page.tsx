@@ -78,6 +78,15 @@ type PurchasedProduct = {
   slug?: string;
 };
 
+type DownloadEntry = {
+  id: string;
+  productId: string;
+  product: string;
+  fileSize: string;
+  previewUrl: string;
+  ready: boolean;
+};
+
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -228,6 +237,7 @@ export default function ProfilePage() {
   const [cancelingOrderItemKey, setCancelingOrderItemKey] = useState<string | null>(null);
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const [creatingGiftForId, setCreatingGiftForId] = useState<string | null>(null);
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
   const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -1161,11 +1171,49 @@ export default function ProfilePage() {
     }
   };
 
+  const handleDownloadFile = async (item: DownloadEntry) => {
+    if (!item.productId) {
+      toast.error("Не удалось определить модель для скачивания.", { className: "sonner-toast" });
+      return;
+    }
+    setDownloadingId(item.id);
+    try {
+      const response = await fetch(
+        `${apiBase}/api/download-token/${encodeURIComponent(item.productId)}`,
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        }
+      );
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success || typeof data?.downloadUrl !== "string") {
+        throw new Error(data?.error || "Не удалось подготовить ссылку для скачивания.");
+      }
+
+      const link = document.createElement("a");
+      link.href = data.downloadUrl;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось скачать файл. Попробуйте снова.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setDownloadingId(null);
+    }
+  };
+
   const purchasedProducts: PurchasedProduct[] = Array.isArray(user?.purchasedProducts)
     ? user.purchasedProducts
     : [];
 
-  const downloads =
+  const downloads: DownloadEntry[] =
     purchasedProducts
       .map((product) => {
         if (!product) return null;
@@ -1174,7 +1222,6 @@ export default function ProfilePage() {
         const targetId = String(
           product.id || (product as any)?.value || (product as any)?._id || product.slug || product.name || ""
         );
-        const downloadUrl = targetId ? `/api/download/${encodeURIComponent(targetId)}` : null;
         const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
         const fileSize =
           typeof rawModel?.filesize === "number"
@@ -1188,9 +1235,8 @@ export default function ProfilePage() {
           productId: targetId,
           product: product.name || "Цифровой STL",
           fileSize,
-          downloadUrl,
           previewUrl,
-          ready: Boolean(downloadUrl),
+          ready: Boolean(targetId),
         };
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item)) ?? [];
@@ -1732,16 +1778,15 @@ export default function ProfilePage() {
                       </div>
                       <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                         {download.ready ? (
-                          <a
-                            href={download.downloadUrl ?? undefined}
-                            target="_blank"
-                            rel="noreferrer"
-                            download
-                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 sm:w-auto"
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadFile(download)}
+                            disabled={downloadingId === download.id}
+                            className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                           >
                             <Download className="h-4 w-4" />
-                            Скачать .STL
-                          </a>
+                            {downloadingId === download.id ? "Готовим..." : "Скачать .STL"}
+                          </button>
                         ) : (
                           <span className="flex w-full items-center justify-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40 sm:w-auto">
                             <Download className="h-4 w-4" />

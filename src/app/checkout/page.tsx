@@ -35,6 +35,7 @@ import {
   writeCartStorage,
 } from "@/lib/cartStorage";
 import { getCheckoutDraftKey, saveCheckoutDraftRecord } from "@/lib/checkoutDrafts";
+import { normalizePaymentsMode } from "@/lib/paymentsMode";
 
 type CartItem = {
   id: string;
@@ -958,7 +959,7 @@ const CheckoutPage = () => {
   const promoValidationRef = useRef("");
   const checkoutRequestIdRef = useRef<string | null>(null);
   const checkoutRequestSignatureRef = useRef<string>("");
-  const paymentsMode = (process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock").toLowerCase();
+  const paymentsMode = normalizePaymentsMode(process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock");
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
   const [form, setForm] = useState({
