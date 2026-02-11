@@ -981,7 +981,7 @@ function AiLabContent() {
             className="group flex items-center justify-center gap-3 rounded-2xl border border-emerald-400/60 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition hover:border-emerald-300 hover:bg-emerald-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Cpu className="h-4 w-4 text-emerald-300 transition group-hover:text-white" />
-            {serverJobLoading ? "янгдюел JOB..." : "гюосярхрэ SERVER JOB (MVP)"}
+            {serverJobLoading ? "CREATING JOB..." : "START SERVER JOB (MVP)"}
           </button>
 
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
