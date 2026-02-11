@@ -1029,11 +1029,22 @@ export default function ProfilePage() {
         throw new Error(errorMessage);
       }
 
+      const data = await response.json().catch(() => null);
       setOrders((prev) =>
         prev.map((order) =>
           String(order.id) === orderId ? { ...order, status: "cancelled" } : order
         )
       );
+      const refundMinor =
+        typeof data?.refund?.amountMinor === "number" ? data.refund.amountMinor : 0;
+      const refundAmount = refundMinor > 0 ? refundMinor / 100 : 0;
+      if (data?.refund?.refunded && refundAmount > 0) {
+        toast.success(`Заказ отменен. Возврат: ${formatPrice(refundAmount)} ₽`, {
+          className: "sonner-toast",
+        });
+      } else {
+        toast.success("Заказ отменен.", { className: "sonner-toast" });
+      }
       window.dispatchEvent(new Event("orders-updated"));
     } catch (error) {
       const message =
@@ -1095,6 +1106,16 @@ export default function ProfilePage() {
         );
       } else {
         window.dispatchEvent(new Event("orders-updated"));
+      }
+      const refundMinor =
+        typeof data?.refund?.amountMinor === "number" ? data.refund.amountMinor : 0;
+      const refundAmount = refundMinor > 0 ? refundMinor / 100 : 0;
+      if (data?.refund?.refunded && refundAmount > 0) {
+        toast.success(`Позиция отменена. Возврат: ${formatPrice(refundAmount)} ₽`, {
+          className: "sonner-toast",
+        });
+      } else {
+        toast.success("Позиция отменена.", { className: "sonner-toast" });
       }
     } catch (error) {
       const message =
