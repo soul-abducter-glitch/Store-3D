@@ -10,15 +10,38 @@ const deliveryCostMap: Record<string, number> = {
 
 type OrderEvent = "paid" | "cancelled" | "refunded";
 
+type LoggerLike = {
+  info?: (payload: unknown) => void;
+  warn?: (payload: unknown) => void;
+  error?: (payload: unknown) => void;
+};
+
 type NotifyArgs = {
   doc: any;
   previousDoc?: any;
   operation: "create" | "update";
-  logger?: {
-    info?: (payload: unknown) => void;
-    warn?: (payload: unknown) => void;
-    error?: (payload: unknown) => void;
-  };
+  logger?: LoggerLike;
+};
+
+type SmtpSettings = {
+  enabled: boolean;
+  ready: boolean;
+  host: string;
+  port: number;
+  secure: boolean;
+  from: string;
+  replyTo?: string;
+  user?: string;
+  pass?: string;
+  hasAuth: boolean;
+};
+
+type SendResult = {
+  ok: boolean;
+  skipped?: boolean;
+  reason?: string;
+  messageId?: string;
+  error?: string;
 };
 
 const normalizeStatus = (value?: unknown) => {
@@ -73,32 +96,38 @@ const resolveSiteOrigin = () => {
   return "http://localhost:3000";
 };
 
-const isEmailEnabled = () => {
-  const raw = (process.env.ORDER_EMAIL_ENABLED || "").trim().toLowerCase();
-  if (raw === "0" || raw === "false" || raw === "no" || raw === "off") return false;
-  return true;
+const parseBoolean = (value: string | undefined, fallback: boolean): boolean => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
 };
 
-const smtpConfig = () => {
+const isEmailEnabled = () => parseBoolean(process.env.ORDER_EMAIL_ENABLED, true);
+
+export const getOrderEmailSettings = (): SmtpSettings => {
   const host = (process.env.SMTP_HOST || "").trim();
   const portRaw = (process.env.SMTP_PORT || "").trim();
   const port = Number(portRaw || "587");
-  const user = (process.env.SMTP_USER || "").trim();
-  const pass = (process.env.SMTP_PASS || "").trim();
+  const user = (process.env.SMTP_USER || "").trim() || undefined;
+  const pass = (process.env.SMTP_PASS || "").trim() || undefined;
   const from = (process.env.SMTP_FROM || "").trim();
-  const secureRaw = (process.env.SMTP_SECURE || "").trim().toLowerCase();
-  const secure = secureRaw ? secureRaw === "1" || secureRaw === "true" : port === 465;
+  const secure = parseBoolean(process.env.SMTP_SECURE, port === 465);
   const replyTo = (process.env.SMTP_REPLY_TO || "").trim() || undefined;
+  const enabled = isEmailEnabled();
 
   return {
-    ready: Boolean(host && port && from),
+    enabled,
+    ready: Boolean(enabled && host && Number.isFinite(port) && port > 0 && from),
     host,
     port,
+    secure,
+    from,
+    replyTo,
     user,
     pass,
-    from,
-    secure,
-    replyTo,
+    hasAuth: Boolean(user && pass),
   };
 };
 
@@ -107,20 +136,33 @@ let transporterPromise: Promise<nodemailer.Transporter | null> | null = null;
 const getTransporter = async () => {
   if (!transporterPromise) {
     transporterPromise = (async () => {
-      const smtp = smtpConfig();
-      if (!smtp.ready || !isEmailEnabled()) return null;
+      const settings = getOrderEmailSettings();
+      if (!settings.ready) return null;
 
       const transporter = nodemailer.createTransport({
-        host: smtp.host,
-        port: smtp.port,
-        secure: smtp.secure,
-        auth: smtp.user && smtp.pass ? { user: smtp.user, pass: smtp.pass } : undefined,
+        host: settings.host,
+        port: settings.port,
+        secure: settings.secure,
+        auth: settings.hasAuth
+          ? {
+              user: settings.user,
+              pass: settings.pass,
+            }
+          : undefined,
       });
 
       return transporter;
     })();
   }
+
   return transporterPromise;
+};
+
+const describeError = (error: unknown) => {
+  if (error instanceof Error) {
+    return error.message || "Unknown error";
+  }
+  return String(error || "Unknown error");
 };
 
 const resolveEvent = (doc: any, previousDoc?: any): OrderEvent | null => {
@@ -169,22 +211,54 @@ const getEventHeader = (event: OrderEvent) => {
   return "По заказу оформлен возврат средств.";
 };
 
-const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: NotifyArgs["logger"]) => {
+export const sendNotificationEmail = async (args: {
+  to: string;
+  subject: string;
+  text: string;
+  logger?: LoggerLike;
+}): Promise<SendResult> => {
+  const settings = getOrderEmailSettings();
+  if (!settings.enabled) {
+    return { ok: false, skipped: true, reason: "email_disabled" };
+  }
+
+  const to = (args.to || "").trim().toLowerCase();
+  if (!to) {
+    return { ok: false, skipped: true, reason: "missing_recipient" };
+  }
+
+  const transporter = await getTransporter();
+  if (!transporter) {
+    return { ok: false, skipped: true, reason: "smtp_not_configured" };
+  }
+
+  try {
+    const info = await transporter.sendMail({
+      from: settings.from,
+      to,
+      replyTo: settings.replyTo,
+      subject: args.subject,
+      text: args.text,
+    });
+    return { ok: true, messageId: info.messageId };
+  } catch (error) {
+    const message = describeError(error);
+    args.logger?.warn?.({
+      msg: "[orders] failed to send notification email",
+      to,
+      subject: args.subject,
+      err: error,
+      errorMessage: message,
+    });
+    return { ok: false, error: message };
+  }
+};
+
+const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: LoggerLike) => {
   const emailRaw =
     typeof order?.customer?.email === "string" ? order.customer.email.trim().toLowerCase() : "";
   if (!emailRaw) return;
 
-  const transporter = await getTransporter();
-  if (!transporter) {
-    logger?.info?.({
-      msg: "[orders] email transport is not configured, skip order notification",
-      orderId: order?.id,
-      event,
-    });
-    return;
-  }
-
-  const smtp = smtpConfig();
   const origin = resolveSiteOrigin();
   const orderId = String(order?.id || "");
   const total = formatMoney(resolveOrderTotal(order));
@@ -210,23 +284,63 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Notif
     `Чек PDF: ${receiptUrl}`,
   ].join("\n");
 
-  try {
-    await transporter.sendMail({
-      from: smtp.from,
-      to: emailRaw,
-      replyTo: smtp.replyTo,
-      subject: getSubject(event, orderId),
-      text,
-    });
-  } catch (error) {
-    logger?.warn?.({
-      msg: "[orders] failed to send order notification email",
-      err: error,
+  const result = await sendNotificationEmail({
+    to: emailRaw,
+    subject: getSubject(event, orderId),
+    text,
+    logger,
+  });
+
+  if (result.skipped) {
+    logger?.info?.({
+      msg: "[orders] skip order notification email",
       orderId,
       event,
-      to: emailRaw,
+      reason: result.reason,
     });
   }
+};
+
+export const sendTestNotificationEmail = async (args: {
+  to?: string;
+  logger?: LoggerLike;
+}) => {
+  const settings = getOrderEmailSettings();
+  const recipient = (args.to || settings.user || "").trim().toLowerCase();
+  const origin = resolveSiteOrigin();
+
+  const text = [
+    "Тест SMTP для 3D-STORE.",
+    "",
+    `Время: ${new Date().toISOString()}`,
+    `Сайт: ${origin}`,
+    "",
+    "Если вы получили это письмо, SMTP настроен корректно.",
+  ].join("\n");
+
+  const result = await sendNotificationEmail({
+    to: recipient,
+    subject: "Тест SMTP: 3D-STORE",
+    text,
+    logger: args.logger,
+  });
+
+  return {
+    ...result,
+    to: recipient,
+    settings: {
+      enabled: settings.enabled,
+      ready: settings.ready,
+      host: settings.host,
+      port: settings.port,
+      secure: settings.secure,
+      from: settings.from,
+      replyTo: settings.replyTo,
+      hasAuth: settings.hasAuth,
+      hasUser: Boolean(settings.user),
+      hasPass: Boolean(settings.pass),
+    },
+  };
 };
 
 export const notifyOrderEventIfNeeded = async (args: NotifyArgs) => {
