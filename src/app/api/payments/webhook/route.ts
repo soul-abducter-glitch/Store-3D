@@ -45,6 +45,11 @@ const normalizeOrderStatus = (value?: unknown) => {
   return String(value).trim().toLowerCase();
 };
 
+const normalizeProvider = (value?: unknown) => {
+  if (!value) return "";
+  return String(value).trim().toLowerCase();
+};
+
 const isWebhookAuthorized = (request: NextRequest) => {
   const expected = (process.env.PAYMENTS_WEBHOOK_TOKEN || "").trim();
   if (!expected) {
@@ -142,6 +147,10 @@ export async function POST(request: NextRequest) {
       }
 
       const orderStatus = normalizeOrderStatus(order?.status);
+      const currentPaymentStatus = normalizePaymentStatus(order?.paymentStatus);
+      const currentProvider = normalizeProvider(order?.paymentProvider);
+      const currentIntentId =
+        typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
       if (
         nextStatus === "paid" &&
         (orderStatus === "cancelled" || orderStatus === "canceled" || orderStatus === "completed")
@@ -190,6 +199,23 @@ export async function POST(request: NextRequest) {
         }
       }
 
+      const sameIntent = !paymentIntent || currentIntentId === paymentIntent;
+      const paidStateAlreadyApplied =
+        nextStatus !== "paid" ||
+        ((orderStatus === "paid" || orderStatus === "completed") && Boolean(order?.paidAt));
+      const isDuplicateStripeEvent =
+        currentPaymentStatus === nextStatus &&
+        currentProvider === "stripe" &&
+        sameIntent &&
+        paidStateAlreadyApplied;
+
+      if (isDuplicateStripeEvent) {
+        return NextResponse.json(
+          { success: true, ignored: true, reason: "duplicate_event", orderId, type: event.type },
+          { status: 200 }
+        );
+      }
+
       const updateData: Record<string, unknown> = {
         paymentStatus: nextStatus,
         paymentProvider: "stripe",
@@ -235,6 +261,39 @@ export async function POST(request: NextRequest) {
       typeof data?.provider === "string" ? data.provider : data?.paymentProvider;
     const paymentIntentId =
       typeof data?.paymentIntentId === "string" ? data.paymentIntentId : undefined;
+
+    const order = await payload.findByID({
+      collection: "orders",
+      id: orderId,
+      depth: 0,
+      overrideAccess: true,
+    });
+    if (!order) {
+      return NextResponse.json({ success: false, error: "Order not found." }, { status: 404 });
+    }
+
+    const currentPaymentStatus = normalizePaymentStatus(order?.paymentStatus);
+    const currentProvider = normalizeProvider(order?.paymentProvider);
+    const currentIntentId =
+      typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
+    const normalizedIncomingProvider = normalizeProvider(paymentProvider);
+    const incomingOrderStatus = normalizeOrderStatus(order?.status);
+    const sameProvider =
+      !normalizedIncomingProvider || currentProvider === normalizedIncomingProvider;
+    const sameIntent = !paymentIntentId || currentIntentId === paymentIntentId;
+    const paidStateAlreadyApplied =
+      paymentStatus !== "paid" ||
+      ((incomingOrderStatus === "paid" || incomingOrderStatus === "completed") &&
+        Boolean(order?.paidAt));
+    const isDuplicateNonStripeEvent =
+      currentPaymentStatus === paymentStatus && sameProvider && sameIntent && paidStateAlreadyApplied;
+
+    if (isDuplicateNonStripeEvent) {
+      return NextResponse.json(
+        { success: true, ignored: true, reason: "duplicate_event", orderId, paymentStatus },
+        { status: 200 }
+      );
+    }
 
     const updateData: Record<string, unknown> = {
       paymentStatus,
