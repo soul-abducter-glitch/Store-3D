@@ -1226,6 +1226,12 @@ export default function ProfilePage() {
     }
   };
 
+  const handleOpenOrderReceipt = (orderId: string) => {
+    if (typeof window === "undefined") return;
+    const url = `${apiBase}/api/orders/${orderId}/receipt?print=1`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+
   const handleCreateGiftLink = async (item: { id: string; product: string; productId?: string }) => {
     if (!item.productId) {
       toast.error("Не удалось определить модель для подарка.", { className: "sonner-toast" });
@@ -1798,6 +1804,13 @@ export default function ProfilePage() {
                             className="mt-3 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                           >
                             {isPaymentAuditOpen ? "Скрыть оплату" : "Детали оплаты"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleOpenOrderReceipt(orderId)}
+                            className="mt-3 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white"
+                          >
+                            Чек / PDF
                           </button>
                           {canCancel && (
                             <button
