@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 import { computePrintPrice } from "@/lib/printPricing";
+import { evaluateStlPreflight } from "@/lib/stlPreflight";
 
 import { ToastContainer, useToast } from "@/components/Toast";
 import AuthForm from "@/components/AuthForm";
@@ -52,6 +53,7 @@ type PreviewMode = "hologram" | "resin" | "plastic" | "original";
 type ModelMetrics = {
   size: { x: number; y: number; z: number };
   volumeCm3: number;
+  volumeMethod: "mesh" | "fallback";
 };
 
 const BED_SIZE = 200;
@@ -363,6 +365,7 @@ const analyzeModel = (object: Object3D, unit: "mm" | "m") => {
   const boundsVolumeCm3 = (sizeMm.x * sizeMm.y * sizeMm.z) / 1000;
 
   let volumeCm3 = meshVolumeCm3;
+  let volumeMethod: "mesh" | "fallback" = "mesh";
   const maxAllowedMeshVolume =
     boundsVolumeCm3 > 0 ? boundsVolumeCm3 * 1.15 : Number.POSITIVE_INFINITY;
   if (
@@ -372,11 +375,13 @@ const analyzeModel = (object: Object3D, unit: "mm" | "m") => {
   ) {
     // Mesh volume can explode for non-manifold/open meshes; use conservative occupancy.
     volumeCm3 = boundsVolumeCm3 > 0 ? boundsVolumeCm3 * 0.32 : 0;
+    volumeMethod = "fallback";
   }
 
   return {
     size: sizeMm,
     volumeCm3,
+    volumeMethod,
   };
 };
 
@@ -791,6 +796,17 @@ function PrintServiceContent() {
     };
   }, [heightInputMax, metrics, targetHeightMm]);
 
+  const preflight = useMemo(
+    () =>
+      evaluateStlPreflight({
+        dimensions: scaledMetrics?.size,
+        volumeCm3: scaledMetrics?.volumeCm3,
+        volumeMethod: metrics?.volumeMethod,
+        bedSizeMm: { x: BED_SIZE, y: BED_SIZE, z: BED_SIZE },
+      }),
+    [metrics?.volumeMethod, scaledMetrics?.size, scaledMetrics?.volumeCm3]
+  );
+
   const pricing = useMemo(
     () =>
       computePrintPrice({
@@ -844,6 +860,7 @@ function PrintServiceContent() {
     Boolean(uploadedMedia?.id) &&
     Boolean(scaledMetrics) &&
     fitsBed &&
+    preflight.status !== "critical" &&
     Boolean(serviceProductId) &&
     uploadStatus === "ready";
 
@@ -1786,6 +1803,8 @@ function PrintServiceContent() {
       infillPercent: technology === "fdm" ? infillPercent : undefined,
       dimensions: scaledMetrics?.size,
       volumeCm3: scaledMetrics?.volumeCm3,
+      preflightStatus: preflight.status,
+      preflightIssues: preflight.issues.map((issue) => issue.message),
     },
   });
 
@@ -1846,6 +1865,11 @@ function PrintServiceContent() {
 
     if (!fitsBed) {
       showError("Модель в выбранном размере не помещается в область печати 200мм.");
+      return;
+    }
+
+    if (preflight.status === "critical") {
+      showError(preflight.issues[0]?.message || "Авто-проверка обнаружила критичную проблему модели.");
       return;
     }
 
@@ -2223,6 +2247,32 @@ function PrintServiceContent() {
                     </div>
                   )}
                 </div>
+                {scaledMetrics && (
+                  <div
+                    className={`mt-3 rounded-xl border px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
+                      preflight.status === "critical"
+                        ? "border-red-500/40 bg-red-500/10 text-red-200"
+                        : preflight.status === "risk"
+                          ? "border-amber-400/40 bg-amber-500/10 text-amber-100"
+                          : "border-emerald-400/35 bg-emerald-500/10 text-emerald-100"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <span>Авто-диагностика</span>
+                      <span>Q:{preflight.score}</span>
+                    </div>
+                    <p className="mt-1 text-[9px] normal-case tracking-normal opacity-90">
+                      {preflight.summary}
+                    </p>
+                    {preflight.issues.length > 0 && (
+                      <div className="mt-1 space-y-1 text-[9px] normal-case tracking-normal opacity-90">
+                        {preflight.issues.slice(0, 2).map((issue) => (
+                          <p key={issue.code}>{issue.message}</p>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
                 <p className="mt-3 text-[10px] uppercase tracking-[0.15em] text-white/45">
                   X/Y/Z — габариты модели по осям (мм), не координаты сцены.
                 </p>
@@ -2475,7 +2525,7 @@ function PrintServiceContent() {
               <button
                 type="button"
                 onClick={handleAddToCart}
-                disabled={isAdding}
+                disabled={!canAddToCart || isAdding}
                 aria-disabled={!canAddToCart || isAdding}
                 className={`w-full rounded-full bg-[#D4AF37] px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-[#050505] transition ${
                   canAddToCart ? "hover:bg-[#f5d57a]" : ""
@@ -2483,6 +2533,11 @@ function PrintServiceContent() {
               >
                 {isAdding ? "Добавляем..." : "ДОБАВИТЬ В КОРЗИНУ"}
               </button>
+              {preflight.status === "critical" && (
+                <p className="text-xs text-red-200/80">
+                  Добавление заблокировано: исправьте критичные ошибки модели.
+                </p>
+              )}
               {!serviceProductId && (
                 <p className="text-xs text-white/50">
                   Подключаем сервисный продукт. Обновите страницу через пару секунд.

@@ -10,6 +10,7 @@ import {
 } from "@/lib/cities";
 import { computePrintPrice } from "@/lib/printPricing";
 import { applyPromoDiscountToItems, validatePromoCode } from "@/lib/promocodes";
+import { evaluateStlPreflight } from "@/lib/stlPreflight";
 
 export const dynamic = "force-dynamic";
 
@@ -155,6 +156,23 @@ const resolveQueueMultiplier = () => {
   return Math.min(Math.max(parsed, 1), 2);
 };
 
+const resolvePreflightBlockCritical = () =>
+  (process.env.PRINT_PREFLIGHT_BLOCK_CRITICAL || "true").trim().toLowerCase() !== "false";
+
+const resolveBedSizeMm = () => {
+  const parse = (value: string | undefined, fallback: number) => {
+    const parsed = Number.parseFloat((value || "").trim());
+    if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+    return parsed;
+  };
+
+  return {
+    x: parse(process.env.PRINT_BED_X_MM, 200),
+    y: parse(process.env.PRINT_BED_Y_MM, 200),
+    z: parse(process.env.PRINT_BED_Z_MM, 200),
+  };
+};
+
 const collectDigitalProductIds = (items: Array<{ format?: string; product?: unknown }>) => {
   if (!Array.isArray(items)) return [];
   const ids = items
@@ -288,6 +306,48 @@ export async function POST(request: NextRequest) {
     if (items.length !== rawItems.length) {
       return NextResponse.json(
         { success: false, error: "Order contains invalid product references." },
+        { status: 400 }
+      );
+    }
+
+    const bedSizeMm = resolveBedSizeMm();
+    const shouldBlockCriticalPreflight = resolvePreflightBlockCritical();
+    const preflightCriticalIssues = items
+      .map((item: any, index: number) => {
+        if (item.format !== "Physical" || !item.customerUpload) {
+          return null;
+        }
+        const report = evaluateStlPreflight({
+          dimensions: item.printSpecs?.dimensions,
+          volumeCm3: item.printSpecs?.volumeCm3,
+          bedSizeMm,
+        });
+        if (report.status !== "critical") {
+          return null;
+        }
+        return {
+          itemIndex: index,
+          issues: report.issues
+            .filter((issue) => issue.severity === "critical")
+            .map((issue) => issue.message),
+        };
+      })
+      .filter(
+        (item: any): item is { itemIndex: number; issues: string[] } =>
+          Boolean(item && item.issues.length)
+      );
+
+    if (shouldBlockCriticalPreflight && preflightCriticalIssues.length > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          error:
+            "Авто-проверка модели обнаружила критичные риски печати. Исправьте модель и повторите загрузку.",
+          preflight: {
+            status: "critical",
+            items: preflightCriticalIssues,
+          },
+        },
         { status: 400 }
       );
     }
