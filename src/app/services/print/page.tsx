@@ -2179,12 +2179,12 @@ function PrintServiceContent() {
             className="space-y-5 rounded-[28px] border border-white/10 bg-white/[0.04] p-6 backdrop-blur-xl"
           >
             <div className="space-y-3">
-              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+              <p className="text-sm font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                 Технические данные
               </p>
               <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-[10px] uppercase tracking-[0.2em] text-white/60">
+                  <span className="text-sm uppercase tracking-[0.2em] text-white/60">
                     Высота печати
                   </span>
                   <div className="flex items-center gap-2">
@@ -2205,9 +2205,9 @@ function PrintServiceContent() {
                         );
                         setTargetHeightMm(next);
                       }}
-                      className="w-20 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-right text-xs text-white outline-none transition focus:border-[#2ED1FF]/60"
+                      className="w-20 rounded-lg border border-white/15 bg-white/5 px-2 py-1 text-right text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                     />
-                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/50">мм</span>
+                    <span className="text-sm uppercase tracking-[0.2em] text-white/50">мм</span>
                   </div>
                 </div>
                 <input
@@ -2221,25 +2221,25 @@ function PrintServiceContent() {
                 />
               </div>
               <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/80">
-                <div className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/60">
+                <div className="flex items-center justify-between text-base uppercase tracking-[0.2em] text-white/60">
                   <span>X</span>
                   <span>{scaledMetrics ? `${formatNumber(scaledMetrics.size.x)} мм` : "--"}</span>
                 </div>
-                <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/60">
+                <div className="mt-2 flex items-center justify-between text-base uppercase tracking-[0.2em] text-white/60">
                   <span>Y</span>
                   <span>{scaledMetrics ? `${formatNumber(scaledMetrics.size.y)} мм` : "--"}</span>
                 </div>
-                <div className="mt-2 flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/60">
+                <div className="mt-2 flex items-center justify-between text-base uppercase tracking-[0.2em] text-white/60">
                   <span>Z</span>
                   <span>{scaledMetrics ? `${formatNumber(scaledMetrics.size.z)} мм` : "--"}</span>
                 </div>
-                <div className="mt-3 border-t border-white/10 pt-3 text-xs uppercase tracking-[0.2em] text-white/60">
+                <div className="mt-3 border-t border-white/10 pt-3 text-base uppercase tracking-[0.2em] text-white/60">
                   <div className="flex items-center justify-between">
                     <span>Volume</span>
                     <span>{scaledMetrics ? `${formatNumber(scaledMetrics.volumeCm3)} см3` : "--"}</span>
                   </div>
                   {metrics && scaledMetrics && (
-                    <div className="mt-2 flex items-center justify-between text-[10px] tracking-[0.15em] text-white/40">
+                    <div className="mt-2 flex items-center justify-between text-sm tracking-[0.15em] text-white/40">
                       <span>База</span>
                       <span>
                         {formatNumber(toPrinterAxes(metrics.size).z)}мм → {formatNumber(scaledMetrics.safeTargetHeight, 0)}мм
@@ -2249,7 +2249,7 @@ function PrintServiceContent() {
                 </div>
                 {scaledMetrics && (
                   <div
-                    className={`mt-3 rounded-xl border px-3 py-2 text-[10px] uppercase tracking-[0.2em] ${
+                    className={`mt-3 rounded-xl border px-3 py-2 text-xs uppercase tracking-[0.2em] ${
                       preflight.status === "critical"
                         ? "border-red-500/40 bg-red-500/10 text-red-200"
                         : preflight.status === "risk"
@@ -2257,15 +2257,15 @@ function PrintServiceContent() {
                           : "border-emerald-400/35 bg-emerald-500/10 text-emerald-100"
                     }`}
                   >
-                    <div className="flex items-center justify-between gap-3">
+                    <div className="flex items-center justify-between gap-3 text-sm">
                       <span>Авто-диагностика</span>
                       <span>Q:{preflight.score}</span>
                     </div>
-                    <p className="mt-1 text-[9px] normal-case tracking-normal opacity-90">
+                    <p className="mt-1 text-[11px] normal-case tracking-normal opacity-90">
                       {preflight.summary}
                     </p>
                     {preflight.issues.length > 0 && (
-                      <div className="mt-1 space-y-1 text-[9px] normal-case tracking-normal opacity-90">
+                      <div className="mt-1 space-y-1 text-[11px] normal-case tracking-normal opacity-90">
                         {preflight.issues.slice(0, 2).map((issue) => (
                           <p key={issue.code}>{issue.message}</p>
                         ))}
@@ -2273,16 +2273,16 @@ function PrintServiceContent() {
                     )}
                   </div>
                 )}
-                <p className="mt-3 text-[10px] uppercase tracking-[0.15em] text-white/45">
+                <p className="mt-3 text-sm uppercase tracking-[0.15em] text-white/45">
                   X/Y/Z — габариты модели по осям (мм), не координаты сцены.
                 </p>
                 {!fitsBed && (
-                  <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-red-200">
+                  <div className="mt-3 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm uppercase tracking-[0.2em] text-red-200">
                     Модель больше 200mm
                   </div>
                 )}
                 {metrics && (
-                  <p className="mt-2 text-[10px] uppercase tracking-[0.15em] text-white/40">
+                  <p className="mt-2 text-sm uppercase tracking-[0.15em] text-white/40">
                     Рекомендуемая высота для стола 200мм: до {formatNumber(maxHeightForBedMm, 0)}мм
                   </p>
                 )}
