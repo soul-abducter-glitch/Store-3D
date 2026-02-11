@@ -1250,16 +1250,10 @@ export default function ProfilePage() {
     }
   };
 
-  const handleDownloadOrderReceipt = (orderId: string) => {
+  const handleOpenOrderReceiptPrint = (orderId: string) => {
     if (typeof window === "undefined") return;
-    const url = `${apiBase}/api/orders/${orderId}/receipt?format=pdf`;
-    const link = document.createElement("a");
-    link.href = url;
-    link.target = "_blank";
-    link.rel = "noreferrer";
-    document.body.appendChild(link);
-    link.click();
-    link.remove();
+    const url = `${apiBase}/api/orders/${orderId}/receipt?print=1`;
+    window.open(url, "_blank", "noopener,noreferrer");
   };
 
   const handleCreateGiftLink = async (item: { id: string; product: string; productId?: string }) => {
@@ -1837,10 +1831,10 @@ export default function ProfilePage() {
                           </button>
                           <button
                             type="button"
-                            onClick={() => handleDownloadOrderReceipt(orderId)}
+                            onClick={() => handleOpenOrderReceiptPrint(orderId)}
                             className="mt-3 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white"
                           >
-                            Скачать PDF
+                            Чек / PDF
                           </button>
                           {canCancel && (
                             <button

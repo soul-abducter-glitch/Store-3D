@@ -266,7 +266,7 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Logge
     typeof order?.customer?.name === "string" && order.customer.name.trim()
       ? order.customer.name.trim()
       : "Покупатель";
-  const receiptUrl = `${origin}/api/orders/${orderId}/receipt?format=pdf`;
+  const receiptUrl = `${origin}/api/orders/${orderId}/receipt`;
   const profileUrl = `${origin}/profile`;
   const itemLines = getOrderItemList(order);
 

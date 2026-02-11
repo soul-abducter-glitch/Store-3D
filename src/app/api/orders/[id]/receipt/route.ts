@@ -1,4 +1,3 @@
-import path from "path";
 import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
@@ -8,36 +7,6 @@ import { getPaymentProviderLabel, getPaymentStatusLabel } from "@/lib/paymentSta
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
-
-const resolvePdfPrinterConstructor = () => {
-  const mainModule = require("pdfmake");
-  const mainCtor =
-    (mainModule as { default?: unknown; PdfPrinter?: unknown }).default ??
-    (mainModule as { default?: unknown; PdfPrinter?: unknown }).PdfPrinter ??
-    mainModule;
-  if (typeof mainCtor === "function") {
-    return mainCtor as new (fonts: Record<string, unknown>) => {
-      createPdfKitDocument: (docDefinition: unknown) => {
-        on: (event: string, handler: (arg?: any) => void) => void;
-        end: () => void;
-      };
-    };
-  }
-
-  const printerModule = require("pdfmake/src/printer");
-  const printerCtor =
-    (printerModule as { default?: unknown }).default ?? printerModule;
-  if (typeof printerCtor === "function") {
-    return printerCtor as new (fonts: Record<string, unknown>) => {
-      createPdfKitDocument: (docDefinition: unknown) => {
-        on: (event: string, handler: (arg?: any) => void) => void;
-        end: () => void;
-      };
-    };
-  }
-
-  throw new Error("pdfmake printer constructor is unavailable");
-};
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
@@ -316,139 +285,6 @@ const renderReceiptHtml = (args: {
 </html>`;
 };
 
-const createReceiptPdf = async (args: {
-  order: any;
-  items: any[];
-  subtotal: number;
-  deliveryCost: number;
-  total: number;
-}) => {
-  const { order, items, subtotal, deliveryCost, total } = args;
-
-  const fonts = {
-    Roboto: {
-      normal: path.join(process.cwd(), "node_modules", "pdfmake", "fonts", "Roboto", "Roboto-Regular.ttf"),
-      bold: path.join(process.cwd(), "node_modules", "pdfmake", "fonts", "Roboto", "Roboto-Medium.ttf"),
-      italics: path.join(process.cwd(), "node_modules", "pdfmake", "fonts", "Roboto", "Roboto-Italic.ttf"),
-      bolditalics: path.join(
-        process.cwd(),
-        "node_modules",
-        "pdfmake",
-        "fonts",
-        "Roboto",
-        "Roboto-MediumItalic.ttf"
-      ),
-    },
-  };
-
-  const paymentStatusRaw =
-    typeof order?.paymentStatus === "string" ? order.paymentStatus : "pending";
-  const orderStatusRaw = typeof order?.status === "string" ? order.status : "accepted";
-  const paymentProviderRaw =
-    typeof order?.paymentProvider === "string" ? order.paymentProvider : "unknown";
-
-  const paymentStatus = getPaymentStatusLabel(paymentStatusRaw);
-  const orderStatus = getOrderStatusLabel(orderStatusRaw);
-  const paymentProvider = getPaymentProviderLabel(paymentProviderRaw);
-
-  const tableBody = [
-    [
-      { text: "Позиция", style: "tableHeader" },
-      { text: "Формат", style: "tableHeader" },
-      { text: "Кол-во", style: "tableHeader", alignment: "right" },
-      { text: "Цена", style: "tableHeader", alignment: "right" },
-      { text: "Сумма", style: "tableHeader", alignment: "right" },
-    ],
-    ...items.map((item) => {
-      const quantity =
-        typeof item?.quantity === "number" && Number.isFinite(item.quantity) && item.quantity > 0
-          ? item.quantity
-          : 1;
-      const unitPrice =
-        typeof item?.unitPrice === "number" && Number.isFinite(item.unitPrice) && item.unitPrice >= 0
-          ? item.unitPrice
-          : 0;
-      const lineTotal = unitPrice * quantity;
-
-      return [
-        { text: getItemName(item) },
-        { text: getItemFormat(item?.format) },
-        { text: String(quantity), alignment: "right" },
-        { text: `${formatMoney(unitPrice)} ₽`, alignment: "right" },
-        { text: `${formatMoney(lineTotal)} ₽`, alignment: "right" },
-      ];
-    }),
-  ];
-
-  const docDefinition: any = {
-    pageSize: "A4",
-    pageMargins: [36, 36, 36, 36],
-    defaultStyle: {
-      font: "Roboto",
-      fontSize: 10,
-    },
-    content: [
-      { text: `Чек заказа #${String(order?.id || "")}`, style: "title" },
-      {
-        text: [
-          `Дата: ${formatDateTime(order?.createdAt || order?.updatedAt) || "—"}\n`,
-          `Покупатель: ${String(order?.customer?.name || "Покупатель")} (${String(
-            order?.customer?.email || "—"
-          )})\n`,
-          `Статус заказа: ${orderStatus}\n`,
-          `Статус оплаты: ${paymentStatus}\n`,
-          `Провайдер: ${paymentProvider}\n`,
-          `Payment intent: ${String(order?.paymentIntentId || "—")}`,
-        ],
-        margin: [0, 8, 0, 12],
-      },
-      {
-        table: {
-          headerRows: 1,
-          widths: ["*", "auto", "auto", "auto", "auto"],
-          body: tableBody,
-        },
-        layout: "lightHorizontalLines",
-      },
-      {
-        margin: [0, 14, 0, 0],
-        table: {
-          widths: ["*", "auto"],
-          body: [
-            ["Подытог", `${formatMoney(subtotal)} ₽`],
-            ["Доставка", `${formatMoney(deliveryCost)} ₽`],
-            [{ text: "Итого", bold: true }, { text: `${formatMoney(total)} ₽`, bold: true }],
-          ],
-        },
-        layout: "noBorders",
-      },
-    ],
-    styles: {
-      title: {
-        fontSize: 18,
-        bold: true,
-      },
-      tableHeader: {
-        bold: true,
-      },
-    },
-  };
-
-  const PdfPrinter = resolvePdfPrinterConstructor();
-  const printer = new PdfPrinter(fonts);
-  const pdfDoc = printer.createPdfKitDocument(docDefinition);
-
-  const chunks: Buffer[] = [];
-  await new Promise<void>((resolve, reject) => {
-    pdfDoc.on("data", (chunk: Buffer) => chunks.push(chunk));
-    pdfDoc.on("end", () => resolve());
-    pdfDoc.on("error", (error: unknown) => reject(error));
-    pdfDoc.end();
-  });
-
-  return Buffer.concat(chunks);
-};
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -512,44 +348,7 @@ export async function GET(
   const total = subtotal + deliveryCost;
 
   const format = (request.nextUrl.searchParams.get("format") || "").trim().toLowerCase();
-  if (format === "pdf") {
-    try {
-      const pdfBuffer = await createReceiptPdf({
-        order,
-        items,
-        subtotal,
-        deliveryCost,
-        total,
-      });
-
-      const fileSafeOrderId = String(order?.id || orderId).replace(/[^a-zA-Z0-9_-]/g, "_");
-      const fileName = `receipt-${fileSafeOrderId}.pdf`;
-
-      return new NextResponse(pdfBuffer, {
-        status: 200,
-        headers: {
-          "Content-Type": "application/pdf",
-          "Content-Disposition": `attachment; filename=\"${fileName}\"`,
-          "Cache-Control": "private, no-store",
-        },
-      });
-    } catch (error: any) {
-      console.error("[receipt] failed to generate pdf", {
-        orderId,
-        error: error?.message || String(error),
-      });
-      return NextResponse.json(
-        {
-          success: false,
-          error: "Failed to generate PDF receipt.",
-          details: error?.message || String(error),
-        },
-        { status: 500 }
-      );
-    }
-  }
-
-  const autoPrint = request.nextUrl.searchParams.get("print") === "1";
+  const autoPrint = request.nextUrl.searchParams.get("print") === "1" || format === "pdf";
   const html = renderReceiptHtml({
     order,
     items,
