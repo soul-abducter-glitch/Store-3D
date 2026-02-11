@@ -20,6 +20,7 @@ const normalizePaymentStatus = (value?: string) => {
 
 const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
 const stripe = stripeSecretKey !== "" ? new Stripe(stripeSecretKey) : null;
+const expectedCurrency = (process.env.PAYMENTS_CURRENCY || "rub").trim().toLowerCase();
 
 const deliveryCostMap: Record<string, number> = {
   cdek: 200,
@@ -37,6 +38,11 @@ const resolveExpectedAmountCents = (order: any) => {
   const deliveryCost = deliveryCostMap[shippingMethod] ?? 0;
   const total = Math.max(0, baseTotal + deliveryCost);
   return Math.round(total * 100);
+};
+
+const normalizeOrderStatus = (value?: unknown) => {
+  if (!value) return "";
+  return String(value).trim().toLowerCase();
 };
 
 const normalizeEmail = (value?: string) => {
@@ -133,6 +139,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Order not found." },
         { status: 404 }
+      );
+    }
+
+    const orderStatus = normalizeOrderStatus(order?.status);
+    if (orderStatus === "cancelled" || orderStatus === "canceled") {
+      return NextResponse.json(
+        { success: false, error: "Order is cancelled." },
+        { status: 409 }
+      );
+    }
+    if (orderStatus === "completed") {
+      return NextResponse.json(
+        { success: false, error: "Order is already completed." },
+        { status: 409 }
       );
     }
 
@@ -241,6 +261,18 @@ export async function POST(request: NextRequest) {
       typeof paymentIntent.amount_received === "number" && paymentIntent.amount_received > 0
         ? paymentIntent.amount_received
         : paymentIntent.amount;
+    const paidCurrency = String(paymentIntent.currency || "").trim().toLowerCase();
+    if (paidCurrency && paidCurrency !== expectedCurrency) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Payment currency does not match order currency.",
+          paidCurrency,
+          expectedCurrency,
+        },
+        { status: 422 }
+      );
+    }
     if (expectedAmount > 0 && paidAmount < expectedAmount) {
       return NextResponse.json(
         {

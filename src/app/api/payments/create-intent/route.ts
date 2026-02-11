@@ -35,6 +35,11 @@ const resolveOrderAmount = (order: any) => {
   return Math.round(total * 100);
 };
 
+const normalizeOrderStatus = (value?: unknown) => {
+  if (!value) return "";
+  return String(value).trim().toLowerCase();
+};
+
 const isStripePaymentIntentId = (value?: unknown) =>
   typeof value === "string" && value.trim().startsWith("pi_");
 
@@ -113,6 +118,20 @@ export async function POST(request: NextRequest) {
 
     if (!order) {
       return NextResponse.json({ success: false, error: "Order not found." }, { status: 404 });
+    }
+
+    const orderStatus = normalizeOrderStatus(order?.status);
+    if (orderStatus === "cancelled" || orderStatus === "canceled") {
+      return NextResponse.json(
+        { success: false, error: "Order is cancelled." },
+        { status: 409 }
+      );
+    }
+    if (orderStatus === "completed") {
+      return NextResponse.json(
+        { success: false, error: "Order is already completed." },
+        { status: 409 }
+      );
     }
 
     const userId = authUser?.id ? String(authUser.id) : "";

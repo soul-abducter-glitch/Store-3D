@@ -11,6 +11,15 @@ const getPayloadClient = async () => getPayload({ config: payloadConfig });
 const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
 const stripeWebhookSecret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
 const stripe = stripeSecretKey !== "" ? new Stripe(stripeSecretKey) : null;
+const expectedCurrency = (process.env.PAYMENTS_CURRENCY || "rub").trim().toLowerCase();
+
+const deliveryCostMap: Record<string, number> = {
+  cdek: 200,
+  yandex: 150,
+  ozon: 100,
+  pochta: 250,
+  pickup: 0,
+};
 
 const normalizePaymentStatus = (value?: string) => {
   if (!value) return "pending";
@@ -19,6 +28,21 @@ const normalizePaymentStatus = (value?: string) => {
   if (raw === "failed" || raw === "error") return "failed";
   if (raw === "refunded" || raw === "refund") return "refunded";
   return "pending";
+};
+
+const resolveExpectedAmountCents = (order: any) => {
+  const baseTotal =
+    typeof order?.total === "number" && Number.isFinite(order.total) ? order.total : 0;
+  const shippingMethod =
+    typeof order?.shipping?.method === "string" ? order.shipping.method : "";
+  const deliveryCost = deliveryCostMap[shippingMethod] ?? 0;
+  const total = Math.max(0, baseTotal + deliveryCost);
+  return Math.round(total * 100);
+};
+
+const normalizeOrderStatus = (value?: unknown) => {
+  if (!value) return "";
+  return String(value).trim().toLowerCase();
 };
 
 const isWebhookAuthorized = (request: NextRequest) => {
@@ -85,6 +109,10 @@ export async function POST(request: NextRequest) {
         event.type === "charge.refunded"
           ? ((event.data.object as Stripe.Charge).payment_intent as string | null)
           : ((event.data.object as Stripe.PaymentIntent).id || null);
+      const paymentIntentObject =
+        event.type === "payment_intent.succeeded" || event.type === "payment_intent.payment_failed"
+          ? (event.data.object as Stripe.PaymentIntent)
+          : null;
       const metaOrderId =
         event.type === "charge.refunded"
           ? (event.data.object as Stripe.Charge).metadata?.orderId
@@ -98,6 +126,68 @@ export async function POST(request: NextRequest) {
           { success: false, error: "Order not found for webhook event." },
           { status: 404 }
         );
+      }
+
+      const order = await payload.findByID({
+        collection: "orders",
+        id: orderId,
+        depth: 0,
+        overrideAccess: true,
+      });
+      if (!order) {
+        return NextResponse.json(
+          { success: false, error: "Order not found." },
+          { status: 404 }
+        );
+      }
+
+      const orderStatus = normalizeOrderStatus(order?.status);
+      if (
+        nextStatus === "paid" &&
+        (orderStatus === "cancelled" || orderStatus === "canceled" || orderStatus === "completed")
+      ) {
+        return NextResponse.json(
+          { success: true, ignored: true, reason: "order_terminal_status", orderId },
+          { status: 200 }
+        );
+      }
+
+      if (nextStatus === "paid" && paymentIntentObject) {
+        const expectedAmount = resolveExpectedAmountCents(order);
+        const paidAmount =
+          typeof paymentIntentObject.amount_received === "number" &&
+          paymentIntentObject.amount_received > 0
+            ? paymentIntentObject.amount_received
+            : paymentIntentObject.amount;
+        const paidCurrency = String(paymentIntentObject.currency || "").trim().toLowerCase();
+
+        if (paidCurrency && paidCurrency !== expectedCurrency) {
+          return NextResponse.json(
+            {
+              success: true,
+              ignored: true,
+              reason: "currency_mismatch",
+              orderId,
+              paidCurrency,
+              expectedCurrency,
+            },
+            { status: 200 }
+          );
+        }
+
+        if (expectedAmount > 0 && paidAmount < expectedAmount) {
+          return NextResponse.json(
+            {
+              success: true,
+              ignored: true,
+              reason: "amount_mismatch",
+              orderId,
+              paidAmount,
+              expectedAmount,
+            },
+            { status: 200 }
+          );
+        }
       }
 
       const updateData: Record<string, unknown> = {
