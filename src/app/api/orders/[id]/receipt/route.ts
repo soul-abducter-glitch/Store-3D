@@ -484,25 +484,40 @@ export async function GET(
 
   const format = (request.nextUrl.searchParams.get("format") || "").trim().toLowerCase();
   if (format === "pdf") {
-    const pdfBuffer = await createReceiptPdf({
-      order,
-      items,
-      subtotal,
-      deliveryCost,
-      total,
-    });
+    try {
+      const pdfBuffer = await createReceiptPdf({
+        order,
+        items,
+        subtotal,
+        deliveryCost,
+        total,
+      });
 
-    const fileSafeOrderId = String(order?.id || orderId).replace(/[^a-zA-Z0-9_-]/g, "_");
-    const fileName = `receipt-${fileSafeOrderId}.pdf`;
+      const fileSafeOrderId = String(order?.id || orderId).replace(/[^a-zA-Z0-9_-]/g, "_");
+      const fileName = `receipt-${fileSafeOrderId}.pdf`;
 
-    return new NextResponse(pdfBuffer, {
-      status: 200,
-      headers: {
-        "Content-Type": "application/pdf",
-        "Content-Disposition": `attachment; filename=\"${fileName}\"`,
-        "Cache-Control": "private, no-store",
-      },
-    });
+      return new NextResponse(pdfBuffer, {
+        status: 200,
+        headers: {
+          "Content-Type": "application/pdf",
+          "Content-Disposition": `attachment; filename=\"${fileName}\"`,
+          "Cache-Control": "private, no-store",
+        },
+      });
+    } catch (error: any) {
+      console.error("[receipt] failed to generate pdf", {
+        orderId,
+        error: error?.message || String(error),
+      });
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Failed to generate PDF receipt.",
+          details: error?.message || String(error),
+        },
+        { status: 500 }
+      );
+    }
   }
 
   const autoPrint = request.nextUrl.searchParams.get("print") === "1";

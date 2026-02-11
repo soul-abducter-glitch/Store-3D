@@ -301,48 +301,6 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Logge
   }
 };
 
-export const sendTestNotificationEmail = async (args: {
-  to?: string;
-  logger?: LoggerLike;
-}) => {
-  const settings = getOrderEmailSettings();
-  const recipient = (args.to || settings.user || "").trim().toLowerCase();
-  const origin = resolveSiteOrigin();
-
-  const text = [
-    "Тест SMTP для 3D-STORE.",
-    "",
-    `Время: ${new Date().toISOString()}`,
-    `Сайт: ${origin}`,
-    "",
-    "Если вы получили это письмо, SMTP настроен корректно.",
-  ].join("\n");
-
-  const result = await sendNotificationEmail({
-    to: recipient,
-    subject: "Тест SMTP: 3D-STORE",
-    text,
-    logger: args.logger,
-  });
-
-  return {
-    ...result,
-    to: recipient,
-    settings: {
-      enabled: settings.enabled,
-      ready: settings.ready,
-      host: settings.host,
-      port: settings.port,
-      secure: settings.secure,
-      from: settings.from,
-      replyTo: settings.replyTo,
-      hasAuth: settings.hasAuth,
-      hasUser: Boolean(settings.user),
-      hasPass: Boolean(settings.pass),
-    },
-  };
-};
-
 export const notifyOrderEventIfNeeded = async (args: NotifyArgs) => {
   const { doc, previousDoc, operation, logger } = args;
   if (!doc || operation !== "update") return;
@@ -352,4 +310,3 @@ export const notifyOrderEventIfNeeded = async (args: NotifyArgs) => {
 
   await sendOrderEventEmail(event, doc, logger);
 };
-

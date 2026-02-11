@@ -24,6 +24,10 @@ const securityHeaders = [
 const baseConfig = {
   reactStrictMode: true,
   distDir: isAdminMode ? ".next-admin" : ".next-frontend",
+  outputFileTracingIncludes: {
+    "/api/orders/[id]/receipt": ["./node_modules/pdfmake/fonts/**/*"],
+    "/api/orders/[id]/receipt/route": ["./node_modules/pdfmake/fonts/**/*"],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "200mb",
