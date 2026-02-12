@@ -32,7 +32,7 @@ const executeRaw = async (payload: PayloadLike, raw: string) => {
   return execute({ raw });
 };
 
-const ensureLockedDocsColumn = async (payload: PayloadLike, schema: string) => {
+const ensureLockedDocsColumns = async (payload: PayloadLike, schema: string) => {
   const lockRelsTable = qualifiedTable(schema, "payload_locked_documents_rels");
   const lockRelsRegclass = toRegclassLiteral(schema, "payload_locked_documents_rels");
 
@@ -48,11 +48,16 @@ const ensureLockedDocsColumn = async (payload: PayloadLike, schema: string) => {
     payload,
     `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_jobs_id" integer`
   );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_assets_id" integer`
+  );
 };
 
 export const ensureAiLabSchema = async (payload: PayloadLike) => {
   const schema = normalizeSchemaName(payload?.db?.schemaName);
   const aiJobsTable = qualifiedTable(schema, "ai_jobs");
+  const aiAssetsTable = qualifiedTable(schema, "ai_assets");
 
   await executeRaw(
     payload,
@@ -154,5 +159,84 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
     `CREATE INDEX IF NOT EXISTS "ai_jobs_created_at_idx" ON ${aiJobsTable} ("created_at")`
   );
 
-  await ensureLockedDocsColumn(payload, schema);
+  await executeRaw(
+    payload,
+    `
+      CREATE TABLE IF NOT EXISTS ${aiAssetsTable} (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "job_id" integer,
+        "status" varchar NOT NULL DEFAULT 'ready',
+        "provider" varchar DEFAULT 'mock',
+        "title" varchar NOT NULL DEFAULT '',
+        "prompt" text,
+        "source_type" varchar DEFAULT 'none',
+        "source_url" text,
+        "preview_url" text,
+        "model_url" text NOT NULL DEFAULT '',
+        "format" varchar NOT NULL DEFAULT 'unknown',
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+    `
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "user_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "job_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "status" varchar DEFAULT 'ready'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "provider" varchar DEFAULT 'mock'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "title" varchar DEFAULT ''`
+  );
+  await executeRaw(payload, `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "prompt" text`);
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "source_type" varchar DEFAULT 'none'`
+  );
+  await executeRaw(payload, `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "source_url" text`);
+  await executeRaw(payload, `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "preview_url" text`);
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "model_url" text DEFAULT ''`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "format" varchar DEFAULT 'unknown'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "created_at" timestamptz DEFAULT now()`
+  );
+
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_assets_user_idx" ON ${aiAssetsTable} ("user_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_assets_job_idx" ON ${aiAssetsTable} ("job_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_assets_created_at_idx" ON ${aiAssetsTable} ("created_at")`
+  );
+
+  await ensureLockedDocsColumns(payload, schema);
 };

@@ -53,6 +53,16 @@ type AiGenerationJob = {
   completedAt?: string;
 };
 
+type AiAssetRecord = {
+  id: string;
+  jobId: string | null;
+  title: string;
+  modelUrl: string;
+  previewUrl: string;
+  format: string;
+  status: string;
+};
+
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
 
 const logLines = [
@@ -73,6 +83,7 @@ const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
+const AI_ASSETS_API_URL = "/api/ai/assets";
 const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   queued: "SERVER_QUEUE",
   processing: "GENETIC_MAPPING",
@@ -347,14 +358,16 @@ function AiLabContent() {
   const [jobHistoryFilter, setJobHistoryFilter] = useState<JobHistoryFilter>("all");
   const [historyAction, setHistoryAction] = useState<{
     id: string;
-    type: "retry" | "delete";
+    type: "retry" | "delete" | "publish";
   } | null>(null);
+  const [publishedAssetsByJobId, setPublishedAssetsByJobId] = useState<Record<string, string>>({});
+  const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
 
-  const { toasts, showError, removeToast } = useToast();
+  const { toasts, showError, showSuccess, removeToast } = useToast();
   const showErrorRef = useRef(showError);
 
   useEffect(() => {
@@ -545,9 +558,50 @@ function AiLabContent() {
     [pushUiError]
   );
 
+  const fetchPublishedAssets = useCallback(
+    async (silent = true) => {
+      try {
+        const response = await fetch(`${AI_ASSETS_API_URL}?limit=60`, {
+          method: "GET",
+          credentials: "include",
+        });
+        if (response.status === 401) {
+          if (!silent) {
+            setPublishedAssetsByJobId({});
+          }
+          return;
+        }
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (!silent) {
+            throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch AI assets.");
+          }
+          return;
+        }
+        const assets = Array.isArray(data?.assets) ? (data.assets as AiAssetRecord[]) : [];
+        const next: Record<string, string> = {};
+        assets.forEach((asset) => {
+          if (asset?.jobId) {
+            next[String(asset.jobId)] = String(asset.id);
+          }
+        });
+        setPublishedAssetsByJobId(next);
+      } catch (error) {
+        if (!silent) {
+          pushUiError(error instanceof Error ? error.message : "Failed to fetch AI assets.");
+        }
+      }
+    },
+    [pushUiError]
+  );
+
   useEffect(() => {
     void fetchJobHistory(false);
   }, [fetchJobHistory]);
+
+  useEffect(() => {
+    void fetchPublishedAssets(false);
+  }, [fetchPublishedAssets]);
 
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
@@ -565,6 +619,7 @@ function AiLabContent() {
     setServerJobError(null);
     setShowResult(false);
     setResultAsset(null);
+    setLatestCompletedJob(null);
 
     try {
       const response = await fetch(AI_GENERATE_API_URL, {
@@ -652,6 +707,7 @@ function AiLabContent() {
           completedServerJobRef.current !== nextJob.id
         ) {
           completedServerJobRef.current = nextJob.id;
+          setLatestCompletedJob(nextJob);
           registerGeneratedAsset({
             name: nextJob.prompt || "AI Model",
             modelUrl: nextJob.result.modelUrl,
@@ -742,6 +798,7 @@ function AiLabContent() {
       setServerJobError(null);
       setShowResult(false);
       setResultAsset(null);
+      setLatestCompletedJob(null);
 
       try {
         const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
@@ -803,6 +860,57 @@ function AiLabContent() {
     [pushUiError, serverJob?.id]
   );
 
+  const handlePublishJob = useCallback(
+    async (job: AiGenerationJob) => {
+      if (!job?.id) {
+        showError("Job id is missing.");
+        return;
+      }
+      if (job.status !== "completed" || !job.result?.modelUrl) {
+        showError("Only completed jobs can be published.");
+        return;
+      }
+      if (publishedAssetsByJobId[job.id]) {
+        showSuccess("Already saved in profile library.");
+        return;
+      }
+
+      setHistoryAction({ id: job.id, type: "publish" });
+      try {
+        const response = await fetch(AI_ASSETS_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            jobId: job.id,
+            title: (job.prompt || "AI Model").trim().slice(0, 90),
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.asset?.id) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to save asset.");
+        }
+
+        setPublishedAssetsByJobId((prev) => ({
+          ...prev,
+          [job.id]: String(data.asset.id),
+        }));
+        showSuccess("Saved to profile AI library.");
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ai-assets-updated"));
+        }
+        void fetchPublishedAssets(true);
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to save asset.");
+      } finally {
+        setHistoryAction((prev) =>
+          prev?.id === job.id && prev.type === "publish" ? null : prev
+        );
+      }
+    },
+    [fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
+  );
+
   const filteredJobHistory = useMemo(() => {
     if (jobHistoryFilter === "all") return jobHistory;
     return jobHistory.filter((job) => job.status === jobHistoryFilter);
@@ -818,6 +926,8 @@ function AiLabContent() {
   const currentStatus = serverJob?.status?.toUpperCase() ?? "STANDBY";
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
   const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
+  const resultJob = latestCompletedJob ?? (serverJob?.status === "completed" ? serverJob : null);
+  const isResultPublished = Boolean(resultJob?.id && publishedAssetsByJobId[resultJob.id]);
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
   const [modelScale, setModelScale] = useState(1);
@@ -1230,6 +1340,22 @@ function AiLabContent() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => void handlePublishJob(job)}
+                          disabled={
+                            historyAction?.id === job.id ||
+                            job.status !== "completed" ||
+                            Boolean(publishedAssetsByJobId[job.id])
+                          }
+                          className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {publishedAssetsByJobId[job.id]
+                            ? "SAVED"
+                            : historyAction?.id === job.id && historyAction.type === "publish"
+                              ? "..."
+                              : "PUBLISH"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => void handleDeleteHistoryJob(job)}
                           disabled={historyAction?.id === job.id}
                           className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -1325,17 +1451,33 @@ function AiLabContent() {
             <div className="mt-5 flex flex-col gap-3 sm:flex-row">
               <button
                 type="button"
+                onClick={() => {
+                  if (resultJob) {
+                    void handlePublishJob(resultJob);
+                  }
+                }}
+                disabled={!resultJob || isResultPublished || historyAction?.type === "publish"}
+                className="flex-1 rounded-2xl border border-amber-400/55 bg-amber-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-amber-100 shadow-[0_0_18px_rgba(251,191,36,0.18)] transition hover:border-amber-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                {isResultPublished
+                  ? "Saved to profile"
+                  : historyAction?.type === "publish"
+                    ? "Saving..."
+                    : "Save to profile"}
+              </button>
+              <button
+                type="button"
                 onClick={() => handleDownload(resultAsset)}
                 className="flex-1 rounded-2xl border border-[#2ED1FF]/60 bg-[#0b1014] px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
               >
-                Сохранить результат
+                Download
               </button>
               <button
                 type="button"
                 onClick={() => setShowResult(false)}
                 className="flex-1 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white"
               >
-                Закрыть
+                Close
               </button>
             </div>
           </div>
@@ -1350,3 +1492,4 @@ function AiLabContent() {
 export default function AiLabPage() {
   return <AiLabContent />;
 }
+

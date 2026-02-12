@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   ArrowLeft,
   Download,
+  Cpu,
   Gift,
   LogOut,
   RotateCcw,
@@ -86,6 +87,18 @@ type DownloadEntry = {
   fileSize: string;
   previewUrl: string;
   ready: boolean;
+};
+
+type AiAssetEntry = {
+  id: string;
+  title: string;
+  modelUrl: string;
+  previewUrl: string;
+  format: string;
+  status: string;
+  jobId?: string | null;
+  createdAt?: string;
+  updatedAt?: string;
 };
 
 type PaymentAuditEvent = {
@@ -243,7 +256,9 @@ const resolveMediaUrl = (value?: any) => {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const [activeTab, setActiveTab] = useState<"orders" | "downloads" | "drafts" | "settings">("orders");
+  const [activeTab, setActiveTab] = useState<
+    "orders" | "downloads" | "ai-assets" | "drafts" | "settings"
+  >("orders");
   const [user, setUser] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [orders, setOrders] = useState<any[]>([]);
@@ -268,6 +283,11 @@ export default function ProfilePage() {
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const [creatingGiftForId, setCreatingGiftForId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [aiAssets, setAiAssets] = useState<AiAssetEntry[]>([]);
+  const [aiAssetsLoading, setAiAssetsLoading] = useState(false);
+  const [aiAssetsError, setAiAssetsError] = useState<string | null>(null);
+  const [deletingAiAssetId, setDeletingAiAssetId] = useState<string | null>(null);
+  const [downloadingAiAssetId, setDownloadingAiAssetId] = useState<string | null>(null);
   const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
   const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -580,6 +600,50 @@ export default function ProfilePage() {
       window.removeEventListener("orders-updated", handleOrdersUpdated);
     };
   }, [user, apiBase]);
+
+  const fetchAiAssets = useCallback(async () => {
+    if (!user?.id) {
+      setAiAssets([]);
+      setAiAssetsError(null);
+      setAiAssetsLoading(false);
+      return;
+    }
+
+    setAiAssetsLoading(true);
+    setAiAssetsError(null);
+    try {
+      const response = await fetch(`${apiBase}/api/ai/assets?limit=60`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(data?.error || "Не удалось загрузить AI-библиотеку.");
+      }
+      setAiAssets(Array.isArray(data?.assets) ? data.assets : []);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось загрузить AI-библиотеку.";
+      setAiAssetsError(message);
+    } finally {
+      setAiAssetsLoading(false);
+    }
+  }, [apiBase, user?.id]);
+
+  useEffect(() => {
+    void fetchAiAssets();
+  }, [fetchAiAssets]);
+
+  useEffect(() => {
+    const handleAiAssetsUpdated = () => {
+      void fetchAiAssets();
+    };
+    window.addEventListener("ai-assets-updated", handleAiAssetsUpdated);
+    return () => window.removeEventListener("ai-assets-updated", handleAiAssetsUpdated);
+  }, [fetchAiAssets]);
 
   const handleLogout = async () => {
     try {
@@ -1387,6 +1451,74 @@ export default function ProfilePage() {
     }
   };
 
+  const handleDownloadAiAsset = async (asset: AiAssetEntry) => {
+    if (!asset?.modelUrl) {
+      toast.error("Файл модели недоступен.", { className: "sonner-toast" });
+      return;
+    }
+
+    setDownloadingAiAssetId(asset.id);
+    try {
+      const safeName = (asset.title || "ai-model")
+        .trim()
+        .replace(/[\\/:*?"<>|]+/g, "_")
+        .replace(/\s+/g, "_")
+        .slice(0, 80);
+      const ext = ["glb", "gltf", "obj", "stl"].includes(asset.format) ? asset.format : "glb";
+      const link = document.createElement("a");
+      link.href = asset.modelUrl;
+      link.download = `${safeName || "ai-model"}.${ext}`;
+      link.target = "_blank";
+      link.rel = "noreferrer";
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    } catch {
+      toast.error("Не удалось скачать AI-модель.", { className: "sonner-toast" });
+    } finally {
+      setDownloadingAiAssetId(null);
+    }
+  };
+
+  const handlePrintAiAsset = (asset: AiAssetEntry) => {
+    if (!asset?.modelUrl) {
+      toast.error("Нет ссылки на модель для печати.", { className: "sonner-toast" });
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set("model", asset.modelUrl);
+    params.set("name", asset.title || "AI Model");
+    if (asset.previewUrl) {
+      params.set("thumb", asset.previewUrl);
+    }
+    params.set("tech", "sla");
+    router.push(`/services/print?${params.toString()}`);
+  };
+
+  const handleDeleteAiAsset = async (asset: AiAssetEntry) => {
+    if (!asset?.id) return;
+    setDeletingAiAssetId(asset.id);
+    try {
+      const response = await fetch(`${apiBase}/api/ai/assets/${encodeURIComponent(asset.id)}`, {
+        method: "DELETE",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Не удалось удалить AI-модель.");
+      }
+      setAiAssets((prev) => prev.filter((item) => item.id !== asset.id));
+      toast.success("AI-модель удалена.", { className: "sonner-toast" });
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "Не удалось удалить AI-модель.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setDeletingAiAssetId(null);
+    }
+  };
+
   const purchasedProducts: PurchasedProduct[] = Array.isArray(user?.purchasedProducts)
     ? user.purchasedProducts
     : [];
@@ -1696,6 +1828,21 @@ export default function ProfilePage() {
             <Download className="h-4 w-4" />
             Цифровая библиотека
             {activeTab === "downloads" && (
+              <span
+                aria-hidden="true"
+                className="pointer-events-none absolute inset-x-4 -bottom-px h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.7)]"
+              />
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("ai-assets")}
+            className={`relative flex items-center gap-2 whitespace-nowrap px-3 py-2 text-[11px] font-semibold uppercase tracking-[0.2em] transition sm:px-4 sm:py-3 sm:text-sm ${
+              activeTab === "ai-assets" ? "text-[#BFF4FF]" : "text-white/50 hover:text-white"
+            }`}
+          >
+            <Cpu className="h-4 w-4" />
+            AI библиотека
+            {activeTab === "ai-assets" && (
               <span
                 aria-hidden="true"
                 className="pointer-events-none absolute inset-x-4 -bottom-px h-px rounded-full bg-[#BFF4FF] shadow-[0_0_8px_rgba(191,244,255,0.7)]"
@@ -2092,6 +2239,91 @@ export default function ProfilePage() {
                         >
                           <Gift className="h-4 w-4" />
                           {creatingGiftForId === download.id ? "Создаем..." : "Подарить"}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+            </div>
+          )}
+          {activeTab === "ai-assets" && (
+            <div className="space-y-4">
+              {aiAssetsLoading && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  Загружаем AI-библиотеку...
+                </div>
+              )}
+              {!aiAssetsLoading && aiAssetsError && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-red-200 backdrop-blur-xl">
+                  {aiAssetsError}
+                </div>
+              )}
+              {!aiAssetsLoading && !aiAssetsError && aiAssets.length === 0 && (
+                <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
+                  AI-библиотека пуста. Создайте модель в AI лаборатории и сохраните в профиль.
+                </div>
+              )}
+              {!aiAssetsLoading &&
+                !aiAssetsError &&
+                aiAssets.map((asset) => (
+                  <div
+                    key={asset.id}
+                    className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+                  >
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <div className="flex items-center gap-3">
+                        {asset.previewUrl ? (
+                          <img
+                            src={asset.previewUrl}
+                            alt={asset.title}
+                            className="h-12 w-12 rounded-xl object-cover"
+                          />
+                        ) : (
+                          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-white/10 text-white/50">
+                            <Cpu className="h-5 w-5" />
+                          </div>
+                        )}
+                        <div>
+                          <h3 className="text-xl font-semibold text-white">
+                            {asset.title || "AI Model"}
+                          </h3>
+                          <p className="mt-1 text-sm text-white/60">
+                            Формат: {(asset.format || "unknown").toUpperCase()} •{" "}
+                            {asset.status === "archived" ? "Архив" : "Готово"}
+                          </p>
+                          {asset.createdAt && (
+                            <p className="mt-1 text-xs text-white/45">
+                              Создано: {formatDate(asset.createdAt)}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                        <button
+                          type="button"
+                          onClick={() => handleDownloadAiAsset(asset)}
+                          disabled={downloadingAiAssetId === asset.id}
+                          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                        >
+                          <Download className="h-4 w-4" />
+                          {downloadingAiAssetId === asset.id ? "Готовим..." : "Скачать"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePrintAiAsset(asset)}
+                          className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] sm:w-auto"
+                        >
+                          <ShoppingCart className="h-4 w-4" />
+                          В печать
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteAiAsset(asset)}
+                          disabled={deletingAiAssetId === asset.id}
+                          className="flex w-full items-center justify-center gap-2 rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-xs uppercase tracking-[0.2em] text-red-200/80 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                        >
+                          <Trash2 className="h-4 w-4" />
+                          {deletingAiAssetId === asset.id ? "Удаляем..." : "Удалить"}
                         </button>
                       </div>
                     </div>
