@@ -93,6 +93,38 @@ const normalizePreview = (value: string | null) => {
   return trimmed;
 };
 
+const toUiErrorMessage = (value: unknown) => {
+  const raw = typeof value === "string" ? value.trim() : "";
+  if (!raw) return "Не удалось выполнить запрос к AI сервису.";
+  if (/unauthorized/i.test(raw)) return "Войдите в аккаунт, чтобы использовать AI лабораторию.";
+  if (/forbidden/i.test(raw)) return "Недостаточно прав для доступа к AI задаче.";
+  if (/not initialized/i.test(raw) || /relation\\s+\"?.+\"?\\s+does not exist/i.test(raw)) {
+    return "AI сервис еще инициализируется. Попробуйте чуть позже.";
+  }
+  if (/schema is out of date/i.test(raw) || /column\\s+\"?.+\"?\\s+does not exist/i.test(raw)) {
+    return "Схема AI сервиса обновляется. Попробуйте позже.";
+  }
+  if (/payload_locked_documents/i.test(raw)) {
+    return "Сервис временно занят. Повторите попытку через минуту.";
+  }
+  if (raw.length > 220) {
+    return "Внутренняя ошибка AI сервиса. Попробуйте позже.";
+  }
+  return raw;
+};
+
+const formatJobDate = (value?: string) => {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString("ru-RU", {
+    day: "2-digit",
+    month: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
 function NeuralCore({ active }: { active: boolean }) {
   const groupRef = useRef<Group | null>(null);
   const coreRef = useRef<Mesh | null>(null);
@@ -308,11 +340,26 @@ function AiLabContent() {
   const [serverJob, setServerJob] = useState<AiGenerationJob | null>(null);
   const [serverJobLoading, setServerJobLoading] = useState(false);
   const [serverJobError, setServerJobError] = useState<string | null>(null);
+  const [jobHistory, setJobHistory] = useState<AiGenerationJob[]>([]);
+  const [jobHistoryLoading, setJobHistoryLoading] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
+  const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
 
   const { toasts, showError, removeToast } = useToast();
+
+  const pushUiError = useCallback(
+    (raw: unknown) => {
+      const message = toUiErrorMessage(raw);
+      const now = Date.now();
+      const last = lastErrorRef.current;
+      if (last && last.message === message && now - last.at < 1500) return;
+      lastErrorRef.current = { message, at: now };
+      showError(message);
+    },
+    [showError]
+  );
 
   useEffect(() => {
     if (!uploadPreview) return;
@@ -417,7 +464,7 @@ function AiLabContent() {
       return;
     }
 
-    showError("Неподдерживаемый формат. Разрешены изображения и .glb/.gltf");
+    pushUiError("Неподдерживаемый формат. Разрешены изображения и .glb/.gltf.");
   };
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
@@ -461,6 +508,35 @@ function AiLabContent() {
     []
   );
 
+  const fetchJobHistory = useCallback(
+    async (silent = true) => {
+      if (!silent) setJobHistoryLoading(true);
+      try {
+        const response = await fetch(`${AI_GENERATE_API_URL}?limit=8`, {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch AI jobs.");
+        }
+        const jobs = Array.isArray(data?.jobs) ? (data.jobs as AiGenerationJob[]) : [];
+        setJobHistory(jobs);
+      } catch (error) {
+        if (!silent) {
+          pushUiError(error instanceof Error ? error.message : "Failed to fetch AI jobs.");
+        }
+      } finally {
+        if (!silent) setJobHistoryLoading(false);
+      }
+    },
+    [pushUiError]
+  );
+
+  useEffect(() => {
+    void fetchJobHistory(false);
+  }, [fetchJobHistory]);
+
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
     if (tokens < TOKEN_COST) {
@@ -502,21 +578,25 @@ function AiLabContent() {
       }
       completedServerJobRef.current = null;
       setServerJob(nextJob);
+      void fetchJobHistory(true);
     } catch (error) {
       setTokens((prev) => prev + TOKEN_COST);
       const message =
         error instanceof Error ? error.message : "Не удалось создать AI-задачу.";
-      setServerJobError(message);
-      showError(message);
+      const normalizedMessage = toUiErrorMessage(message);
+      setServerJobError(normalizedMessage);
+      pushUiError(normalizedMessage);
     } finally {
       setServerJobLoading(false);
     }
   }, [
+    fetchJobHistory,
     localPreviewModel,
     mode,
     isSynthRunning,
     previewModel,
     prompt,
+    pushUiError,
     serverJobLoading,
     showError,
     tokens,
@@ -550,8 +630,10 @@ function AiLabContent() {
         setServerJob(nextJob);
         if (nextJob.status === "failed") {
           const message = nextJob.errorMessage || "AI-задача завершилась с ошибкой.";
-          setServerJobError(message);
-          showError(message);
+          const normalizedMessage = toUiErrorMessage(message);
+          setServerJobError(normalizedMessage);
+          pushUiError(normalizedMessage);
+          void fetchJobHistory(true);
         } else if (
           nextJob.status === "completed" &&
           nextJob.result?.modelUrl &&
@@ -565,12 +647,13 @@ function AiLabContent() {
             format: nextJob.result.format,
             localOnly: false,
           });
+          void fetchJobHistory(true);
         }
       } catch (error) {
         if (cancelled) return;
         const message =
           error instanceof Error ? error.message : "Не удалось обновить статус AI-задачи.";
-        setServerJobError(message);
+        setServerJobError(toUiErrorMessage(message));
       }
     };
 
@@ -583,7 +666,7 @@ function AiLabContent() {
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [registerGeneratedAsset, serverJob?.id, serverJob?.status, showError, uploadPreview]);
+  }, [fetchJobHistory, pushUiError, registerGeneratedAsset, serverJob?.id, serverJob?.status, uploadPreview]);
 
   const handleSelectAsset = (asset: GeneratedAsset) => {
     if (!asset.modelUrl) {
@@ -616,6 +699,26 @@ function AiLabContent() {
       return;
     }
     showError("Нет файла для скачивания.");
+  };
+
+  const handlePickHistoryJob = (job: AiGenerationJob) => {
+    if (job.mode === "text" || job.mode === "image") {
+      setMode(job.mode);
+    }
+    if (job.prompt) {
+      setPrompt(job.prompt);
+    }
+    if (job.result?.modelUrl) {
+      setGeneratedPreviewModel(job.result.modelUrl);
+      setGeneratedPreviewLabel(job.prompt || `Job ${job.id}`);
+    }
+  };
+
+  const renderJobStatusTone = (status?: AiGenerationJob["status"]) => {
+    if (status === "completed") return "text-emerald-300";
+    if (status === "failed") return "text-rose-300";
+    if (status === "processing") return "text-cyan-300";
+    return "text-white/60";
   };
 
   const currentStatus = serverJob?.status?.toUpperCase() ?? "STANDBY";
@@ -953,6 +1056,56 @@ function AiLabContent() {
             {serverJobError && (
               <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
             )}
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+              <span>AI HISTORY</span>
+              <span className="text-white/30">{jobHistory.length}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {jobHistoryLoading ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                  LOADING...
+                </div>
+              ) : jobHistory.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                  NO SERVER JOBS
+                </div>
+              ) : (
+                jobHistory.map((job) => (
+                  <div
+                    key={job.id}
+                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="truncate text-[11px] font-semibold text-white/90">
+                          {job.prompt || `Job ${job.id}`}
+                        </p>
+                        <p className="mt-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                          {formatJobDate(job.createdAt)} • {job.mode}
+                        </p>
+                      </div>
+                      <p className={`text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${renderJobStatusTone(job.status)}`}>
+                        {job.status}
+                      </p>
+                    </div>
+                    <div className="mt-2 flex items-center justify-between gap-2">
+                      <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                        {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => handlePickHistoryJob(job)}
+                        className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                      >
+                        USE
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">

@@ -55,6 +55,23 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
   return raw;
 };
 
+const toPublicError = (error: unknown, fallback: string) => {
+  const raw = error instanceof Error ? error.message : "";
+  if (!raw) return fallback;
+  if (/unauthorized/i.test(raw)) return "Unauthorized.";
+  if (/forbidden/i.test(raw)) return "Forbidden.";
+  if (/relation\\s+\"?.+\"?\\s+does not exist/i.test(raw)) {
+    return "AI service is not initialized yet. Please try again later.";
+  }
+  if (/column\\s+\"?.+\"?\\s+does not exist/i.test(raw)) {
+    return "AI service schema is out of date. Please contact support.";
+  }
+  if (/payload_locked_documents/i.test(raw)) {
+    return "AI service lock table is out of sync.";
+  }
+  return fallback;
+};
+
 const isOwnerOrAdmin = (job: any, user: any) => {
   if (!user) return false;
   const userId = normalizeRelationshipId(user.id);
@@ -195,10 +212,11 @@ export async function GET(
       { status: 200 }
     );
   } catch (error: any) {
+    console.error("[ai/generate:id] failed", error);
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Failed to fetch AI generation job.",
+        error: toPublicError(error, "Failed to fetch AI generation job."),
       },
       { status: 500 }
     );

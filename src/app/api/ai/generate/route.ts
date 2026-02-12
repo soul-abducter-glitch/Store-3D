@@ -64,6 +64,23 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
   return raw;
 };
 
+const toPublicError = (error: unknown, fallback: string) => {
+  const raw = error instanceof Error ? error.message : "";
+  if (!raw) return fallback;
+  if (/unauthorized/i.test(raw)) return "Unauthorized.";
+  if (/forbidden/i.test(raw)) return "Forbidden.";
+  if (/relation\\s+\"?.+\"?\\s+does not exist/i.test(raw)) {
+    return "AI service is not initialized yet. Please try again later.";
+  }
+  if (/column\\s+\"?.+\"?\\s+does not exist/i.test(raw)) {
+    return "AI service schema is out of date. Please contact support.";
+  }
+  if (/payload_locked_documents/i.test(raw)) {
+    return "AI service lock table is out of sync.";
+  }
+  return fallback;
+};
+
 const serializeJob = (job: any) => ({
   id: String(job?.id ?? ""),
   status: typeof job?.status === "string" ? job.status : "queued",
@@ -88,6 +105,50 @@ const serializeJob = (job: any) => ({
   startedAt: job?.startedAt,
   completedAt: job?.completedAt,
 });
+
+export async function GET(request: NextRequest) {
+  try {
+    const payload = await getPayloadClient();
+    const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
+    const userId = normalizeRelationshipId(authResult?.user?.id);
+    if (!userId) {
+      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
+
+    const rawLimit = Number(request.nextUrl.searchParams.get("limit") || 8);
+    const limit = Math.max(1, Math.min(20, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 8));
+
+    const found = await payload.find({
+      collection: "ai_jobs",
+      depth: 0,
+      limit,
+      sort: "-createdAt",
+      where: {
+        user: {
+          equals: userId as any,
+        },
+      },
+      overrideAccess: true,
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        jobs: Array.isArray(found?.docs) ? found.docs.map(serializeJob) : [],
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("[ai/generate:list] failed", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: toPublicError(error, "Failed to fetch AI generation jobs."),
+      },
+      { status: 500 }
+    );
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {
@@ -152,10 +213,11 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error: any) {
+    console.error("[ai/generate:create] failed", error);
     return NextResponse.json(
       {
         success: false,
-        error: error?.message || "Failed to create AI generation job.",
+        error: toPublicError(error, "Failed to create AI generation job."),
       },
       { status: 500 }
     );
