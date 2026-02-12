@@ -55,16 +55,33 @@ const guessMimeType = (filename: string) => {
   return "application/octet-stream";
 };
 
-const deriveFilename = (value: string) => {
+const sanitizeFilename = (filename: string, fallbackExt = ".glb") => {
+  const trimmed = filename.trim();
+  const dotIndex = trimmed.lastIndexOf(".");
+  const rawExt = dotIndex > 0 ? trimmed.slice(dotIndex).toLowerCase() : "";
+  const allowedExt = [".glb", ".gltf", ".obj", ".stl"];
+  const ext = allowedExt.includes(rawExt) ? rawExt : fallbackExt;
+  const base = (dotIndex > 0 ? trimmed.slice(0, dotIndex) : trimmed)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^\.+/, "")
+    .replace(/^[-_]+/, "")
+    .replace(/[-_]+$/, "")
+    .slice(0, 80);
+  const safeBase = base || "ai-model";
+  return `${safeBase}${ext}`;
+};
+
+const deriveFilename = (value: string, fallbackExt = ".glb") => {
   const input = toNonEmptyString(value);
-  if (!input) return "ai-model.glb";
+  if (!input) return `ai-model${fallbackExt}`;
   try {
     const parsed = new URL(input);
     const filename = decodeURIComponent(parsed.pathname.split("/").pop() || "").trim();
-    if (filename) return filename;
-    return "ai-model.glb";
+    if (filename) return sanitizeFilename(filename, fallbackExt);
+    return `ai-model${fallbackExt}`;
   } catch {
-    return "ai-model.glb";
+    return `ai-model${fallbackExt}`;
   }
 };
 
@@ -157,21 +174,42 @@ export async function POST(
 
     let media = await findMediaByUrl(payload, modelUrl);
     if (!media?.id) {
-      const filename = deriveFilename(modelUrl);
-      media = await payload.create({
-        collection: "media",
-        overrideAccess: true,
-        disableTransaction: true,
-        data: {
-          alt: toNonEmptyString(asset?.title) || "AI model",
-          fileType: "3d-model",
-          isCustomerUpload: true,
-          filename,
-          mimeType: guessMimeType(filename),
-          url: modelUrl,
-          prefix: "media",
-        },
+      const formatRaw =
+        typeof asset?.format === "string" ? asset.format.trim().toLowerCase() : "";
+      const preferredExt =
+        formatRaw === "glb" || formatRaw === "gltf" || formatRaw === "obj" || formatRaw === "stl"
+          ? `.${formatRaw}`
+          : ".glb";
+      let filename = deriveFilename(modelUrl, preferredExt);
+      const buildMediaData = (safeFilename: string) => ({
+        alt: toNonEmptyString(asset?.title) || "AI model",
+        fileType: "3d-model",
+        isCustomerUpload: true,
+        filename: safeFilename,
+        mimeType: guessMimeType(safeFilename),
+        url: modelUrl,
+        prefix: "media",
       });
+      try {
+        media = await payload.create({
+          collection: "media",
+          overrideAccess: true,
+          disableTransaction: true,
+          data: buildMediaData(filename),
+        });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (!/filename/i.test(message)) {
+          throw error;
+        }
+        filename = `ai-model-${String(asset.id).replace(/[^A-Za-z0-9_-]/g, "")}${preferredExt}`;
+        media = await payload.create({
+          collection: "media",
+          overrideAccess: true,
+          disableTransaction: true,
+          data: buildMediaData(filename),
+        });
+      }
     }
 
     return NextResponse.json(
@@ -194,4 +232,3 @@ export async function POST(
     );
   }
 }
-
