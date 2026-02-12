@@ -53,6 +53,8 @@ type AiGenerationJob = {
   completedAt?: string;
 };
 
+type JobHistoryFilter = "all" | AiGenerationJob["status"];
+
 const logLines = [
   "[OK] NEURAL_LINK_ESTABLISHED",
   "[OK] DOWNLOAD_WEIGHTS_V3...",
@@ -342,6 +344,11 @@ function AiLabContent() {
   const [serverJobError, setServerJobError] = useState<string | null>(null);
   const [jobHistory, setJobHistory] = useState<AiGenerationJob[]>([]);
   const [jobHistoryLoading, setJobHistoryLoading] = useState(false);
+  const [jobHistoryFilter, setJobHistoryFilter] = useState<JobHistoryFilter>("all");
+  const [historyAction, setHistoryAction] = useState<{
+    id: string;
+    type: "retry" | "delete";
+  } | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
@@ -719,6 +726,88 @@ function AiLabContent() {
     }
   };
 
+  const handleRetryHistoryJob = useCallback(
+    async (job: AiGenerationJob) => {
+      if (serverJobLoading || isSynthRunning) {
+        showError("Дождитесь завершения текущей генерации.");
+        return;
+      }
+      if (tokens < TOKEN_COST) {
+        showError(`Недостаточно токенов. Нужно ${TOKEN_COST}.`);
+        return;
+      }
+
+      setHistoryAction({ id: job.id, type: "retry" });
+      setTokens((prev) => Math.max(0, prev - TOKEN_COST));
+      setServerJobError(null);
+      setShowResult(false);
+      setResultAsset(null);
+
+      try {
+        const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Не удалось повторить AI-задачу.");
+        }
+        const nextJob = data?.job as AiGenerationJob | undefined;
+        if (!nextJob?.id) {
+          throw new Error("Сервер вернул некорректный ответ по повтору задачи.");
+        }
+        completedServerJobRef.current = null;
+        setServerJob(nextJob);
+        void fetchJobHistory(true);
+      } catch (error) {
+        setTokens((prev) => prev + TOKEN_COST);
+        const message = error instanceof Error ? error.message : "Не удалось повторить AI-задачу.";
+        const normalizedMessage = toUiErrorMessage(message);
+        setServerJobError(normalizedMessage);
+        pushUiError(normalizedMessage);
+      } finally {
+        setHistoryAction((prev) =>
+          prev?.id === job.id && prev.type === "retry" ? null : prev
+        );
+      }
+    },
+    [fetchJobHistory, isSynthRunning, pushUiError, serverJobLoading, showError, tokens]
+  );
+
+  const handleDeleteHistoryJob = useCallback(
+    async (job: AiGenerationJob) => {
+      setHistoryAction({ id: job.id, type: "delete" });
+      try {
+        const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Не удалось удалить AI-задачу.");
+        }
+        setJobHistory((prev) => prev.filter((item) => item.id !== job.id));
+        if (serverJob?.id === job.id) {
+          setServerJob(null);
+          setServerJobError(null);
+        }
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось удалить AI-задачу.";
+        pushUiError(message);
+      } finally {
+        setHistoryAction((prev) =>
+          prev?.id === job.id && prev.type === "delete" ? null : prev
+        );
+      }
+    },
+    [pushUiError, serverJob?.id]
+  );
+
+  const filteredJobHistory = useMemo(() => {
+    if (jobHistoryFilter === "all") return jobHistory;
+    return jobHistory.filter((job) => job.status === jobHistoryFilter);
+  }, [jobHistory, jobHistoryFilter]);
+
   const renderJobStatusTone = (status?: AiGenerationJob["status"]) => {
     if (status === "completed") return "text-emerald-300";
     if (status === "failed") return "text-rose-300";
@@ -1065,19 +1154,40 @@ function AiLabContent() {
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>AI HISTORY</span>
-              <span className="text-white/30">{jobHistory.length}</span>
+              <span className="text-white/30">{filteredJobHistory.length}</span>
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(["all", "completed", "failed", "queued", "processing"] as JobHistoryFilter[]).map(
+                (filterValue) => {
+                  const isActive = jobHistoryFilter === filterValue;
+                  return (
+                    <button
+                      key={filterValue}
+                      type="button"
+                      onClick={() => setJobHistoryFilter(filterValue)}
+                      className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
+                        isActive
+                          ? "border-[#2ED1FF]/60 text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.25)]"
+                          : "border-white/10 text-white/45 hover:border-white/30 hover:text-white/75"
+                      }`}
+                    >
+                      {filterValue}
+                    </button>
+                  );
+                }
+              )}
             </div>
             <div className="mt-3 space-y-2">
               {jobHistoryLoading ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
                   LOADING...
                 </div>
-              ) : jobHistory.length === 0 ? (
+              ) : filteredJobHistory.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
-                  NO SERVER JOBS
+                  NO JOBS FOR FILTER
                 </div>
               ) : (
-                jobHistory.map((job) => (
+                filteredJobHistory.map((job) => (
                   <div
                     key={job.id}
                     className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
@@ -1099,13 +1209,34 @@ function AiLabContent() {
                       <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                         {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
                       </p>
-                      <button
-                        type="button"
-                        onClick={() => handlePickHistoryJob(job)}
-                        className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
-                      >
-                        USE
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => handlePickHistoryJob(job)}
+                          className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                        >
+                          USE
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRetryHistoryJob(job)}
+                          disabled={
+                            historyAction?.id === job.id ||
+                            (job.status !== "failed" && job.status !== "queued")
+                          }
+                          className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {historyAction?.id === job.id && historyAction.type === "retry" ? "..." : "RETRY"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteHistoryJob(job)}
+                          disabled={historyAction?.id === job.id}
+                          className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {historyAction?.id === job.id && historyAction.type === "delete" ? "..." : "DELETE"}
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))

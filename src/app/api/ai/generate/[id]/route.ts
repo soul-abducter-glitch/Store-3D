@@ -38,6 +38,14 @@ const parseAdminEmails = () =>
     .map((entry) => normalizeEmail(entry))
     .filter(Boolean);
 
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+};
+
 const normalizeRelationshipId = (value: unknown): string | number | null => {
   let current: unknown = value;
   while (typeof current === "object" && current !== null) {
@@ -109,6 +117,61 @@ const serializeJob = (job: any) => ({
   completedAt: job?.completedAt,
 });
 
+const findAuthorizedJob = async (
+  payload: any,
+  request: NextRequest,
+  params: Promise<{ id: string }>
+) => {
+  const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
+  const user = authResult?.user ?? null;
+  if (!user) {
+    return {
+      ok: false as const,
+      status: 401,
+      response: NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 }),
+    };
+  }
+
+  const resolvedParams = await params;
+  const id = resolvedParams?.id ? String(resolvedParams.id).trim() : "";
+  if (!id) {
+    return {
+      ok: false as const,
+      status: 400,
+      response: NextResponse.json({ success: false, error: "Job id is required." }, { status: 400 }),
+    };
+  }
+
+  const job = await payload.findByID({
+    collection: "ai_jobs",
+    id,
+    depth: 0,
+    overrideAccess: true,
+  });
+
+  if (!job) {
+    return {
+      ok: false as const,
+      status: 404,
+      response: NextResponse.json({ success: false, error: "Job not found." }, { status: 404 }),
+    };
+  }
+
+  if (!isOwnerOrAdmin(job, user)) {
+    return {
+      ok: false as const,
+      status: 403,
+      response: NextResponse.json({ success: false, error: "Forbidden." }, { status: 403 }),
+    };
+  }
+
+  return {
+    ok: true as const,
+    job,
+    user,
+  };
+};
+
 const maybeAdvanceMockJob = async (payload: any, job: any) => {
   const provider =
     typeof job?.provider === "string" ? job.provider.trim().toLowerCase() : "mock";
@@ -175,32 +238,9 @@ export async function GET(
 ) {
   try {
     const payload = await getPayloadClient();
-    const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
-    const user = authResult?.user ?? null;
-    if (!user) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
-    }
-
-    const resolvedParams = await params;
-    const id = resolvedParams?.id ? String(resolvedParams.id).trim() : "";
-    if (!id) {
-      return NextResponse.json({ success: false, error: "Job id is required." }, { status: 400 });
-    }
-
-    const job = await payload.findByID({
-      collection: "ai_jobs",
-      id,
-      depth: 0,
-      overrideAccess: true,
-    });
-
-    if (!job) {
-      return NextResponse.json({ success: false, error: "Job not found." }, { status: 404 });
-    }
-
-    if (!isOwnerOrAdmin(job, user)) {
-      return NextResponse.json({ success: false, error: "Forbidden." }, { status: 403 });
-    }
+    const authorized = await findAuthorizedJob(payload, request, params);
+    if (!authorized.ok) return authorized.response;
+    const job = authorized.job;
 
     const actualJob = await maybeAdvanceMockJob(payload, job);
 
@@ -217,6 +257,107 @@ export async function GET(
       {
         success: false,
         error: toPublicError(error, "Failed to fetch AI generation job."),
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function POST(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const payload = await getPayloadClient();
+    const authorized = await findAuthorizedJob(payload, request, params);
+    if (!authorized.ok) return authorized.response;
+    const sourceJob = authorized.job;
+    const mockEnabled = parseBoolean(process.env.AI_GENERATION_MOCK_ENABLED, true);
+    const now = new Date().toISOString();
+    const provider =
+      (typeof process.env.AI_GENERATION_PROVIDER === "string" &&
+        process.env.AI_GENERATION_PROVIDER.trim().toLowerCase()) ||
+      (typeof sourceJob?.provider === "string" ? sourceJob.provider : "mock");
+
+    const created = await payload.create({
+      collection: "ai_jobs",
+      overrideAccess: true,
+      data: {
+        user: sourceJob.user,
+        status: "queued",
+        mode: sourceJob.mode === "text" ? "text" : "image",
+        provider,
+        progress: 5,
+        prompt:
+          typeof sourceJob.prompt === "string" && sourceJob.prompt.trim()
+            ? sourceJob.prompt.trim()
+            : "Reference import",
+        sourceType:
+          sourceJob.sourceType === "url" || sourceJob.sourceType === "image"
+            ? sourceJob.sourceType
+            : "none",
+        sourceUrl:
+          typeof sourceJob.sourceUrl === "string" && sourceJob.sourceUrl.trim()
+            ? sourceJob.sourceUrl.trim()
+            : undefined,
+        startedAt: mockEnabled ? now : undefined,
+        result: {
+          modelUrl: "",
+          previewUrl: "",
+          format: "unknown",
+        },
+        errorMessage: "",
+      },
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        job: serializeJob(created),
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("[ai/generate:id:retry] failed", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: toPublicError(error, "Failed to retry AI generation job."),
+      },
+      { status: 500 }
+    );
+  }
+}
+
+export async function DELETE(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const payload = await getPayloadClient();
+    const authorized = await findAuthorizedJob(payload, request, params);
+    if (!authorized.ok) return authorized.response;
+    const job = authorized.job;
+
+    await payload.delete({
+      collection: "ai_jobs",
+      id: job.id,
+      overrideAccess: true,
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        id: String(job.id),
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("[ai/generate:id:delete] failed", error);
+    return NextResponse.json(
+      {
+        success: false,
+        error: toPublicError(error, "Failed to delete AI generation job."),
       },
       { status: 500 }
     );
