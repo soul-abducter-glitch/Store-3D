@@ -11,6 +11,24 @@ const getPayloadClient = async () => getPayload({ config: payloadConfig });
 const DEFAULT_MOCK_MODEL_URL =
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 
+const clampProgress = (value: unknown) => {
+  if (typeof value !== "number" || !Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(100, Math.round(value)));
+};
+
+const resolveStage = (status: string, progress: number) => {
+  const normalizedStatus = status.trim().toLowerCase();
+  if (normalizedStatus === "failed") return "SYNTHESIS_FAILED";
+  if (normalizedStatus === "completed") return "SYNTHESIS_DONE";
+  if (normalizedStatus === "queued") return "QUEUE_ASSIGNMENT";
+  if (progress >= 94) return "OPTICAL_SOLVER";
+  if (progress >= 82) return "MATERIAL_BIND";
+  if (progress >= 65) return "TOPOLOGY_SYNTH";
+  if (progress >= 45) return "GENETIC_MAPPING";
+  if (progress >= 25) return "PREP_INPUT";
+  return "QUEUE_ASSIGNMENT";
+};
+
 const normalizeEmail = (value?: unknown) =>
   typeof value === "string" ? value.trim().toLowerCase() : "";
 
@@ -54,7 +72,11 @@ const serializeJob = (job: any) => ({
   status: typeof job?.status === "string" ? job.status : "queued",
   mode: typeof job?.mode === "string" ? job.mode : "image",
   provider: typeof job?.provider === "string" ? job.provider : "mock",
-  progress: typeof job?.progress === "number" ? job.progress : 0,
+  progress: clampProgress(job?.progress),
+  stage: resolveStage(
+    typeof job?.status === "string" ? job.status : "queued",
+    clampProgress(job?.progress)
+  ),
   prompt: typeof job?.prompt === "string" ? job.prompt : "",
   sourceType: typeof job?.sourceType === "string" ? job.sourceType : "none",
   sourceUrl: typeof job?.sourceUrl === "string" ? job.sourceUrl : "",
@@ -85,7 +107,7 @@ const maybeAdvanceMockJob = async (payload: any, job: any) => {
   const elapsedMs = Math.max(0, Date.now() - createdAtMs);
   const nextData: Record<string, unknown> = {};
 
-  if (elapsedMs >= 3500) {
+  if (elapsedMs >= 6200) {
     const modelUrl = process.env.AI_GENERATION_MOCK_MODEL_URL || DEFAULT_MOCK_MODEL_URL;
     nextData.status = "completed";
     nextData.progress = 100;
@@ -96,13 +118,29 @@ const maybeAdvanceMockJob = async (payload: any, job: any) => {
       format: modelUrl.toLowerCase().includes(".gltf") ? "gltf" : "glb",
     };
     nextData.errorMessage = "";
-  } else if (elapsedMs >= 900) {
+  } else if (elapsedMs >= 5200) {
+    nextData.status = "processing";
+    nextData.progress = 94;
+    nextData.startedAt = job?.startedAt || new Date().toISOString();
+  } else if (elapsedMs >= 4300) {
+    nextData.status = "processing";
+    nextData.progress = 82;
+    nextData.startedAt = job?.startedAt || new Date().toISOString();
+  } else if (elapsedMs >= 3200) {
     nextData.status = "processing";
     nextData.progress = 65;
     nextData.startedAt = job?.startedAt || new Date().toISOString();
+  } else if (elapsedMs >= 2200) {
+    nextData.status = "processing";
+    nextData.progress = 45;
+    nextData.startedAt = job?.startedAt || new Date().toISOString();
+  } else if (elapsedMs >= 1200) {
+    nextData.status = "processing";
+    nextData.progress = 25;
+    nextData.startedAt = job?.startedAt || new Date().toISOString();
   } else {
     nextData.status = "queued";
-    nextData.progress = 15;
+    nextData.progress = 8;
   }
 
   const updated = await payload.update({
@@ -166,4 +204,3 @@ export async function GET(
     );
   }
 }
-

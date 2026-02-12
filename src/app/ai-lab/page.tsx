@@ -34,6 +34,7 @@ type GeneratedAsset = {
 type AiGenerationJob = {
   id: string;
   status: "queued" | "processing" | "completed" | "failed";
+  stage?: string;
   mode: "image" | "text";
   provider: string;
   progress: number;
@@ -463,7 +464,7 @@ function AiLabContent() {
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
     if (tokens < TOKEN_COST) {
-      showError(`Need ${TOKEN_COST} tokens.`);
+      showError(`Недостаточно токенов. Нужно ${TOKEN_COST}.`);
       return;
     }
     if (!prompt.trim() && !uploadPreview && !localPreviewModel && !previewModel) {
@@ -619,7 +620,7 @@ function AiLabContent() {
 
   const currentStatus = serverJob?.status?.toUpperCase() ?? "STANDBY";
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
-  const displayStage = serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY";
+  const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
   const [modelScale, setModelScale] = useState(1);
@@ -942,6 +943,11 @@ function AiLabContent() {
             {serverJob?.provider && (
               <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
                 Provider: {serverJob.provider}
+              </p>
+            )}
+            {serverJob?.stage && (
+              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
+                Stage: {serverJob.stage}
               </p>
             )}
             {serverJobError && (
