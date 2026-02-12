@@ -157,9 +157,7 @@ const buildProxyUrlFromSource = (value: string) => {
     const key = clean.slice(idx + 1);
     return key ? `/api/media-file/${encodeURIComponent(key)}` : null;
   }
-  const filename = clean.split("/").pop();
-  if (!filename) return null;
-  return `/api/media-file/${encodeURIComponent(filename)}`;
+  return null;
 };
 
 const buildProgressBar = (progress: number) => {
