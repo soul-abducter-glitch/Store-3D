@@ -11,6 +11,7 @@ import { Orders } from "./src/payload/collections/Orders.ts";
 import { Products } from "./src/payload/collections/Products.ts";
 import { Users } from "./src/payload/collections/Users.ts";
 import { AiJobs } from "./src/payload/collections/AiJobs.ts";
+import { ensureAiLabSchema } from "./src/lib/ensureAiLabSchema.ts";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -313,6 +314,12 @@ export default buildConfig({
   },
   collections: [Users, Categories, Media, Products, Orders, AiJobs],
   onInit: async (payload) => {
+    try {
+      await ensureAiLabSchema(payload as any);
+    } catch (error) {
+      payload.logger?.error({ err: error, msg: "Failed to ensure AI schema" });
+    }
+
     if (!enableBootstrapSeed) {
       payload.logger?.info("Bootstrap seed is disabled (PAYLOAD_ENABLE_BOOTSTRAP_SEED=false)");
       return;

@@ -1,5 +1,5 @@
 ﻿import type { Access, CollectionConfig } from "payload";
-import { notifyOrderEventIfNeeded } from "../../lib/orderNotifications";
+import { notifyOrderEventIfNeeded } from "../../lib/orderNotifications.ts";
 
 const normalizeEmail = (value?: string) => {
   if (!value) return "";
