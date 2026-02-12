@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
+import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -106,6 +107,7 @@ export async function DELETE(
 ) {
   try {
     const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
     const authorized = await findAuthorizedAsset(payload, request, params);
     if (!authorized.ok) return authorized.response;
 

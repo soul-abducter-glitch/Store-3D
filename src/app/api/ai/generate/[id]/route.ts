@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
+import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -238,6 +239,7 @@ export async function GET(
 ) {
   try {
     const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const job = authorized.job;
@@ -269,6 +271,7 @@ export async function POST(
 ) {
   try {
     const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const sourceJob = authorized.job;
@@ -335,6 +338,7 @@ export async function DELETE(
 ) {
   try {
     const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const job = authorized.job;

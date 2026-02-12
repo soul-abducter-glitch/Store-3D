@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -83,6 +84,7 @@ const serializeAsset = (asset: any) => ({
 export async function GET(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
     const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
     const userId = normalizeRelationshipId(authResult?.user?.id);
     if (!userId) {
@@ -124,6 +126,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
     const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
     const userId = normalizeRelationshipId(authResult?.user?.id);
     if (!userId) {
