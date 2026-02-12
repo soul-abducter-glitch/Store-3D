@@ -25,11 +25,25 @@ const qualifiedTable = (schema: string, table: string) =>
 const toRegclassLiteral = (schema: string, table: string) => `${schema}.${table}`;
 
 const executeRaw = async (payload: PayloadLike, raw: string) => {
-  const db = payload?.db as { execute?: (args: { raw?: string }) => Promise<{ rows?: Array<Record<string, unknown>> }> } | undefined;
-  if (!db || typeof db.execute !== "function") {
+  const db = payload?.db as
+    | {
+        execute?: (args: { raw?: string }) => Promise<{ rows?: Array<Record<string, unknown>> }>;
+        pool?: { query?: (query: string) => Promise<{ rows?: Array<Record<string, unknown>> }> };
+      }
+    | undefined;
+  const execute = db?.execute;
+  if (!db || typeof execute !== "function") {
     throw new Error("Payload DB adapter does not support raw SQL execution.");
   }
-  return db.execute({ raw });
+  try {
+    return await execute.call(db, { raw });
+  } catch (error) {
+    const poolQuery = db.pool?.query;
+    if (typeof poolQuery === "function") {
+      return await poolQuery.call(db.pool, raw);
+    }
+    throw error;
+  }
 };
 
 const ensureLockedDocsColumns = async (payload: PayloadLike, schema: string) => {
