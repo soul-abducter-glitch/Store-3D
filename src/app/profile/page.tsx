@@ -96,6 +96,8 @@ type AiAssetEntry = {
   previewUrl: string;
   format: string;
   status: string;
+  mediaId?: string | null;
+  isInMedia?: boolean;
   jobId?: string | null;
   createdAt?: string;
   updatedAt?: string;
@@ -143,7 +145,13 @@ const MEDIA_PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || 
   .replace(/\/$/, "")
   .toLowerCase();
 
-const getAiAssetStorageState = (modelUrl?: string) => {
+const getAiAssetStorageState = (asset?: AiAssetEntry | null) => {
+  const mediaId = typeof asset?.mediaId === "string" && asset.mediaId.trim() ? asset.mediaId : "";
+  if (mediaId || asset?.isInMedia) {
+    return { label: "Загружен в media", readyLabel: "Готов к заказу", tone: "text-emerald-300" };
+  }
+
+  const modelUrl = asset?.modelUrl;
   const url = typeof modelUrl === "string" ? modelUrl.trim() : "";
   if (!url) {
     return { label: "Файл не найден", readyLabel: "Нужно пересоздать", tone: "text-red-300" };
@@ -154,10 +162,6 @@ const getAiAssetStorageState = (modelUrl?: string) => {
   const fromMediaPath = lower.includes("/media/");
   const fromMediaBase = Boolean(MEDIA_PUBLIC_BASE_URL) && lower.startsWith(MEDIA_PUBLIC_BASE_URL);
   const uploadedToMedia = fromMediaApi || fromMediaPath || fromMediaBase;
-
-  if (uploadedToMedia) {
-    return { label: "Загружен в media", readyLabel: "Готов к заказу", tone: "text-emerald-300" };
-  }
 
   return { label: "Внешний .glb", readyLabel: "Откроется через В печать", tone: "text-amber-200" };
 };
@@ -312,6 +316,7 @@ export default function ProfilePage() {
   const [aiAssetsError, setAiAssetsError] = useState<string | null>(null);
   const [deletingAiAssetId, setDeletingAiAssetId] = useState<string | null>(null);
   const [downloadingAiAssetId, setDownloadingAiAssetId] = useState<string | null>(null);
+  const [preparingAiAssetId, setPreparingAiAssetId] = useState<string | null>(null);
   const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
   const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -1504,20 +1509,64 @@ export default function ProfilePage() {
     }
   };
 
-  const handlePrintAiAsset = (asset: AiAssetEntry) => {
+  const handlePrintAiAsset = async (asset: AiAssetEntry) => {
     if (!asset?.modelUrl) {
       toast.error("Нет ссылки на модель для печати.", { className: "sonner-toast" });
       return;
     }
 
-    const params = new URLSearchParams();
-    params.set("model", asset.modelUrl);
-    params.set("name", asset.title || "AI Model");
-    if (asset.previewUrl) {
-      params.set("thumb", asset.previewUrl);
+    setPreparingAiAssetId(asset.id);
+    try {
+      let mediaId = typeof asset.mediaId === "string" ? asset.mediaId : "";
+      let modelUrl = asset.modelUrl;
+
+      const prepareResponse = await fetch(
+        `${apiBase}/api/ai/assets/${encodeURIComponent(asset.id)}/prepare-print`,
+        {
+          method: "POST",
+          credentials: "include",
+        }
+      );
+      const prepareData = await prepareResponse.json().catch(() => null);
+      if (!prepareResponse.ok || !prepareData?.success) {
+        throw new Error(prepareData?.error || "Не удалось подготовить модель к печати.");
+      }
+
+      if (prepareData?.media?.id) {
+        mediaId = String(prepareData.media.id);
+      }
+      if (typeof prepareData?.media?.url === "string" && prepareData.media.url.trim()) {
+        modelUrl = prepareData.media.url.trim();
+      }
+
+      if (mediaId) {
+        setAiAssets((prev) =>
+          prev.map((entry) =>
+            entry.id === asset.id ? { ...entry, mediaId, isInMedia: true } : entry
+          )
+        );
+      }
+
+      const params = new URLSearchParams();
+      params.set("model", modelUrl);
+      params.set("name", asset.title || "AI Model");
+      if (asset.previewUrl) {
+        params.set("thumb", asset.previewUrl);
+      }
+      if (mediaId) {
+        params.set("mediaId", mediaId);
+      }
+      params.set("tech", "sla");
+      router.push(`/services/print?${params.toString()}`);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось подготовить модель к печати.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setPreparingAiAssetId(null);
     }
-    params.set("tech", "sla");
-    router.push(`/services/print?${params.toString()}`);
   };
 
   const handleDeleteAiAsset = async (asset: AiAssetEntry) => {
@@ -2295,7 +2344,7 @@ export default function ProfilePage() {
                     className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                   >
                     {(() => {
-                      const storage = getAiAssetStorageState(asset.modelUrl);
+                      const storage = getAiAssetStorageState(asset);
                       return (
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
@@ -2340,11 +2389,12 @@ export default function ProfilePage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => handlePrintAiAsset(asset)}
+                          onClick={() => void handlePrintAiAsset(asset)}
+                          disabled={preparingAiAssetId === asset.id}
                           className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] sm:w-auto"
                         >
                           <ShoppingCart className="h-4 w-4" />
-                          В печать
+                          {preparingAiAssetId === asset.id ? "Подготовка..." : "В печать"}
                         </button>
                         <button
                           type="button"

@@ -62,7 +62,30 @@ const isOwner = (doc: any, userId: string | number) => {
   return ownerId !== null && String(ownerId) === String(userId);
 };
 
-const serializeAsset = (asset: any) => ({
+const findMediaIdByModelUrl = async (payload: any, modelUrl: string) => {
+  const normalized = toNonEmptyString(modelUrl);
+  if (!normalized) return null;
+  try {
+    const found = await payload.find({
+      collection: "media",
+      depth: 0,
+      limit: 1,
+      sort: "-createdAt",
+      where: {
+        url: {
+          equals: normalized,
+        },
+      },
+      overrideAccess: true,
+    });
+    const id = normalizeRelationshipId(found?.docs?.[0]?.id);
+    return id === null ? null : String(id);
+  } catch {
+    return null;
+  }
+};
+
+const serializeAsset = (asset: any, mediaId: string | null = null) => ({
   id: String(asset?.id ?? ""),
   title: typeof asset?.title === "string" ? asset.title : "",
   prompt: typeof asset?.prompt === "string" ? asset.prompt : "",
@@ -73,6 +96,8 @@ const serializeAsset = (asset: any) => ({
   previewUrl: typeof asset?.previewUrl === "string" ? asset.previewUrl : "",
   modelUrl: typeof asset?.modelUrl === "string" ? asset.modelUrl : "",
   format: typeof asset?.format === "string" ? asset.format : "unknown",
+  mediaId,
+  isInMedia: Boolean(mediaId),
   jobId: (() => {
     const id = normalizeRelationshipId(asset?.job);
     return id === null ? null : String(id);
@@ -107,13 +132,15 @@ export async function GET(request: NextRequest) {
       overrideAccess: true,
     });
 
-    return NextResponse.json(
-      {
-        success: true,
-        assets: Array.isArray(found?.docs) ? found.docs.map(serializeAsset) : [],
-      },
-      { status: 200 }
+    const docs = Array.isArray(found?.docs) ? found.docs : [];
+    const assets = await Promise.all(
+      docs.map(async (doc) => {
+        const mediaId = await findMediaIdByModelUrl(payload, toNonEmptyString(doc?.modelUrl));
+        return serializeAsset(doc, mediaId);
+      })
     );
+
+    return NextResponse.json({ success: true, assets }, { status: 200 });
   } catch (error) {
     console.error("[ai/assets:list] failed", error);
     return NextResponse.json(
