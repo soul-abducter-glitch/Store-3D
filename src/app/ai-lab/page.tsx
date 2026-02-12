@@ -5,7 +5,7 @@ import type { DragEvent } from "react";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { motion } from "framer-motion";
-import { Cpu, ShieldCheck, UploadCloud, Zap } from "lucide-react";
+import { Cpu, ShieldCheck, UploadCloud } from "lucide-react";
 import {
   AdditiveBlending,
   Color,
@@ -52,13 +52,6 @@ type AiGenerationJob = {
   completedAt?: string;
 };
 
-const statusStages = [
-  "GENETIC_MAPPING",
-  "TOPOLOGY_SYNTH",
-  "MATERIAL_BIND",
-  "OPTICAL_SOLVER",
-];
-
 const logLines = [
   "[OK] NEURAL_LINK_ESTABLISHED",
   "[OK] DOWNLOAD_WEIGHTS_V3...",
@@ -68,20 +61,21 @@ const logLines = [
   "[..] CALIBRATING_LATENT_GRID",
 ];
 
-const SYNTH_DURATION_MS = 3600;
 const TOKEN_COST = 10;
 const DEFAULT_TOKENS = 120;
 const GALLERY_LIMIT = 12;
 const GALLERY_STORAGE_KEY = "aiLabGallery";
 const TOKENS_STORAGE_KEY = "aiLabTokens";
-const SAMPLE_MODELS = [
-  "https://modelviewer.dev/shared-assets/models/Astronaut.glb",
-  "https://threejs.org/examples/models/gltf/DamagedHelmet/glTF-Binary/DamagedHelmet.glb",
-];
 const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
+const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
+  queued: "SERVER_QUEUE",
+  processing: "GENETIC_MAPPING",
+  completed: "SYNTHESIS_DONE",
+  failed: "SYNTHESIS_FAILED",
+};
 
 const createId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -310,14 +304,12 @@ function AiLabContent() {
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [dragActive, setDragActive] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [statusLine, setStatusLine] = useState(statusStages[0]);
-  const [isSynthRunning, setIsSynthRunning] = useState(false);
   const [serverJob, setServerJob] = useState<AiGenerationJob | null>(null);
   const [serverJobLoading, setServerJobLoading] = useState(false);
   const [serverJobError, setServerJobError] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
+  const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
 
   const { toasts, showError, removeToast } = useToast();
 
@@ -395,66 +387,6 @@ function AiLabContent() {
     }
   }, [gallery]);
 
-  useEffect(() => {
-    if (!isSynthRunning) return;
-    const start = Date.now();
-    setProgress(0);
-    setStatusLine(statusStages[0]);
-    const timer = setInterval(() => {
-      const elapsed = Date.now() - start;
-      const ratio = Math.min(1, elapsed / SYNTH_DURATION_MS);
-      const nextProgress = ratio * 100;
-      setProgress(nextProgress);
-      const nextStage = Math.min(
-        statusStages.length - 1,
-        Math.floor(ratio * statusStages.length)
-      );
-      setStatusLine(statusStages[nextStage]);
-    }, 120);
-    const stopTimer = setTimeout(() => {
-      setProgress(100);
-      setIsSynthRunning(false);
-      const sampleUrl = SAMPLE_MODELS[(gallery.length + 1) % SAMPLE_MODELS.length];
-      const createdAt = Date.now();
-      const nameSource =
-        prompt.trim() ||
-        uploadedModelName ||
-        localPreviewLabel ||
-        "AI Model";
-      const name = nameSource.toString().trim().slice(0, 48) || "AI Model";
-      const modelUrl = localPreviewModel ?? sampleUrl ?? null;
-      const format = modelUrl?.toLowerCase().endsWith(".gltf") ? "gltf" : modelUrl ? "glb" : "image";
-      const asset: GeneratedAsset = {
-        id: createId(),
-        name,
-        createdAt,
-        previewImage: uploadPreview,
-        modelUrl,
-        format,
-        localOnly: modelUrl ? modelUrl.startsWith("blob:") : false,
-      };
-      setGallery((prev) => [asset, ...prev].slice(0, GALLERY_LIMIT));
-      setResultAsset(asset);
-      setShowResult(true);
-      if (modelUrl) {
-        setGeneratedPreviewModel(modelUrl);
-        setGeneratedPreviewLabel(name);
-      }
-    }, SYNTH_DURATION_MS);
-    return () => {
-      clearInterval(timer);
-      clearTimeout(stopTimer);
-    };
-  }, [
-    isSynthRunning,
-    gallery.length,
-    prompt,
-    uploadedModelName,
-    localPreviewLabel,
-    localPreviewModel,
-    uploadPreview,
-  ]);
-
   const handleFile = (file?: File | null) => {
     if (!file) return;
     const lowerName = file.name.toLowerCase();
@@ -498,18 +430,6 @@ function AiLabContent() {
     uploadInputRef.current?.click();
   };
 
-  const handleSynthesis = () => {
-    if (isSynthRunning) return;
-    if (tokens < TOKEN_COST) {
-      showError(`Недостаточно токенов. Нужно ${TOKEN_COST}.`);
-      return;
-    }
-    setTokens((prev) => Math.max(0, prev - TOKEN_COST));
-    setShowResult(false);
-    setResultAsset(null);
-    setIsSynthRunning(true);
-  };
-
   const registerGeneratedAsset = useCallback(
     (args: {
       name: string;
@@ -541,12 +461,17 @@ function AiLabContent() {
   );
 
   const handleStartServerSynthesis = useCallback(async () => {
-    if (serverJobLoading) return;
+    if (serverJobLoading || isSynthRunning) return;
+    if (tokens < TOKEN_COST) {
+      showError(`Need ${TOKEN_COST} tokens.`);
+      return;
+    }
     if (!prompt.trim() && !uploadPreview && !localPreviewModel && !previewModel) {
       showError("Добавьте prompt или референс перед запуском.");
       return;
     }
 
+    setTokens((prev) => Math.max(0, prev - TOKEN_COST));
     setServerJobLoading(true);
     setServerJobError(null);
     setShowResult(false);
@@ -577,6 +502,7 @@ function AiLabContent() {
       completedServerJobRef.current = null;
       setServerJob(nextJob);
     } catch (error) {
+      setTokens((prev) => prev + TOKEN_COST);
       const message =
         error instanceof Error ? error.message : "Не удалось создать AI-задачу.";
       setServerJobError(message);
@@ -587,10 +513,12 @@ function AiLabContent() {
   }, [
     localPreviewModel,
     mode,
+    isSynthRunning,
     previewModel,
     prompt,
     serverJobLoading,
     showError,
+    tokens,
     uploadPreview,
   ]);
 
@@ -689,9 +617,9 @@ function AiLabContent() {
     showError("Нет файла для скачивания.");
   };
 
-  const currentStatus = isSynthRunning ? statusLine : "STANDBY";
-  const displayProgress = isSynthRunning ? progress : 0;
-  const displayStage = isSynthRunning ? statusLine : statusStages[0];
+  const currentStatus = serverJob?.status?.toUpperCase() ?? "STANDBY";
+  const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
+  const displayStage = serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY";
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
   const [modelScale, setModelScale] = useState(1);
@@ -966,22 +894,14 @@ function AiLabContent() {
 
           <button
             type="button"
-            onClick={handleSynthesis}
-            className="group flex items-center justify-center gap-3 rounded-2xl border border-[#2ED1FF]/70 bg-[#0b1014] px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_20px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
-          >
-            <Zap className="h-4 w-4 text-[#2ED1FF] transition group-hover:text-white" />
-            {isSynthRunning ? "СИНТЕЗ В ПРОЦЕССЕ" : "ЗАПУСТИТЬ СИНТЕЗ"}
-          </button>
-          <button
-            type="button"
             onClick={() => {
               void handleStartServerSynthesis();
             }}
-            disabled={serverJobLoading}
+            disabled={serverJobLoading || isSynthRunning}
             className="group flex items-center justify-center gap-3 rounded-2xl border border-emerald-400/60 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition hover:border-emerald-300 hover:bg-emerald-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Cpu className="h-4 w-4 text-emerald-300 transition group-hover:text-white" />
-            {serverJobLoading ? "CREATING JOB..." : "START SERVER JOB (MVP)"}
+            {serverJobLoading ? "CREATING JOB..." : isSynthRunning ? "GENERATION IN PROGRESS" : "START GENERATION"}
           </button>
 
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -1011,7 +931,7 @@ function AiLabContent() {
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
               <div
                 className="h-full bg-gradient-to-r from-emerald-400 via-emerald-300 to-white transition-all"
-                style={{ width: `${Math.max(0, Math.min(100, serverJob?.progress || 0))}%` }}
+                style={{ width: `${displayProgress}%` }}
               />
             </div>
             {serverJob?.id && (
@@ -1135,4 +1055,3 @@ function AiLabContent() {
 export default function AiLabPage() {
   return <AiLabContent />;
 }
-
