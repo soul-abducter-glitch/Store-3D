@@ -348,6 +348,11 @@ function AiLabContent() {
   const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
 
   const { toasts, showError, removeToast } = useToast();
+  const showErrorRef = useRef(showError);
+
+  useEffect(() => {
+    showErrorRef.current = showError;
+  }, [showError]);
 
   const pushUiError = useCallback(
     (raw: unknown) => {
@@ -356,9 +361,9 @@ function AiLabContent() {
       const last = lastErrorRef.current;
       if (last && last.message === message && now - last.at < 1500) return;
       lastErrorRef.current = { message, at: now };
-      showError(message);
+      showErrorRef.current(message);
     },
-    [showError]
+    []
   );
 
   useEffect(() => {
