@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { DragEvent } from "react";
+import { useRouter } from "next/navigation";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { motion } from "framer-motion";
@@ -318,6 +319,7 @@ function FloorPulse({ active }: { active: boolean }) {
 }
 
 function AiLabContent() {
+  const router = useRouter();
   const [previewParam, setPreviewParam] = useState<string | null>(null);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -928,6 +930,22 @@ function AiLabContent() {
   const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
   const resultJob = latestCompletedJob ?? (serverJob?.status === "completed" ? serverJob : null);
   const isResultPublished = Boolean(resultJob?.id && publishedAssetsByJobId[resultJob.id]);
+  const handlePrintResult = useCallback(() => {
+    const modelUrl = resultAsset?.modelUrl || resultJob?.result?.modelUrl || "";
+    if (!modelUrl) {
+      showError("Model URL is missing.");
+      return;
+    }
+
+    const params = new URLSearchParams();
+    params.set("model", modelUrl);
+    params.set("name", (resultAsset?.name || resultJob?.prompt || "AI Model").trim());
+    const thumb = resultAsset?.previewImage || resultJob?.result?.previewUrl || "";
+    if (thumb) params.set("thumb", thumb);
+    params.set("tech", "sla");
+    router.push(`/services/print?${params.toString()}`);
+    setShowResult(false);
+  }, [resultAsset, resultJob, router, showError]);
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
   const [modelScale, setModelScale] = useState(1);
@@ -1471,6 +1489,13 @@ function AiLabContent() {
                 className="flex-1 rounded-2xl border border-[#2ED1FF]/60 bg-[#0b1014] px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:border-[#7FE7FF] hover:text-white"
               >
                 Download
+              </button>
+              <button
+                type="button"
+                onClick={handlePrintResult}
+                className="flex-1 rounded-2xl border border-emerald-400/50 bg-emerald-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_18px_rgba(16,185,129,0.2)] transition hover:border-emerald-300 hover:text-white"
+              >
+                В печать
               </button>
               <button
                 type="button"

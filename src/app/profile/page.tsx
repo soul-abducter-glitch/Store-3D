@@ -138,6 +138,30 @@ const formatPrice = (value?: number) => {
   return new Intl.NumberFormat("ru-RU").format(value);
 };
 
+const MEDIA_PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
+  .trim()
+  .replace(/\/$/, "")
+  .toLowerCase();
+
+const getAiAssetStorageState = (modelUrl?: string) => {
+  const url = typeof modelUrl === "string" ? modelUrl.trim() : "";
+  if (!url) {
+    return { label: "Файл не найден", readyLabel: "Нужно пересоздать", tone: "text-red-300" };
+  }
+
+  const lower = url.toLowerCase();
+  const fromMediaApi = lower.includes("/api/media-file/");
+  const fromMediaPath = lower.includes("/media/");
+  const fromMediaBase = Boolean(MEDIA_PUBLIC_BASE_URL) && lower.startsWith(MEDIA_PUBLIC_BASE_URL);
+  const uploadedToMedia = fromMediaApi || fromMediaPath || fromMediaBase;
+
+  if (uploadedToMedia) {
+    return { label: "Загружен в media", readyLabel: "Готов к заказу", tone: "text-emerald-300" };
+  }
+
+  return { label: "Внешний .glb", readyLabel: "Откроется через В печать", tone: "text-amber-200" };
+};
+
 const DIGITAL_CANCEL_WINDOW_MINUTES = 30;
 const PHYSICAL_CANCEL_WINDOW_MINUTES = 12 * 60;
 const DELIVERY_COST_MAP: Record<string, number> = {
@@ -2270,6 +2294,9 @@ export default function ProfilePage() {
                     key={asset.id}
                     className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                   >
+                    {(() => {
+                      const storage = getAiAssetStorageState(asset.modelUrl);
+                      return (
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
                         {asset.previewUrl ? (
@@ -2290,6 +2317,9 @@ export default function ProfilePage() {
                           <p className="mt-1 text-sm text-white/60">
                             Формат: {(asset.format || "unknown").toUpperCase()} •{" "}
                             {asset.status === "archived" ? "Архив" : "Готово"}
+                          </p>
+                          <p className={`mt-1 text-xs ${storage.tone}`}>
+                            {storage.label} • {storage.readyLabel}
                           </p>
                           {asset.createdAt && (
                             <p className="mt-1 text-xs text-white/45">
@@ -2327,6 +2357,8 @@ export default function ProfilePage() {
                         </button>
                       </div>
                     </div>
+                      );
+                    })()}
                   </div>
                 ))}
             </div>
