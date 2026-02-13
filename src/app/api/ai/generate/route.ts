@@ -5,6 +5,7 @@ import payloadConfig from "../../../../../payload.config";
 import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
 import { AI_TOKEN_COST, refundUserAiCredits, spendUserAiCredits } from "@/lib/aiCredits";
+import { buildAiQueueSnapshot, withAiQueueMeta } from "@/lib/aiQueue";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
@@ -145,10 +146,16 @@ export async function GET(request: NextRequest) {
       overrideAccess: true,
     });
 
+    const serializedJobs = Array.isArray(found?.docs) ? found.docs.map(serializeJob) : [];
+    const queueSnapshot = await buildAiQueueSnapshot(payload as any);
+    const jobsWithQueue = withAiQueueMeta(serializedJobs, queueSnapshot);
+
     return NextResponse.json(
       {
         success: true,
-        jobs: Array.isArray(found?.docs) ? found.docs.map(serializeJob) : [],
+        jobs: jobsWithQueue,
+        queueDepth: queueSnapshot.queueDepth,
+        activeQueueJobs: queueSnapshot.activeCount,
       },
       { status: 200 }
     );
@@ -294,11 +301,13 @@ export async function POST(request: NextRequest) {
         errorMessage: submission.errorMessage || "",
       },
     });
+    const queueSnapshot = await buildAiQueueSnapshot(payload as any);
+    const [jobWithQueue] = withAiQueueMeta([serializeJob(created)], queueSnapshot);
 
     return NextResponse.json(
       {
         success: true,
-        job: serializeJob(created),
+        job: jobWithQueue,
         mock: provider === "mock",
         hint: fallbackHint
           ? fallbackHint
@@ -307,6 +316,8 @@ export async function POST(request: NextRequest) {
             : "Provider job submitted successfully.",
         providerRequested: providerResolution.requestedProvider,
         providerEffective: provider,
+        queueDepth: queueSnapshot.queueDepth,
+        activeQueueJobs: queueSnapshot.activeCount,
         tokensRemaining: chargeResult.remaining,
         tokenCost: AI_TOKEN_COST,
         defaults: {

@@ -52,6 +52,12 @@ type AiGenerationJob = {
   updatedAt?: string;
   startedAt?: string;
   completedAt?: string;
+  queuePosition?: number | null;
+  queueDepth?: number;
+  activeQueueJobs?: number;
+  etaSeconds?: number | null;
+  etaStartAt?: string | null;
+  etaCompleteAt?: string | null;
 };
 
 type AiAssetRecord = {
@@ -65,6 +71,15 @@ type AiAssetRecord = {
 };
 
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
+
+type AiTokenEvent = {
+  id: string;
+  reason: "spend" | "refund" | "topup" | "adjust";
+  delta: number;
+  balanceAfter: number;
+  source: string;
+  createdAt: string;
+};
 
 const logLines = [
   "[OK] NEURAL_LINK_ESTABLISHED",
@@ -84,6 +99,7 @@ const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
 const AI_TOKENS_API_URL = "/api/ai/tokens";
+const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
 const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
 const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
   { id: "starter", title: "STARTER", credits: 50, note: "MVP PACK" },
@@ -142,6 +158,27 @@ const formatJobDate = (value?: string) => {
     hour: "2-digit",
     minute: "2-digit",
   });
+};
+
+const formatEta = (seconds?: number | null) => {
+  if (typeof seconds !== "number" || !Number.isFinite(seconds) || seconds <= 0) return "--:--";
+  const total = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(total / 3600);
+  const minutes = Math.floor((total % 3600) / 60);
+  const secs = total % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(
+      secs
+    ).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+};
+
+const tokenReasonLabel: Record<AiTokenEvent["reason"], string> = {
+  spend: "Запуск",
+  refund: "Возврат",
+  topup: "Пополнение",
+  adjust: "Коррекция",
 };
 
 function NeuralCore({ active }: { active: boolean }) {
@@ -355,6 +392,8 @@ function AiLabContent() {
   const [tokens, setTokens] = useState(0);
   const [tokenCost, setTokenCost] = useState(DEFAULT_TOKEN_COST);
   const [tokensLoading, setTokensLoading] = useState(true);
+  const [tokenEvents, setTokenEvents] = useState<AiTokenEvent[]>([]);
+  const [tokenEventsLoading, setTokenEventsLoading] = useState(false);
   const [topupOpen, setTopupOpen] = useState(false);
   const [topupLoadingPack, setTopupLoadingPack] = useState<string | null>(null);
   const [focusMode, setFocusMode] = useState(false);
@@ -441,6 +480,52 @@ function AiLabContent() {
     [pushUiError]
   );
 
+  const fetchTokenHistory = useCallback(
+    async (silent = true) => {
+      if (!silent) setTokenEventsLoading(true);
+      try {
+        const response = await fetch(`${AI_TOKENS_HISTORY_API_URL}?limit=12`, {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (response.status === 401) {
+            setTokenEvents([]);
+            return;
+          }
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch token history.");
+        }
+        const events = Array.isArray(data?.events) ? (data.events as AiTokenEvent[]) : [];
+        setTokenEvents(
+          events
+            .filter((event) => event && typeof event.id === "string")
+            .map((event) => ({
+              id: event.id,
+              reason:
+                event.reason === "spend" ||
+                event.reason === "refund" ||
+                event.reason === "topup" ||
+                event.reason === "adjust"
+                  ? event.reason
+                  : "adjust",
+              delta: typeof event.delta === "number" ? Math.trunc(event.delta) : 0,
+              balanceAfter: typeof event.balanceAfter === "number" ? Math.trunc(event.balanceAfter) : 0,
+              source: typeof event.source === "string" ? event.source : "system",
+              createdAt: typeof event.createdAt === "string" ? event.createdAt : "",
+            }))
+        );
+      } catch (error) {
+        if (!silent) {
+          pushUiError(error instanceof Error ? error.message : "Failed to fetch token history.");
+        }
+      } finally {
+        if (!silent) setTokenEventsLoading(false);
+      }
+    },
+    [pushUiError]
+  );
+
   const handleTopup = useCallback(
     async (packId: string) => {
       if (topupLoadingPack) return;
@@ -461,6 +546,7 @@ function AiLabContent() {
         } else {
           void fetchTokens(true);
         }
+        void fetchTokenHistory(true);
         const added =
           typeof data?.creditsAdded === "number" && Number.isFinite(data.creditsAdded)
             ? Math.max(0, Math.trunc(data.creditsAdded))
@@ -473,7 +559,7 @@ function AiLabContent() {
         setTopupLoadingPack(null);
       }
     },
-    [fetchTokens, pushUiError, showSuccess, topupLoadingPack]
+    [fetchTokenHistory, fetchTokens, pushUiError, showSuccess, topupLoadingPack]
   );
 
   useEffect(() => {
@@ -508,7 +594,8 @@ function AiLabContent() {
 
   useEffect(() => {
     void fetchTokens(false);
-  }, [fetchTokens]);
+    void fetchTokenHistory(false);
+  }, [fetchTokenHistory, fetchTokens]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -724,6 +811,7 @@ function AiLabContent() {
       const data = await response.json().catch(() => null);
       if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
         setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
+        void fetchTokenHistory(true);
       }
       if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
         setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
@@ -735,6 +823,7 @@ function AiLabContent() {
       }
       if (typeof data?.tokensRemaining !== "number") {
         void fetchTokens(true);
+        void fetchTokenHistory(true);
       }
       const nextJob = data?.job as AiGenerationJob | undefined;
       if (!nextJob?.id) {
@@ -753,6 +842,7 @@ function AiLabContent() {
     }
   }, [
     fetchJobHistory,
+    fetchTokenHistory,
     fetchTokens,
     localPreviewModel,
     mode,
@@ -925,6 +1015,7 @@ function AiLabContent() {
         const data = await response.json().catch(() => null);
         if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
           setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
+          void fetchTokenHistory(true);
         }
         if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
           setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
@@ -934,6 +1025,7 @@ function AiLabContent() {
         }
         if (typeof data?.tokensRemaining !== "number") {
           void fetchTokens(true);
+          void fetchTokenHistory(true);
         }
         const nextJob = data?.job as AiGenerationJob | undefined;
         if (!nextJob?.id) {
@@ -953,7 +1045,18 @@ function AiLabContent() {
         );
       }
     },
-    [fetchJobHistory, fetchTokens, isSynthRunning, pushUiError, serverJobLoading, showError, tokenCost, tokens, tokensLoading]
+    [
+      fetchJobHistory,
+      fetchTokenHistory,
+      fetchTokens,
+      isSynthRunning,
+      pushUiError,
+      serverJobLoading,
+      showError,
+      tokenCost,
+      tokens,
+      tokensLoading,
+    ]
   );
 
   const handleDeleteHistoryJob = useCallback(
@@ -1051,6 +1154,15 @@ function AiLabContent() {
   const currentStatus = serverJob?.status?.toUpperCase() ?? "STANDBY";
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
   const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
+  const displayEta = formatEta(serverJob?.etaSeconds ?? null);
+  const displayQueuePosition =
+    typeof serverJob?.queuePosition === "number" && serverJob.queuePosition > 0
+      ? `#${serverJob.queuePosition}`
+      : "RUN";
+  const displayQueueDepth =
+    typeof serverJob?.queueDepth === "number" && Number.isFinite(serverJob.queueDepth)
+      ? Math.max(0, Math.trunc(serverJob.queueDepth))
+      : 0;
   const resultJob = latestCompletedJob ?? (serverJob?.status === "completed" ? serverJob : null);
   const isResultPublished = Boolean(resultJob?.id && publishedAssetsByJobId[resultJob.id]);
   const handlePrintResult = useCallback(() => {
@@ -1455,9 +1567,64 @@ function AiLabContent() {
                 Stage: {serverJob.stage}
               </p>
             )}
+            {serverJob && serverJob.status === "queued" && (
+              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
+                Queue: {displayQueuePosition} / {displayQueueDepth}
+              </p>
+            )}
+            {serverJob && (serverJob.status === "queued" || serverJob.status === "processing") && (
+              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">ETA: {displayEta}</p>
+            )}
             {serverJobError && (
               <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
             )}
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+              <span>TOKEN LOG</span>
+              <span className="text-white/30">{tokenEvents.length}</span>
+            </div>
+            <div className="mt-3 space-y-2">
+              {tokenEventsLoading ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                  LOADING...
+                </div>
+              ) : tokenEvents.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                  NO TOKEN EVENTS
+                </div>
+              ) : (
+                tokenEvents.slice(0, 6).map((event) => {
+                  const delta = Number.isFinite(event.delta) ? Math.trunc(event.delta) : 0;
+                  const deltaSign = delta >= 0 ? "+" : "";
+                  const deltaTone =
+                    delta > 0 ? "text-emerald-300" : delta < 0 ? "text-rose-300" : "text-white/60";
+                  const eventDate = formatJobDate(event.createdAt);
+                  return (
+                    <div
+                      key={event.id}
+                      className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <p className="truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80">
+                          {tokenReasonLabel[event.reason] || event.reason}
+                        </p>
+                        <p
+                          className={`text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] ${deltaTone}`}
+                        >
+                          {deltaSign}
+                          {delta}
+                        </p>
+                      </div>
+                      <div className="mt-1 flex items-center justify-between gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                        <span className="truncate">{eventDate || "--:--"}</span>
+                        <span>Balance {Math.max(0, Math.trunc(event.balanceAfter || 0))}</span>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -1516,6 +1683,12 @@ function AiLabContent() {
                     <div className="mt-2 flex items-center justify-between gap-2">
                       <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                         {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
+                        {(job.status === "queued" || job.status === "processing") &&
+                          ` • ETA ${formatEta(job.etaSeconds ?? null)}`}
+                        {job.status === "queued" &&
+                          typeof job.queuePosition === "number" &&
+                          job.queuePosition > 0 &&
+                          ` • Q#${job.queuePosition}`}
                       </p>
                       <div className="flex items-center gap-1.5">
                         <button

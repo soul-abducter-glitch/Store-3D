@@ -1533,6 +1533,23 @@ export default function ProfilePage() {
         throw new Error(prepareData?.error || "Не удалось подготовить модель к печати.");
       }
 
+      const precheck = prepareData?.precheck as
+        | {
+            status?: "ok" | "risk" | "critical";
+            summary?: string;
+            modelBytes?: number | null;
+          }
+        | undefined;
+      if (precheck?.status === "risk") {
+        const sizeMb =
+          typeof precheck.modelBytes === "number" && Number.isFinite(precheck.modelBytes)
+            ? ` (~${(precheck.modelBytes / (1024 * 1024)).toFixed(1)} MB)`
+            : "";
+        toast.warning(`${precheck.summary || "Есть риск печати."}${sizeMb}`, {
+          className: "sonner-toast",
+        });
+      }
+
       if (prepareData?.media?.id) {
         mediaId = String(prepareData.media.id);
       }

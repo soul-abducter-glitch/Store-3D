@@ -55,6 +55,141 @@ const guessMimeType = (filename: string) => {
   return "application/octet-stream";
 };
 
+type PrecheckIssue = {
+  code: string;
+  severity: "risk" | "critical";
+  message: string;
+};
+
+type PrecheckResult = {
+  status: "ok" | "risk" | "critical";
+  summary: string;
+  issues: PrecheckIssue[];
+  modelBytes: number | null;
+  contentType: string;
+};
+
+const PRECHECK_TIMEOUT_MS = 8000;
+const RISK_SIZE_BYTES = 60 * 1024 * 1024;
+const CRITICAL_SIZE_BYTES = 120 * 1024 * 1024;
+
+const parseContentLength = (value: string | null) => {
+  if (!value) return null;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const isLikelyModelMime = (value: string) => {
+  const raw = value.toLowerCase();
+  if (!raw) return true;
+  if (raw.includes("model/")) return true;
+  if (raw.includes("application/octet-stream")) return true;
+  if (raw.includes("application/gltf")) return true;
+  return false;
+};
+
+const buildPrecheckSummary = (status: PrecheckResult["status"], issues: PrecheckIssue[]) => {
+  if (status === "critical") return issues[0]?.message || "Критичная проблема модели.";
+  if (status === "risk") return issues[0]?.message || "Есть риск печати. Проверьте модель.";
+  return "Модель готова к переносу в печать.";
+};
+
+const inspectModelPrecheck = async (modelUrl: string, format: string): Promise<PrecheckResult> => {
+  const issues: PrecheckIssue[] = [];
+  const extension = format.toLowerCase();
+  if (!["glb", "gltf", "obj", "stl"].includes(extension)) {
+    issues.push({
+      code: "unsupported_format",
+      severity: "critical",
+      message: "Неподдерживаемый формат файла для печати.",
+    });
+  }
+
+  let contentType = "";
+  let modelBytes: number | null = null;
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS);
+
+  try {
+    let response = await fetch(modelUrl, {
+      method: "HEAD",
+      signal: controller.signal,
+      cache: "no-store",
+    }).catch(() => null);
+
+    if (!response || !response.ok || response.status === 405) {
+      response = await fetch(modelUrl, {
+        method: "GET",
+        signal: controller.signal,
+        cache: "no-store",
+        headers: {
+          Range: "bytes=0-0",
+        },
+      }).catch(() => null);
+    }
+
+    if (!response || !response.ok) {
+      issues.push({
+        code: "source_unreachable",
+        severity: "critical",
+        message: "Файл модели недоступен по ссылке (истек URL или нет доступа).",
+      });
+    } else {
+      contentType = response.headers.get("content-type") || "";
+      modelBytes = parseContentLength(response.headers.get("content-length"));
+
+      if (contentType && !isLikelyModelMime(contentType)) {
+        issues.push({
+          code: "invalid_content_type",
+          severity: "critical",
+          message: "Ссылка не похожа на 3D-файл (content-type).",
+        });
+      }
+
+      if (modelBytes !== null && modelBytes >= CRITICAL_SIZE_BYTES) {
+        issues.push({
+          code: "file_too_large",
+          severity: "critical",
+          message: "Файл слишком большой для стабильного предпросмотра и печати.",
+        });
+      } else if (modelBytes !== null && modelBytes >= RISK_SIZE_BYTES) {
+        issues.push({
+          code: "file_large_risk",
+          severity: "risk",
+          message: "Большой файл: загрузка и анализ могут быть медленными.",
+        });
+      } else if (modelBytes === null) {
+        issues.push({
+          code: "unknown_file_size",
+          severity: "risk",
+          message: "Размер файла неизвестен. Рекомендуется ручная проверка.",
+        });
+      }
+    }
+  } catch {
+    issues.push({
+      code: "precheck_network_error",
+      severity: "risk",
+      message: "Не удалось проверить файл по сети. Продолжайте с осторожностью.",
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+
+  const hasCritical = issues.some((issue) => issue.severity === "critical");
+  const hasRisk = issues.some((issue) => issue.severity === "risk");
+  const status: PrecheckResult["status"] = hasCritical ? "critical" : hasRisk ? "risk" : "ok";
+
+  return {
+    status,
+    summary: buildPrecheckSummary(status, issues),
+    issues,
+    modelBytes,
+    contentType,
+  };
+};
+
 const sanitizeFilename = (filename: string, fallbackExt = ".glb") => {
   const trimmed = filename.trim();
   const dotIndex = trimmed.lastIndexOf(".");
@@ -165,6 +300,17 @@ export async function POST(
 
     const asset = authorized.asset;
     const modelUrl = toNonEmptyString(asset?.modelUrl);
+    const formatFromAsset =
+      typeof asset?.format === "string" ? asset.format.trim().toLowerCase() : "";
+    const formatFromUrl = (() => {
+      const lower = modelUrl.toLowerCase().split("?")[0];
+      if (lower.endsWith(".glb")) return "glb";
+      if (lower.endsWith(".gltf")) return "gltf";
+      if (lower.endsWith(".obj")) return "obj";
+      if (lower.endsWith(".stl")) return "stl";
+      return "";
+    })();
+    const formatRaw = formatFromAsset || formatFromUrl;
     if (!modelUrl) {
       return NextResponse.json(
         { success: false, error: "Asset model URL is empty." },
@@ -172,10 +318,20 @@ export async function POST(
       );
     }
 
+    const precheck = await inspectModelPrecheck(modelUrl, formatRaw);
+    if (precheck.status === "critical") {
+      return NextResponse.json(
+        {
+          success: false,
+          error: precheck.summary,
+          precheck,
+        },
+        { status: 422 }
+      );
+    }
+
     let media = await findMediaByUrl(payload, modelUrl);
     if (!media?.id) {
-      const formatRaw =
-        typeof asset?.format === "string" ? asset.format.trim().toLowerCase() : "";
       const preferredExt =
         formatRaw === "glb" || formatRaw === "gltf" || formatRaw === "obj" || formatRaw === "stl"
           ? `.${formatRaw}`
@@ -221,6 +377,7 @@ export async function POST(
           url: typeof media.url === "string" ? media.url : modelUrl,
           filename: typeof media.filename === "string" ? media.filename : deriveFilename(modelUrl),
         },
+        precheck,
       },
       { status: 200 }
     );

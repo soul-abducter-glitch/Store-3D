@@ -5,6 +5,7 @@ import payloadConfig from "../../../../../../payload.config";
 import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
 import { AI_TOKEN_COST, refundUserAiCredits, spendUserAiCredits } from "@/lib/aiCredits";
+import { buildAiQueueSnapshot, withAiQueueMeta } from "@/lib/aiQueue";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
@@ -208,11 +209,15 @@ export async function GET(
         depth: 0,
         overrideAccess: true,
       })) ?? job;
+    const queueSnapshot = await buildAiQueueSnapshot(payload as any);
+    const [jobWithQueue] = withAiQueueMeta([serializeJob(actualJob)], queueSnapshot);
 
     return NextResponse.json(
       {
         success: true,
-        job: serializeJob(actualJob),
+        job: jobWithQueue,
+        queueDepth: queueSnapshot.queueDepth,
+        activeQueueJobs: queueSnapshot.activeCount,
       },
       { status: 200 }
     );
@@ -362,14 +367,18 @@ export async function POST(
         errorMessage: submission.errorMessage || "",
       },
     });
+    const queueSnapshot = await buildAiQueueSnapshot(payload as any);
+    const [jobWithQueue] = withAiQueueMeta([serializeJob(created)], queueSnapshot);
 
     return NextResponse.json(
       {
         success: true,
-        job: serializeJob(created),
+        job: jobWithQueue,
         providerRequested: providerResolution.requestedProvider,
         providerEffective: provider,
         hint: fallbackHint,
+        queueDepth: queueSnapshot.queueDepth,
+        activeQueueJobs: queueSnapshot.activeCount,
         tokensRemaining: chargeResult.remaining,
         tokenCost: AI_TOKEN_COST,
       },
