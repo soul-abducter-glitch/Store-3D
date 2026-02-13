@@ -84,6 +84,12 @@ const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
 const AI_TOKENS_API_URL = "/api/ai/tokens";
+const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
+const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
+  { id: "starter", title: "STARTER", credits: 50, note: "MVP PACK" },
+  { id: "pro", title: "PRO", credits: 200, note: "MVP PACK" },
+  { id: "max", title: "MAX", credits: 500, note: "MVP PACK" },
+];
 const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   queued: "SERVER_QUEUE",
   processing: "GENETIC_MAPPING",
@@ -349,6 +355,8 @@ function AiLabContent() {
   const [tokens, setTokens] = useState(0);
   const [tokenCost, setTokenCost] = useState(DEFAULT_TOKEN_COST);
   const [tokensLoading, setTokensLoading] = useState(true);
+  const [topupOpen, setTopupOpen] = useState(false);
+  const [topupLoadingPack, setTopupLoadingPack] = useState<string | null>(null);
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -428,6 +436,41 @@ function AiLabContent() {
       }
     },
     [pushUiError]
+  );
+
+  const handleTopup = useCallback(
+    async (packId: string) => {
+      if (topupLoadingPack) return;
+      setTopupLoadingPack(packId);
+      try {
+        const response = await fetch(AI_TOKENS_TOPUP_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ packId }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to top up tokens.");
+        }
+        if (typeof data?.tokens === "number" && Number.isFinite(data.tokens)) {
+          setTokens(Math.max(0, Math.trunc(data.tokens)));
+        } else {
+          void fetchTokens(true);
+        }
+        const added =
+          typeof data?.creditsAdded === "number" && Number.isFinite(data.creditsAdded)
+            ? Math.max(0, Math.trunc(data.creditsAdded))
+            : null;
+        showSuccess(added ? `Balance updated: +${added} tokens` : "Balance updated");
+        setTopupOpen(false);
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to top up tokens.");
+      } finally {
+        setTopupLoadingPack(null);
+      }
+    },
+    [fetchTokens, pushUiError, showSuccess, topupLoadingPack]
   );
 
   useEffect(() => {
@@ -1154,8 +1197,17 @@ function AiLabContent() {
             </p>
             <div className="flex items-start justify-between gap-3">
               <h2 className="text-2xl font-semibold text-white">Лаборатория синтеза</h2>
-              <div className="rounded-full border border-[#2ED1FF]/30 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.25)]">
-                TOKENS: {tokensLoading ? "..." : tokens}
+              <div className="flex flex-col items-end gap-2">
+                <div className="rounded-full border border-[#2ED1FF]/30 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.25)]">
+                  TOKENS: {tokensLoading ? "..." : tokens}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setTopupOpen(true)}
+                  className="rounded-full border border-emerald-400/50 bg-emerald-400/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-200 transition hover:border-emerald-300 hover:text-white"
+                >
+                  TOP UP
+                </button>
               </div>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-amber-200">
@@ -1518,6 +1570,55 @@ function AiLabContent() {
           </div>
         </aside>
       </motion.main>
+
+      {topupOpen && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-[560px] rounded-[28px] border border-emerald-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+            <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-emerald-200">
+              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
+              [ TOKEN TOP UP ]
+            </div>
+            <p className="mt-4 text-sm text-white/75">
+              Р’С‹Р±РµСЂРёС‚Рµ РїР°РєРµС‚ РґР»СЏ РїРѕРїРѕР»РЅРµРЅРёСЏ. РЎРµР№С‡Р°СЃ СЂР°Р±РѕС‚Р°РµС‚ MVP РјРѕРє-СЂРµР¶РёРј.
+            </p>
+            <div className="mt-5 grid gap-3 sm:grid-cols-3">
+              {TOPUP_PACKS.map((pack) => {
+                const isLoading = topupLoadingPack === pack.id;
+                const disabled = Boolean(topupLoadingPack);
+                return (
+                  <button
+                    key={pack.id}
+                    type="button"
+                    onClick={() => {
+                      void handleTopup(pack.id);
+                    }}
+                    disabled={disabled}
+                    className="rounded-2xl border border-emerald-400/40 bg-emerald-500/5 px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] text-emerald-100">
+                      {pack.title}
+                    </p>
+                    <p className="mt-2 text-lg font-semibold text-white">+{pack.credits}</p>
+                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                      {isLoading ? "processing..." : pack.note}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setTopupOpen(false)}
+                disabled={Boolean(topupLoadingPack)}
+                className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {showResult && resultAsset && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
