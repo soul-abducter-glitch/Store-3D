@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
-import payloadConfig from "../../../../../payload.config";
+import payloadConfig from "../../../../payload.config";
 import { runServiceReadinessChecks } from "@/lib/serviceReadiness";
 
 export const dynamic = "force-dynamic";
