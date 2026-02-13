@@ -67,6 +67,7 @@ type PrecheckResult = {
   issues: PrecheckIssue[];
   modelBytes: number | null;
   contentType: string;
+  resolvedFormat: "glb" | "gltf" | "obj" | "stl" | "unknown";
 };
 
 const PRECHECK_TIMEOUT_MS = 8000;
@@ -89,25 +90,51 @@ const isLikelyModelMime = (value: string) => {
   return false;
 };
 
+const inferFormatFromUrl = (value: string) => {
+  const lower = value.toLowerCase();
+  if (lower.includes(".gltf")) return "gltf";
+  if (lower.includes(".obj")) return "obj";
+  if (lower.includes(".stl")) return "stl";
+  if (lower.includes(".glb")) return "glb";
+  return "";
+};
+
+const inferFormatFromContentType = (value: string) => {
+  const lower = value.toLowerCase();
+  if (!lower) return "";
+  if (lower.includes("model/gltf+json")) return "gltf";
+  if (lower.includes("model/gltf-binary")) return "glb";
+  if (lower.includes("model/stl")) return "stl";
+  if (lower.includes("model/obj")) return "obj";
+  if (lower.includes("application/gltf")) return "gltf";
+  if (lower.includes("application/octet-stream")) return "glb";
+  return "";
+};
+
+const normalizeKnownFormat = (value: string) => {
+  const lower = value.toLowerCase();
+  if (lower === "glb" || lower === "gltf" || lower === "obj" || lower === "stl") return lower;
+  return "";
+};
+
 const buildPrecheckSummary = (status: PrecheckResult["status"], issues: PrecheckIssue[]) => {
   if (status === "critical") return issues[0]?.message || "Критичная проблема модели.";
   if (status === "risk") return issues[0]?.message || "Есть риск печати. Проверьте модель.";
   return "Модель готова к переносу в печать.";
 };
 
-const inspectModelPrecheck = async (modelUrl: string, format: string): Promise<PrecheckResult> => {
+const inspectModelPrecheck = async (
+  modelUrl: string,
+  formatHint: string
+): Promise<PrecheckResult> => {
   const issues: PrecheckIssue[] = [];
-  const extension = format.toLowerCase();
-  if (!["glb", "gltf", "obj", "stl"].includes(extension)) {
-    issues.push({
-      code: "unsupported_format",
-      severity: "critical",
-      message: "Неподдерживаемый формат файла для печати.",
-    });
-  }
 
   let contentType = "";
   let modelBytes: number | null = null;
+  let resolvedFormat =
+    normalizeKnownFormat(formatHint) ||
+    normalizeKnownFormat(inferFormatFromUrl(modelUrl)) ||
+    "unknown";
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), PRECHECK_TIMEOUT_MS);
 
@@ -138,6 +165,10 @@ const inspectModelPrecheck = async (modelUrl: string, format: string): Promise<P
     } else {
       contentType = response.headers.get("content-type") || "";
       modelBytes = parseContentLength(response.headers.get("content-length"));
+      if (resolvedFormat === "unknown") {
+        resolvedFormat =
+          normalizeKnownFormat(inferFormatFromContentType(contentType)) || "unknown";
+      }
 
       if (contentType && !isLikelyModelMime(contentType)) {
         issues.push({
@@ -178,6 +209,14 @@ const inspectModelPrecheck = async (modelUrl: string, format: string): Promise<P
   }
 
   const hasCritical = issues.some((issue) => issue.severity === "critical");
+  if (!hasCritical && resolvedFormat === "unknown") {
+    issues.push({
+      code: "unknown_format_assumed_glb",
+      severity: "risk",
+      message: "Формат не определен, будет использован GLB по умолчанию.",
+    });
+    resolvedFormat = "glb";
+  }
   const hasRisk = issues.some((issue) => issue.severity === "risk");
   const status: PrecheckResult["status"] = hasCritical ? "critical" : hasRisk ? "risk" : "ok";
 
@@ -187,6 +226,13 @@ const inspectModelPrecheck = async (modelUrl: string, format: string): Promise<P
     issues,
     modelBytes,
     contentType,
+    resolvedFormat:
+      resolvedFormat === "glb" ||
+      resolvedFormat === "gltf" ||
+      resolvedFormat === "obj" ||
+      resolvedFormat === "stl"
+        ? resolvedFormat
+        : "unknown",
   };
 };
 
@@ -333,8 +379,11 @@ export async function POST(
     let media = await findMediaByUrl(payload, modelUrl);
     if (!media?.id) {
       const preferredExt =
-        formatRaw === "glb" || formatRaw === "gltf" || formatRaw === "obj" || formatRaw === "stl"
-          ? `.${formatRaw}`
+        precheck.resolvedFormat === "glb" ||
+        precheck.resolvedFormat === "gltf" ||
+        precheck.resolvedFormat === "obj" ||
+        precheck.resolvedFormat === "stl"
+          ? `.${precheck.resolvedFormat}`
           : ".glb";
       let filename = deriveFilename(modelUrl, preferredExt);
       const buildMediaData = (safeFilename: string) => ({

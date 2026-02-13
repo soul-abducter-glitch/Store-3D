@@ -31,9 +31,21 @@ const toNonEmptyString = (value: unknown) => {
   return value.trim();
 };
 
-const normalizeFormat = (value: unknown) => {
+const inferFormatFromUrl = (value: unknown) => {
+  const raw = toNonEmptyString(value).toLowerCase();
+  if (!raw) return "";
+  if (raw.includes(".gltf")) return "gltf";
+  if (raw.includes(".obj")) return "obj";
+  if (raw.includes(".stl")) return "stl";
+  if (raw.includes(".glb")) return "glb";
+  return "";
+};
+
+const normalizeFormat = (value: unknown, fallbackUrl?: unknown) => {
   const raw = toNonEmptyString(value).toLowerCase();
   if (raw === "glb" || raw === "gltf" || raw === "obj" || raw === "stl") return raw;
+  const inferred = inferFormatFromUrl(fallbackUrl);
+  if (inferred) return inferred;
   return "unknown";
 };
 
@@ -95,7 +107,7 @@ const serializeAsset = (asset: any, mediaId: string | null = null) => ({
   sourceUrl: typeof asset?.sourceUrl === "string" ? asset.sourceUrl : "",
   previewUrl: typeof asset?.previewUrl === "string" ? asset.previewUrl : "",
   modelUrl: typeof asset?.modelUrl === "string" ? asset.modelUrl : "",
-  format: typeof asset?.format === "string" ? asset.format : "unknown",
+  format: normalizeFormat(asset?.format, asset?.modelUrl),
   mediaId,
   isInMedia: Boolean(mediaId),
   jobId: (() => {
@@ -232,7 +244,7 @@ export async function POST(request: NextRequest) {
           sourceUrl: toNonEmptyString(job?.sourceUrl) || undefined,
           previewUrl: toNonEmptyString(job?.result?.previewUrl) || undefined,
           modelUrl,
-          format: normalizeFormat(job?.result?.format),
+          format: normalizeFormat(job?.result?.format, modelUrl),
         },
       });
 
@@ -268,7 +280,7 @@ export async function POST(request: NextRequest) {
         sourceUrl: toNonEmptyString(body?.sourceUrl) || undefined,
         previewUrl: toNonEmptyString(body?.previewUrl) || undefined,
         modelUrl,
-        format: normalizeFormat(body?.format),
+        format: normalizeFormat(body?.format, modelUrl),
       },
     });
 
