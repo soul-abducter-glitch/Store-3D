@@ -70,6 +70,10 @@ const ensureLockedDocsColumns = async (payload: PayloadLike, schema: string) => 
     payload,
     `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_token_events_id" integer`
   );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "support_tickets_id" integer`
+  );
 };
 
 export const ensureAiLabSchema = async (payload: PayloadLike) => {
@@ -77,6 +81,7 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   const aiJobsTable = qualifiedTable(schema, "ai_jobs");
   const aiAssetsTable = qualifiedTable(schema, "ai_assets");
   const aiTokenEventsTable = qualifiedTable(schema, "ai_token_events");
+  const supportTicketsTable = qualifiedTable(schema, "support_tickets");
   const usersTable = qualifiedTable(schema, "users");
   const defaultAiCredits = (() => {
     const parsed = Number.parseInt(process.env.AI_TOKENS_DEFAULT || "", 10);
@@ -351,6 +356,96 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_token_events_created_at_idx" ON ${aiTokenEventsTable} ("created_at")`
+  );
+
+  await executeRaw(
+    payload,
+    `
+      CREATE TABLE IF NOT EXISTS ${supportTicketsTable} (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "status" varchar NOT NULL DEFAULT 'open',
+        "priority" varchar NOT NULL DEFAULT 'normal',
+        "category" varchar NOT NULL DEFAULT 'other',
+        "email" varchar NOT NULL DEFAULT '',
+        "name" varchar,
+        "title" varchar NOT NULL DEFAULT '',
+        "message" text NOT NULL DEFAULT '',
+        "admin_reply" text,
+        "last_user_message_at" timestamptz,
+        "last_admin_reply_at" timestamptz,
+        "meta" jsonb,
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+    `
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "user_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "status" varchar DEFAULT 'open'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "priority" varchar DEFAULT 'normal'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "category" varchar DEFAULT 'other'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "email" varchar DEFAULT ''`
+  );
+  await executeRaw(payload, `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "name" varchar`);
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "title" varchar DEFAULT ''`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "message" text DEFAULT ''`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "admin_reply" text`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "last_user_message_at" timestamptz`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "last_admin_reply_at" timestamptz`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "meta" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${supportTicketsTable} ADD COLUMN IF NOT EXISTS "created_at" timestamptz DEFAULT now()`
+  );
+
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "support_tickets_user_idx" ON ${supportTicketsTable} ("user_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "support_tickets_status_idx" ON ${supportTicketsTable} ("status")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "support_tickets_created_at_idx" ON ${supportTicketsTable} ("created_at")`
   );
 
   await executeRaw(

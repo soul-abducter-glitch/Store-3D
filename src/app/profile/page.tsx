@@ -9,6 +9,7 @@ import {
   Download,
   Cpu,
   Gift,
+  LifeBuoy,
   LogOut,
   RotateCcw,
   Package,
@@ -1686,6 +1687,13 @@ export default function ProfilePage() {
             <h1 className="mt-3 text-3xl font-semibold text-white">Профиль 3D-STORE</h1>
           </div>
           <div className="flex gap-3">
+            <Link
+              href="/help"
+              className="flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-cyan-200 transition hover:border-cyan-300/60 hover:text-cyan-100"
+            >
+              <LifeBuoy className="h-4 w-4" />
+              Поддержка
+            </Link>
             <button
               type="button"
               onClick={handleLogout}
