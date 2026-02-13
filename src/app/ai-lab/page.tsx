@@ -75,16 +75,15 @@ const logLines = [
   "[..] CALIBRATING_LATENT_GRID",
 ];
 
-const TOKEN_COST = 10;
-const DEFAULT_TOKENS = 120;
+const DEFAULT_TOKEN_COST = 10;
 const GALLERY_LIMIT = 12;
 const GALLERY_STORAGE_KEY = "aiLabGallery";
-const TOKENS_STORAGE_KEY = "aiLabTokens";
 const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
+const AI_TOKENS_API_URL = "/api/ai/tokens";
 const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   queued: "SERVER_QUEUE",
   processing: "GENETIC_MAPPING",
@@ -347,7 +346,9 @@ function AiLabContent() {
   const [uploadedModelName, setUploadedModelName] = useState<string | null>(null);
   const [generatedPreviewModel, setGeneratedPreviewModel] = useState<string | null>(null);
   const [generatedPreviewLabel, setGeneratedPreviewLabel] = useState<string | null>(null);
-  const [tokens, setTokens] = useState(DEFAULT_TOKENS);
+  const [tokens, setTokens] = useState(0);
+  const [tokenCost, setTokenCost] = useState(DEFAULT_TOKEN_COST);
+  const [tokensLoading, setTokensLoading] = useState(true);
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -388,6 +389,47 @@ function AiLabContent() {
     []
   );
 
+  const fetchTokens = useCallback(
+    async (silent = true) => {
+      if (!silent) {
+        setTokensLoading(true);
+      }
+      try {
+        const response = await fetch(AI_TOKENS_API_URL, {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (response.status === 401) {
+            setTokens(0);
+            setTokenCost(DEFAULT_TOKEN_COST);
+            if (!silent) {
+              pushUiError("Unauthorized.");
+            }
+            return;
+          }
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch AI tokens.");
+        }
+        if (typeof data?.tokens === "number" && Number.isFinite(data.tokens)) {
+          setTokens(Math.max(0, Math.trunc(data.tokens)));
+        }
+        if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
+          setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
+        }
+      } catch (error) {
+        if (!silent) {
+          pushUiError(error instanceof Error ? error.message : "Failed to fetch AI tokens.");
+        }
+      } finally {
+        if (!silent) {
+          setTokensLoading(false);
+        }
+      }
+    },
+    [pushUiError]
+  );
+
   useEffect(() => {
     if (!uploadPreview) return;
     if (!uploadPreview.startsWith("blob:")) return;
@@ -405,13 +447,6 @@ function AiLabContent() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const storedTokens = window.localStorage.getItem(TOKENS_STORAGE_KEY);
-    if (storedTokens) {
-      const parsed = Number(storedTokens);
-      if (!Number.isNaN(parsed) && parsed >= 0) {
-        setTokens(parsed);
-      }
-    }
     const storedGallery = window.localStorage.getItem(GALLERY_STORAGE_KEY);
     if (storedGallery) {
       try {
@@ -426,9 +461,8 @@ function AiLabContent() {
   }, []);
 
   useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem(TOKENS_STORAGE_KEY, String(tokens));
-  }, [tokens]);
+    void fetchTokens(false);
+  }, [fetchTokens]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -607,16 +641,19 @@ function AiLabContent() {
 
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
-    if (tokens < TOKEN_COST) {
-      showError(`Недостаточно токенов. Нужно ${TOKEN_COST}.`);
+    if (tokensLoading) {
+      showError("Tokens are still loading.");
+      return;
+    }
+    if (tokens < tokenCost) {
+      showError(`Not enough tokens. Need ${tokenCost}.`);
       return;
     }
     if (!prompt.trim() && !uploadPreview && !localPreviewModel && !previewModel) {
-      showError("Добавьте prompt или референс перед запуском.");
+      showError("Add a prompt or reference before generation.");
       return;
     }
 
-    setTokens((prev) => Math.max(0, prev - TOKEN_COST));
     setServerJobLoading(true);
     setServerJobError(null);
     setShowResult(false);
@@ -636,22 +673,29 @@ function AiLabContent() {
         }),
       });
       const data = await response.json().catch(() => null);
+      if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
+        setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
+      }
+      if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
+        setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
+      }
       if (!response.ok) {
         const message =
-          typeof data?.error === "string" ? data.error : "Не удалось создать AI-задачу.";
+          typeof data?.error === "string" ? data.error : "Failed to create AI job.";
         throw new Error(message);
+      }
+      if (typeof data?.tokensRemaining !== "number") {
+        void fetchTokens(true);
       }
       const nextJob = data?.job as AiGenerationJob | undefined;
       if (!nextJob?.id) {
-        throw new Error("Сервер вернул некорректный ответ по задаче.");
+        throw new Error("Server returned invalid AI job payload.");
       }
       completedServerJobRef.current = null;
       setServerJob(nextJob);
       void fetchJobHistory(true);
     } catch (error) {
-      setTokens((prev) => prev + TOKEN_COST);
-      const message =
-        error instanceof Error ? error.message : "Не удалось создать AI-задачу.";
+      const message = error instanceof Error ? error.message : "Failed to create AI job.";
       const normalizedMessage = toUiErrorMessage(message);
       setServerJobError(normalizedMessage);
       pushUiError(normalizedMessage);
@@ -660,6 +704,7 @@ function AiLabContent() {
     }
   }, [
     fetchJobHistory,
+    fetchTokens,
     localPreviewModel,
     mode,
     isSynthRunning,
@@ -668,7 +713,9 @@ function AiLabContent() {
     pushUiError,
     serverJobLoading,
     showError,
+    tokenCost,
     tokens,
+    tokensLoading,
     uploadPreview,
   ]);
 
@@ -787,16 +834,19 @@ function AiLabContent() {
   const handleRetryHistoryJob = useCallback(
     async (job: AiGenerationJob) => {
       if (serverJobLoading || isSynthRunning) {
-        showError("Дождитесь завершения текущей генерации.");
+        showError("Wait until current generation is finished.");
         return;
       }
-      if (tokens < TOKEN_COST) {
-        showError(`Недостаточно токенов. Нужно ${TOKEN_COST}.`);
+      if (tokensLoading) {
+        showError("Tokens are still loading.");
+        return;
+      }
+      if (tokens < tokenCost) {
+        showError(`Not enough tokens. Need ${tokenCost}.`);
         return;
       }
 
       setHistoryAction({ id: job.id, type: "retry" });
-      setTokens((prev) => Math.max(0, prev - TOKEN_COST));
       setServerJobError(null);
       setShowResult(false);
       setResultAsset(null);
@@ -808,19 +858,27 @@ function AiLabContent() {
           credentials: "include",
         });
         const data = await response.json().catch(() => null);
+        if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
+          setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
+        }
+        if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
+          setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
+        }
         if (!response.ok) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Не удалось повторить AI-задачу.");
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to retry AI job.");
+        }
+        if (typeof data?.tokensRemaining !== "number") {
+          void fetchTokens(true);
         }
         const nextJob = data?.job as AiGenerationJob | undefined;
         if (!nextJob?.id) {
-          throw new Error("Сервер вернул некорректный ответ по повтору задачи.");
+          throw new Error("Server returned invalid retry payload.");
         }
         completedServerJobRef.current = null;
         setServerJob(nextJob);
         void fetchJobHistory(true);
       } catch (error) {
-        setTokens((prev) => prev + TOKEN_COST);
-        const message = error instanceof Error ? error.message : "Не удалось повторить AI-задачу.";
+        const message = error instanceof Error ? error.message : "Failed to retry AI job.";
         const normalizedMessage = toUiErrorMessage(message);
         setServerJobError(normalizedMessage);
         pushUiError(normalizedMessage);
@@ -830,7 +888,7 @@ function AiLabContent() {
         );
       }
     },
-    [fetchJobHistory, isSynthRunning, pushUiError, serverJobLoading, showError, tokens]
+    [fetchJobHistory, fetchTokens, isSynthRunning, pushUiError, serverJobLoading, showError, tokenCost, tokens, tokensLoading]
   );
 
   const handleDeleteHistoryJob = useCallback(
@@ -1097,7 +1155,7 @@ function AiLabContent() {
             <div className="flex items-start justify-between gap-3">
               <h2 className="text-2xl font-semibold text-white">Лаборатория синтеза</h2>
               <div className="rounded-full border border-[#2ED1FF]/30 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.25)]">
-                TOKENS: {tokens}
+                TOKENS: {tokensLoading ? "..." : tokens}
               </div>
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-amber-200">
@@ -1137,7 +1195,7 @@ function AiLabContent() {
           </div>
           <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
             <span>Списание за запуск</span>
-            <span className="text-[#BFF4FF]">- {TOKEN_COST} TOKENS</span>
+            <span className="text-[#BFF4FF]">- {tokenCost} TOKENS</span>
           </div>
 
           <div
@@ -1223,11 +1281,17 @@ function AiLabContent() {
             onClick={() => {
               void handleStartServerSynthesis();
             }}
-            disabled={serverJobLoading || isSynthRunning}
+            disabled={serverJobLoading || isSynthRunning || tokensLoading}
             className="group flex items-center justify-center gap-3 rounded-2xl border border-emerald-400/60 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition hover:border-emerald-300 hover:bg-emerald-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <Cpu className="h-4 w-4 text-emerald-300 transition group-hover:text-white" />
-            {serverJobLoading ? "CREATING JOB..." : isSynthRunning ? "GENERATION IN PROGRESS" : "START GENERATION"}
+            {serverJobLoading
+              ? "CREATING JOB..."
+              : isSynthRunning
+                ? "GENERATION IN PROGRESS"
+                : tokensLoading
+                  ? "LOADING TOKENS..."
+                  : "START GENERATION"}
           </button>
 
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">

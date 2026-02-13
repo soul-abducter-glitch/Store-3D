@@ -72,6 +72,12 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   const schema = normalizeSchemaName(payload?.db?.schemaName);
   const aiJobsTable = qualifiedTable(schema, "ai_jobs");
   const aiAssetsTable = qualifiedTable(schema, "ai_assets");
+  const usersTable = qualifiedTable(schema, "users");
+  const defaultAiCredits = (() => {
+    const parsed = Number.parseInt(process.env.AI_TOKENS_DEFAULT || "", 10);
+    if (!Number.isFinite(parsed) || parsed <= 0) return 120;
+    return parsed;
+  })();
 
   await executeRaw(
     payload,
@@ -259,6 +265,15 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_assets_created_at_idx" ON ${aiAssetsTable} ("created_at")`
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${usersTable} ADD COLUMN IF NOT EXISTS "ai_credits" integer`
+  );
+  await executeRaw(
+    payload,
+    `UPDATE ${usersTable} SET "ai_credits" = ${defaultAiCredits} WHERE "ai_credits" IS NULL`
   );
 
   await ensureLockedDocsColumns(payload, schema);

@@ -4,7 +4,9 @@ import { getPayload } from "payload";
 import payloadConfig from "../../../../../payload.config";
 import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
+import { AI_TOKEN_COST, refundUserAiCredits, spendUserAiCredits } from "@/lib/aiCredits";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -13,6 +15,16 @@ const DEFAULT_MOCK_MODEL_URL =
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
+const GENERATE_RATE_LIMIT_MAX = (() => {
+  const parsed = Number.parseInt(process.env.AI_GENERATE_RATE_LIMIT_MAX || "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 12;
+  return parsed;
+})();
+const GENERATE_RATE_LIMIT_WINDOW_MS = (() => {
+  const parsed = Number.parseInt(process.env.AI_GENERATE_RATE_LIMIT_WINDOW_MS || "", 10);
+  if (!Number.isFinite(parsed) || parsed < 1000) return 60_000;
+  return parsed;
+})();
 
 const clampProgress = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
@@ -153,8 +165,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  let payloadRef: Awaited<ReturnType<typeof getPayloadClient>> | null = null;
+  let chargedUserId: string | number | null = null;
   try {
     const payload = await getPayloadClient();
+    payloadRef = payload;
     await ensureAiLabSchemaOnce(payload as any);
     const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
     const userId = normalizeRelationshipId(authResult?.user?.id);
@@ -173,6 +188,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Prompt or reference is required." },
         { status: 400 }
+      );
+    }
+
+    const rateKey = `${String(userId)}:${resolveClientIp(request.headers)}`;
+    const rateResult = checkRateLimit({
+      scope: "ai-generate-create",
+      key: rateKey,
+      max: GENERATE_RATE_LIMIT_MAX,
+      windowMs: GENERATE_RATE_LIMIT_WINDOW_MS,
+    });
+    if (!rateResult.ok) {
+      const retryAfterSec = Math.max(1, Math.ceil(rateResult.retryAfterMs / 1000));
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many generation requests. Please retry later.",
+          retryAfter: retryAfterSec,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfterSec),
+          },
+        }
       );
     }
 
@@ -200,6 +239,21 @@ export async function POST(request: NextRequest) {
       provider = "mock";
       fallbackHint = inputValidationError;
     }
+
+    const chargeResult = await spendUserAiCredits(payload as any, userId, AI_TOKEN_COST);
+    if (!chargeResult.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Insufficient AI tokens. Need ${AI_TOKEN_COST}.`,
+          tokensRemaining: chargeResult.remaining,
+          tokenCost: AI_TOKEN_COST,
+        },
+        { status: 402 }
+      );
+    }
+    chargedUserId = userId;
+
     const now = new Date().toISOString();
     const submission = await submitProviderJob({
       provider,
@@ -246,6 +300,8 @@ export async function POST(request: NextRequest) {
             : "Provider job submitted successfully.",
         providerRequested: providerResolution.requestedProvider,
         providerEffective: provider,
+        tokensRemaining: chargeResult.remaining,
+        tokenCost: AI_TOKEN_COST,
         defaults: {
           modelUrl: process.env.AI_GENERATION_MOCK_MODEL_URL || DEFAULT_MOCK_MODEL_URL,
         },
@@ -253,6 +309,13 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
+    if (payloadRef && chargedUserId !== null) {
+      try {
+        await refundUserAiCredits(payloadRef as any, chargedUserId, AI_TOKEN_COST);
+      } catch (refundError) {
+        console.error("[ai/generate:create] token refund failed", refundError);
+      }
+    }
     console.error("[ai/generate:create] failed", error);
     return NextResponse.json(
       {

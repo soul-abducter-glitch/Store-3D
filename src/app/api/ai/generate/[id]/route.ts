@@ -4,12 +4,24 @@ import { getPayload } from "payload";
 import payloadConfig from "../../../../../../payload.config";
 import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
+import { AI_TOKEN_COST, refundUserAiCredits, spendUserAiCredits } from "@/lib/aiCredits";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
+const RETRY_RATE_LIMIT_MAX = (() => {
+  const parsed = Number.parseInt(process.env.AI_RETRY_RATE_LIMIT_MAX || "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 8;
+  return parsed;
+})();
+const RETRY_RATE_LIMIT_WINDOW_MS = (() => {
+  const parsed = Number.parseInt(process.env.AI_RETRY_RATE_LIMIT_WINDOW_MS || "", 10);
+  if (!Number.isFinite(parsed) || parsed < 1000) return 60_000;
+  return parsed;
+})();
 
 const clampProgress = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
@@ -162,9 +174,18 @@ const findAuthorizedJob = async (
     };
   }
 
+  const userId = normalizeRelationshipId(user?.id);
+  if (!userId) {
+    return {
+      ok: false as const,
+      response: NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 }),
+    };
+  }
+
   return {
     ok: true as const,
     job,
+    userId,
   };
 };
 
@@ -211,13 +232,41 @@ export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  let payloadRef: Awaited<ReturnType<typeof getPayloadClient>> | null = null;
+  let chargedUserId: string | number | null = null;
   try {
     const payload = await getPayloadClient();
+    payloadRef = payload;
     await ensureAiLabSchemaOnce(payload as any);
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const sourceJob = authorized.job;
+    const userId = authorized.userId;
     const now = new Date().toISOString();
+
+    const rateKey = `${String(userId)}:${resolveClientIp(request.headers)}`;
+    const rateResult = checkRateLimit({
+      scope: "ai-generate-retry",
+      key: rateKey,
+      max: RETRY_RATE_LIMIT_MAX,
+      windowMs: RETRY_RATE_LIMIT_WINDOW_MS,
+    });
+    if (!rateResult.ok) {
+      const retryAfterSec = Math.max(1, Math.ceil(rateResult.retryAfterMs / 1000));
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many retry requests. Please retry later.",
+          retryAfter: retryAfterSec,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfterSec),
+          },
+        }
+      );
+    }
 
     const sourceProvider = toNonEmptyString(sourceJob?.provider).toLowerCase() || "mock";
     const providerResolution = resolveProvider(sourceProvider);
@@ -259,6 +308,20 @@ export async function POST(
       fallbackHint = inputValidationError;
     }
 
+    const chargeResult = await spendUserAiCredits(payload as any, userId, AI_TOKEN_COST);
+    if (!chargeResult.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: `Insufficient AI tokens. Need ${AI_TOKEN_COST}.`,
+          tokensRemaining: chargeResult.remaining,
+          tokenCost: AI_TOKEN_COST,
+        },
+        { status: 402 }
+      );
+    }
+    chargedUserId = userId;
+
     const submission = await submitProviderJob({
       provider,
       mode,
@@ -299,10 +362,19 @@ export async function POST(
         providerRequested: providerResolution.requestedProvider,
         providerEffective: provider,
         hint: fallbackHint,
+        tokensRemaining: chargeResult.remaining,
+        tokenCost: AI_TOKEN_COST,
       },
       { status: 200 }
     );
   } catch (error) {
+    if (payloadRef && chargedUserId !== null) {
+      try {
+        await refundUserAiCredits(payloadRef as any, chargedUserId, AI_TOKEN_COST);
+      } catch (refundError) {
+        console.error("[ai/generate:id:retry] token refund failed", refundError);
+      }
+    }
     console.error("[ai/generate:id:retry] failed", error);
     return NextResponse.json(
       {

@@ -2,6 +2,11 @@
 
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
+const DEFAULT_AI_CREDITS = (() => {
+  const parsed = Number.parseInt(process.env.AI_TOKENS_DEFAULT || "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 120;
+  return parsed;
+})();
 
 const validatePassword = (value: unknown) => {
   if (typeof value !== "string" || !value) {
@@ -23,6 +28,21 @@ const normalizeId = (value: unknown) => {
     return trimmed;
   }
   return value;
+};
+
+const normalizeEmail = (value: unknown) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
+
+const parseAdminEmails = () =>
+  (process.env.ADMIN_EMAILS || "")
+    .split(",")
+    .map((entry) => normalizeEmail(entry))
+    .filter(Boolean);
+
+const isAdminUser = (user: unknown) => {
+  const email = normalizeEmail((user as { email?: unknown } | null | undefined)?.email);
+  if (!email) return false;
+  return parseAdminEmails().includes(email);
 };
 
 const isSelf: Access = ({ req: { user }, id }) => {
@@ -107,6 +127,23 @@ export const Users: CollectionConfig = {
       hasMany: true,
       admin: {
         position: "sidebar",
+      },
+    },
+    {
+      name: "aiCredits",
+      type: "number",
+      label: "AI tokens",
+      min: 0,
+      defaultValue: DEFAULT_AI_CREDITS,
+      access: {
+        read: ({ req }) => Boolean(req?.user),
+        create: ({ req }) => isAdminUser(req?.user),
+        update: ({ req }) => isAdminUser(req?.user),
+      },
+      admin: {
+        position: "sidebar",
+        step: 1,
+        description: "Баланс токенов для AI лаборатории.",
       },
     },
   ],
