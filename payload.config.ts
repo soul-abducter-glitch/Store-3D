@@ -12,6 +12,7 @@ import { Products } from "./src/payload/collections/Products.ts";
 import { Users } from "./src/payload/collections/Users.ts";
 import { AiJobs } from "./src/payload/collections/AiJobs.ts";
 import { AiAssets } from "./src/payload/collections/AiAssets.ts";
+import { AiTokenEvents } from "./src/payload/collections/AiTokenEvents.ts";
 import { ensureAiLabSchema } from "./src/lib/ensureAiLabSchema.ts";
 
 const normalizeOrigin = (value?: string | null) => {
@@ -313,7 +314,7 @@ export default buildConfig({
       fileSize: 200 * 1024 * 1024, // 200MB
     },
   },
-  collections: [Users, Categories, Media, Products, Orders, AiJobs, AiAssets],
+  collections: [Users, Categories, Media, Products, Orders, AiJobs, AiAssets, AiTokenEvents],
   onInit: async (payload) => {
     try {
       await ensureAiLabSchema(payload as any);

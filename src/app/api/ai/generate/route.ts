@@ -240,7 +240,14 @@ export async function POST(request: NextRequest) {
       fallbackHint = inputValidationError;
     }
 
-    const chargeResult = await spendUserAiCredits(payload as any, userId, AI_TOKEN_COST);
+    const chargeResult = await spendUserAiCredits(payload as any, userId, AI_TOKEN_COST, {
+      reason: "spend",
+      source: "ai_generate:create",
+      meta: {
+        mode,
+        providerRequested: providerResolution.requestedProvider,
+      },
+    });
     if (!chargeResult.ok) {
       return NextResponse.json(
         {
@@ -311,7 +318,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (payloadRef && chargedUserId !== null) {
       try {
-        await refundUserAiCredits(payloadRef as any, chargedUserId, AI_TOKEN_COST);
+        await refundUserAiCredits(payloadRef as any, chargedUserId, AI_TOKEN_COST, {
+          reason: "refund",
+          source: "ai_generate:create_error",
+        });
       } catch (refundError) {
         console.error("[ai/generate:create] token refund failed", refundError);
       }

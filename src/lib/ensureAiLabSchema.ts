@@ -66,12 +66,17 @@ const ensureLockedDocsColumns = async (payload: PayloadLike, schema: string) => 
     payload,
     `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_assets_id" integer`
   );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_token_events_id" integer`
+  );
 };
 
 export const ensureAiLabSchema = async (payload: PayloadLike) => {
   const schema = normalizeSchemaName(payload?.db?.schemaName);
   const aiJobsTable = qualifiedTable(schema, "ai_jobs");
   const aiAssetsTable = qualifiedTable(schema, "ai_assets");
+  const aiTokenEventsTable = qualifiedTable(schema, "ai_token_events");
   const usersTable = qualifiedTable(schema, "users");
   const defaultAiCredits = (() => {
     const parsed = Number.parseInt(process.env.AI_TOKENS_DEFAULT || "", 10);
@@ -265,6 +270,87 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_assets_created_at_idx" ON ${aiAssetsTable} ("created_at")`
+  );
+
+  await executeRaw(
+    payload,
+    `
+      CREATE TABLE IF NOT EXISTS ${aiTokenEventsTable} (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "reason" varchar NOT NULL DEFAULT 'adjust',
+        "delta" integer NOT NULL DEFAULT 0,
+        "balance_after" integer NOT NULL DEFAULT 0,
+        "source" varchar NOT NULL DEFAULT 'system',
+        "reference_id" varchar,
+        "idempotency_key" varchar,
+        "meta" jsonb,
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+    `
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "user_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "reason" varchar DEFAULT 'adjust'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "delta" integer DEFAULT 0`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "balance_after" integer DEFAULT 0`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "source" varchar DEFAULT 'system'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "reference_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "idempotency_key" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "meta" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "created_at" timestamptz DEFAULT now()`
+  );
+
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_user_idx" ON ${aiTokenEventsTable} ("user_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_reason_idx" ON ${aiTokenEventsTable} ("reason")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_source_idx" ON ${aiTokenEventsTable} ("source")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_idempotency_idx" ON ${aiTokenEventsTable} ("idempotency_key")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_created_at_idx" ON ${aiTokenEventsTable} ("created_at")`
   );
 
   await executeRaw(

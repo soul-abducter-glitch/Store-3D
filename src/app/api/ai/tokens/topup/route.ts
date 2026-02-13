@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
-import { refundUserAiCredits } from "@/lib/aiCredits";
+import { getUserAiCredits, refundUserAiCredits } from "@/lib/aiCredits";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +40,11 @@ const toPackId = (value: unknown) => {
   return value.trim().toLowerCase();
 };
 
+const toIdempotencyKey = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  return value.trim().slice(0, 120);
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
@@ -52,6 +57,9 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => null);
     const packId = toPackId(body?.packId);
+    const idempotencyKey =
+      toIdempotencyKey(request.headers.get("idempotency-key")) ||
+      toIdempotencyKey(body?.idempotencyKey);
     const selectedPack = TOPUP_PACKS[packId];
     if (!selectedPack) {
       return NextResponse.json({ success: false, error: "Invalid top-up package." }, { status: 400 });
@@ -68,8 +76,78 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const tokens = await refundUserAiCredits(payload as any, userId, selectedPack.credits);
     const transactionId = `mock_topup_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    if (idempotencyKey) {
+      const existing = await payload.find({
+        collection: "ai_token_events",
+        depth: 0,
+        limit: 1,
+        sort: "-createdAt",
+        overrideAccess: true,
+        where: {
+          and: [
+            {
+              user: {
+                equals: userId as any,
+              },
+            },
+            {
+              reason: {
+                equals: "topup",
+              },
+            },
+            {
+              idempotencyKey: {
+                equals: idempotencyKey,
+              },
+            },
+          ],
+        },
+      });
+
+      const existingEvent = existing?.docs?.[0] as
+        | {
+            balanceAfter?: unknown;
+            delta?: unknown;
+            referenceId?: unknown;
+          }
+        | undefined;
+      if (existingEvent) {
+        const tokens =
+          typeof existingEvent.balanceAfter === "number" &&
+          Number.isFinite(existingEvent.balanceAfter)
+            ? Math.max(0, Math.trunc(existingEvent.balanceAfter))
+            : await getUserAiCredits(payload as any, userId);
+
+        return NextResponse.json(
+          {
+            success: true,
+            mode: "mock",
+            idempotent: true,
+            transactionId: String(existingEvent.referenceId ?? transactionId),
+            packId,
+            packLabel: selectedPack.label,
+            creditsAdded:
+              typeof existingEvent.delta === "number" && Number.isFinite(existingEvent.delta)
+                ? Math.max(0, Math.trunc(existingEvent.delta))
+                : selectedPack.credits,
+            tokens,
+          },
+          { status: 200 }
+        );
+      }
+    }
+
+    const tokens = await refundUserAiCredits(payload as any, userId, selectedPack.credits, {
+      reason: "topup",
+      source: "ai_tokens:topup_mock",
+      referenceId: transactionId,
+      idempotencyKey: idempotencyKey || undefined,
+      meta: {
+        packId,
+        packLabel: selectedPack.label,
+      },
+    });
 
     return NextResponse.json(
       {
@@ -94,4 +172,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

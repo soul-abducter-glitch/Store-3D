@@ -12,6 +12,22 @@ type PayloadWithUsers = {
     overrideAccess?: boolean;
     depth?: number;
   }) => Promise<Record<string, unknown>>;
+  create?: (args: {
+    collection: "ai_token_events";
+    data: Record<string, unknown>;
+    overrideAccess?: boolean;
+    depth?: number;
+  }) => Promise<Record<string, unknown>>;
+};
+
+export type AiTokenEventReason = "spend" | "refund" | "topup" | "adjust";
+
+type AiTokenEventOptions = {
+  reason?: AiTokenEventReason;
+  source?: string;
+  referenceId?: string;
+  idempotencyKey?: string;
+  meta?: Record<string, unknown>;
 };
 
 const parsePositiveInt = (value: string | undefined, fallback: number) => {
@@ -23,6 +39,57 @@ const parsePositiveInt = (value: string | undefined, fallback: number) => {
 const normalizeCredits = (value: unknown, fallback: number) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return fallback;
   return Math.max(0, Math.trunc(value));
+};
+
+const toNonEmptyString = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  return value.trim();
+};
+
+const normalizeReason = (value: unknown): AiTokenEventReason => {
+  const raw = toNonEmptyString(value).toLowerCase();
+  if (raw === "spend" || raw === "refund" || raw === "topup" || raw === "adjust") return raw;
+  return "adjust";
+};
+
+const normalizeMeta = (value: unknown) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return value as Record<string, unknown>;
+};
+
+const recordAiTokenEvent = async (
+  payload: PayloadWithUsers,
+  userId: string | number,
+  input: {
+    reason: AiTokenEventReason;
+    delta: number;
+    balanceAfter: number;
+    source?: string;
+    referenceId?: string;
+    idempotencyKey?: string;
+    meta?: Record<string, unknown>;
+  }
+) => {
+  if (typeof payload.create !== "function") return;
+  try {
+    await payload.create({
+      collection: "ai_token_events",
+      overrideAccess: true,
+      depth: 0,
+      data: {
+        user: userId as any,
+        reason: input.reason,
+        delta: input.delta,
+        balanceAfter: input.balanceAfter,
+        source: toNonEmptyString(input.source) || "system",
+        referenceId: toNonEmptyString(input.referenceId) || undefined,
+        idempotencyKey: toNonEmptyString(input.idempotencyKey) || undefined,
+        meta: normalizeMeta(input.meta),
+      },
+    });
+  } catch (error) {
+    console.error("[aiCredits] failed to write token event", error);
+  }
 };
 
 export const AI_DEFAULT_TOKENS = parsePositiveInt(process.env.AI_TOKENS_DEFAULT, 120);
@@ -64,7 +131,8 @@ export const getUserAiCredits = async (
 export const spendUserAiCredits = async (
   payload: PayloadWithUsers,
   userId: string | number,
-  amount: number
+  amount: number,
+  options?: AiTokenEventOptions
 ): Promise<{ ok: boolean; remaining: number }> => {
   const spendAmount = Math.max(0, Math.trunc(amount));
   const current = await getUserAiCredits(payload, userId);
@@ -86,13 +154,24 @@ export const spendUserAiCredits = async (
     },
   });
 
+  await recordAiTokenEvent(payload, userId, {
+    reason: normalizeReason(options?.reason || "spend"),
+    delta: -spendAmount,
+    balanceAfter: remaining,
+    source: options?.source || "ai_generate",
+    referenceId: options?.referenceId,
+    idempotencyKey: options?.idempotencyKey,
+    meta: options?.meta,
+  });
+
   return { ok: true, remaining };
 };
 
 export const refundUserAiCredits = async (
   payload: PayloadWithUsers,
   userId: string | number,
-  amount: number
+  amount: number,
+  options?: AiTokenEventOptions
 ): Promise<number> => {
   const refundAmount = Math.max(0, Math.trunc(amount));
   if (refundAmount === 0) {
@@ -109,5 +188,16 @@ export const refundUserAiCredits = async (
       aiCredits: next,
     },
   });
+
+  await recordAiTokenEvent(payload, userId, {
+    reason: normalizeReason(options?.reason || "refund"),
+    delta: refundAmount,
+    balanceAfter: next,
+    source: options?.source || "ai_generate",
+    referenceId: options?.referenceId,
+    idempotencyKey: options?.idempotencyKey,
+    meta: options?.meta,
+  });
+
   return next;
 };
