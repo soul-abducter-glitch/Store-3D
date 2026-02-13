@@ -378,6 +378,7 @@ function AiLabContent() {
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
+  const jobHistoryRequestInFlightRef = useRef(false);
   const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
 
   const { toasts, showError, showSuccess, removeToast } = useToast();
@@ -616,6 +617,8 @@ function AiLabContent() {
 
   const fetchJobHistory = useCallback(
     async (silent = true) => {
+      if (jobHistoryRequestInFlightRef.current) return;
+      jobHistoryRequestInFlightRef.current = true;
       if (!silent) setJobHistoryLoading(true);
       try {
         const response = await fetch(`${AI_GENERATE_API_URL}?limit=8`, {
@@ -633,6 +636,7 @@ function AiLabContent() {
           pushUiError(error instanceof Error ? error.message : "Failed to fetch AI jobs.");
         }
       } finally {
+        jobHistoryRequestInFlightRef.current = false;
         if (!silent) setJobHistoryLoading(false);
       }
     },
@@ -769,8 +773,13 @@ function AiLabContent() {
     if (serverJob.status === "completed" || serverJob.status === "failed") return;
 
     let cancelled = false;
+    let timer: number | null = null;
+    let pollInFlight = false;
+    let failureCount = 0;
 
     const poll = async () => {
+      if (cancelled || pollInFlight) return;
+      pollInFlight = true;
       try {
         const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(serverJob.id)}`, {
           method: "GET",
@@ -811,22 +820,33 @@ function AiLabContent() {
           });
           void fetchJobHistory(true);
         }
+        failureCount = 0;
       } catch (error) {
         if (cancelled) return;
         const message =
           error instanceof Error ? error.message : "Не удалось обновить статус AI-задачи.";
         setServerJobError(toUiErrorMessage(message));
+        failureCount = Math.min(5, failureCount + 1);
+      } finally {
+        pollInFlight = false;
+        if (!cancelled) {
+          const hiddenDelay =
+            typeof document !== "undefined" && document.visibilityState === "hidden" ? 4200 : 1600;
+          const backoffDelay = failureCount * 1100;
+          timer = window.setTimeout(() => {
+            void poll();
+          }, hiddenDelay + backoffDelay);
+        }
       }
     };
 
     void poll();
-    const interval = window.setInterval(() => {
-      void poll();
-    }, 1600);
 
     return () => {
       cancelled = true;
-      window.clearInterval(interval);
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
     };
   }, [fetchJobHistory, pushUiError, registerGeneratedAsset, serverJob?.id, serverJob?.status, uploadPreview]);
 
