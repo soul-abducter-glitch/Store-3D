@@ -1,3 +1,5 @@
+import { normalizeProviderStatus, pollProviderJob } from "./aiProvider";
+
 const DEFAULT_MOCK_MODEL_URL =
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 
@@ -72,11 +74,9 @@ const getTimelineProgress = (elapsedMs: number) => {
   return { status: "queued" as const, progress: 8 };
 };
 
-const buildNextJobPatch = (job: any, nowIso: string) => {
-  const provider = toNonEmptyString(job?.provider).toLowerCase() || "mock";
-  const status = toNonEmptyString(job?.status).toLowerCase() || "queued";
+const buildMockJobPatch = (job: any, nowIso: string) => {
+  const status = normalizeProviderStatus(job?.status);
   if (status === "completed" || status === "failed") return null;
-  if (provider !== "mock") return null;
 
   const nowMs = Date.now();
   const createdAtMs = parseDateToMs(job?.createdAt, nowMs);
@@ -84,14 +84,12 @@ const buildNextJobPatch = (job: any, nowIso: string) => {
   const timeline = getTimelineProgress(elapsedMs);
 
   const currentProgress = clamp(job?.progress, 0, 100);
-  const nextProgress = timeline.status === "completed"
-    ? 100
-    : Math.max(currentProgress, timeline.progress);
-  const currentStatus = status === "processing" ? "processing" : "queued";
+  const nextProgress =
+    timeline.status === "completed" ? 100 : Math.max(currentProgress, timeline.progress);
   const nextStatus =
     timeline.status === "completed"
       ? "completed"
-      : currentStatus === "processing"
+      : status === "processing"
         ? "processing"
         : timeline.status;
 
@@ -108,11 +106,8 @@ const buildNextJobPatch = (job: any, nowIso: string) => {
       toNonEmptyString(job?.result?.modelUrl) ||
       toNonEmptyString(process.env.AI_GENERATION_MOCK_MODEL_URL) ||
       DEFAULT_MOCK_MODEL_URL;
-    const previewUrl =
-      toNonEmptyString(job?.result?.previewUrl) || toNonEmptyString(job?.sourceUrl);
-    const format =
-      toNonEmptyString(job?.result?.format) ||
-      inferFormat(modelUrl);
+    const previewUrl = toNonEmptyString(job?.result?.previewUrl) || toNonEmptyString(job?.sourceUrl);
+    const format = toNonEmptyString(job?.result?.format) || inferFormat(modelUrl);
     patch.result = {
       modelUrl,
       previewUrl,
@@ -123,6 +118,85 @@ const buildNextJobPatch = (job: any, nowIso: string) => {
   }
 
   return Object.keys(patch).length > 0 ? patch : null;
+};
+
+const buildExternalJobPatch = async (job: any, nowIso: string) => {
+  const status = normalizeProviderStatus(job?.status);
+  if (status === "completed" || status === "failed") return null;
+
+  const provider = toNonEmptyString(job?.provider).toLowerCase();
+  const providerJobId = toNonEmptyString(job?.providerJobId);
+  if (!provider || !providerJobId) return null;
+
+  const mode = job?.mode === "text" ? "text" : "image";
+  const sourceType =
+    job?.sourceType === "url" || job?.sourceType === "image" ? job.sourceType : "none";
+  const providerState = await pollProviderJob({
+    provider: provider as any,
+    providerJobId,
+    mode,
+    sourceType,
+  });
+
+  const nextStatus = normalizeProviderStatus(providerState.status);
+  const currentProgress = clamp(job?.progress, 0, 100);
+  const nextProgress =
+    nextStatus === "completed"
+      ? 100
+      : Math.max(currentProgress, clamp(providerState.progress, 0, 100));
+
+  const patch: Record<string, unknown> = {};
+  if (nextStatus !== status) patch.status = nextStatus;
+  if (nextProgress !== currentProgress) patch.progress = nextProgress;
+
+  if (providerState.providerJobId && providerState.providerJobId !== providerJobId) {
+    patch.providerJobId = providerState.providerJobId;
+  }
+
+  if ((nextStatus === "processing" || nextStatus === "completed") && !job?.startedAt) {
+    patch.startedAt = nowIso;
+  }
+
+  if (nextStatus === "failed") {
+    patch.errorMessage = providerState.errorMessage || "Provider failed to generate model.";
+  } else if (toNonEmptyString(job?.errorMessage)) {
+    patch.errorMessage = "";
+  }
+
+  if (nextStatus === "completed") {
+    const modelUrl =
+      toNonEmptyString(providerState.result?.modelUrl) || toNonEmptyString(job?.result?.modelUrl);
+    const previewUrl =
+      toNonEmptyString(providerState.result?.previewUrl) ||
+      toNonEmptyString(job?.result?.previewUrl) ||
+      toNonEmptyString(job?.sourceUrl);
+    const format =
+      toNonEmptyString(providerState.result?.format) ||
+      toNonEmptyString(job?.result?.format) ||
+      inferFormat(modelUrl || previewUrl);
+
+    if (!modelUrl) {
+      patch.status = "failed";
+      patch.errorMessage = "Provider completed job without model URL.";
+    } else {
+      patch.result = {
+        modelUrl,
+        previewUrl,
+        format,
+      };
+      if (!job?.completedAt) patch.completedAt = nowIso;
+    }
+  }
+
+  return Object.keys(patch).length > 0 ? patch : null;
+};
+
+const buildNextJobPatch = async (job: any, nowIso: string) => {
+  const provider = toNonEmptyString(job?.provider).toLowerCase() || "mock";
+  if (provider === "mock") {
+    return buildMockJobPatch(job, nowIso);
+  }
+  return buildExternalJobPatch(job, nowIso);
 };
 
 export const runAiWorkerTick = async (
@@ -185,23 +259,32 @@ export const runAiWorkerTick = async (
   let skipped = 0;
 
   for (const job of docs) {
-    const patch = buildNextJobPatch(job, nowIso);
-    if (!patch) {
-      skipped += 1;
-      continue;
-    }
+    try {
+      const patch = await buildNextJobPatch(job, nowIso);
+      if (!patch) {
+        skipped += 1;
+        continue;
+      }
 
-    const updated = await payload.update({
-      collection: "ai_jobs",
-      id: job.id,
-      data: patch,
-      overrideAccess: true,
-    });
-    advanced += 1;
-    if (toNonEmptyString(updated?.status).toLowerCase() === "completed") {
-      completed += 1;
+      const updated = await payload.update({
+        collection: "ai_jobs",
+        id: job.id,
+        data: patch,
+        overrideAccess: true,
+      });
+      advanced += 1;
+      if (normalizeProviderStatus(updated?.status) === "completed") {
+        completed += 1;
+      }
+      updatedIds.push(String(updated?.id ?? job?.id ?? ""));
+    } catch (error) {
+      skipped += 1;
+      console.error("[ai/worker] failed to advance job", {
+        id: String(job?.id ?? ""),
+        provider: toNonEmptyString(job?.provider) || "mock",
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
-    updatedIds.push(String(updated?.id ?? job?.id ?? ""));
   }
 
   return {

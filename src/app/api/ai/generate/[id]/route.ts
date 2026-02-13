@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
+import { resolveProvider, submitProviderJob } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
@@ -37,14 +38,6 @@ const parseAdminEmails = () =>
     .map((entry) => normalizeEmail(entry))
     .filter(Boolean);
 
-const parseBoolean = (value: string | undefined, fallback: boolean) => {
-  if (value === undefined) return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
-};
-
 const normalizeRelationshipId = (value: unknown): string | number | null => {
   let current: unknown = value;
   while (typeof current === "object" && current !== null) {
@@ -60,6 +53,11 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
   if (!raw) return null;
   if (/^\d+$/.test(raw)) return Number(raw);
   return raw;
+};
+
+const toNonEmptyString = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  return value.trim();
 };
 
 const toPublicError = (error: unknown, fallback: string) => {
@@ -96,6 +94,10 @@ const serializeJob = (job: any) => ({
   status: typeof job?.status === "string" ? job.status : "queued",
   mode: typeof job?.mode === "string" ? job.mode : "image",
   provider: typeof job?.provider === "string" ? job.provider : "mock",
+  providerJobId:
+    typeof job?.providerJobId === "string" || typeof job?.providerJobId === "number"
+      ? String(job.providerJobId)
+      : "",
   progress: clampProgress(job?.progress),
   stage: resolveStage(
     typeof job?.status === "string" ? job.status : "queued",
@@ -126,7 +128,6 @@ const findAuthorizedJob = async (
   if (!user) {
     return {
       ok: false as const,
-      status: 401,
       response: NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 }),
     };
   }
@@ -136,7 +137,6 @@ const findAuthorizedJob = async (
   if (!id) {
     return {
       ok: false as const,
-      status: 400,
       response: NextResponse.json({ success: false, error: "Job id is required." }, { status: 400 }),
     };
   }
@@ -151,7 +151,6 @@ const findAuthorizedJob = async (
   if (!job) {
     return {
       ok: false as const,
-      status: 404,
       response: NextResponse.json({ success: false, error: "Job not found." }, { status: 404 }),
     };
   }
@@ -159,7 +158,6 @@ const findAuthorizedJob = async (
   if (!isOwnerOrAdmin(job, user)) {
     return {
       ok: false as const,
-      status: 403,
       response: NextResponse.json({ success: false, error: "Forbidden." }, { status: 403 }),
     };
   }
@@ -167,7 +165,6 @@ const findAuthorizedJob = async (
   return {
     ok: true as const,
     job,
-    user,
   };
 };
 
@@ -181,6 +178,7 @@ export async function GET(
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const job = authorized.job;
+
     await runAiWorkerTick(payload as any, { jobId: job.id, limit: 1 });
     const actualJob =
       (await payload.findByID({
@@ -197,7 +195,7 @@ export async function GET(
       },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("[ai/generate:id] failed", error);
     return NextResponse.json(
       {
@@ -219,41 +217,65 @@ export async function POST(
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const sourceJob = authorized.job;
-    const mockEnabled = parseBoolean(process.env.AI_GENERATION_MOCK_ENABLED, true);
     const now = new Date().toISOString();
-    const provider =
-      (typeof process.env.AI_GENERATION_PROVIDER === "string" &&
-        process.env.AI_GENERATION_PROVIDER.trim().toLowerCase()) ||
-      (typeof sourceJob?.provider === "string" ? sourceJob.provider : "mock");
+
+    const sourceProvider = toNonEmptyString(sourceJob?.provider).toLowerCase() || "mock";
+    const providerResolution = resolveProvider(sourceProvider);
+    if (!providerResolution.configured && !providerResolution.fallbackToMock) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: providerResolution.reason || "AI provider is not configured.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const provider = providerResolution.effectiveProvider;
+    const mode = sourceJob.mode === "text" ? "text" : "image";
+    const prompt =
+      typeof sourceJob.prompt === "string" && sourceJob.prompt.trim()
+        ? sourceJob.prompt.trim()
+        : "Reference import";
+    const sourceType =
+      sourceJob.sourceType === "url" || sourceJob.sourceType === "image"
+        ? sourceJob.sourceType
+        : "none";
+    const sourceUrl =
+      typeof sourceJob.sourceUrl === "string" && sourceJob.sourceUrl.trim()
+        ? sourceJob.sourceUrl.trim()
+        : "";
+
+    const submission = await submitProviderJob({
+      provider,
+      mode,
+      prompt,
+      sourceType,
+      sourceUrl,
+    });
 
     const created = await payload.create({
       collection: "ai_jobs",
       overrideAccess: true,
       data: {
         user: sourceJob.user,
-        status: "queued",
-        mode: sourceJob.mode === "text" ? "text" : "image",
+        status: submission.status,
+        mode,
         provider,
-        progress: 5,
-        prompt:
-          typeof sourceJob.prompt === "string" && sourceJob.prompt.trim()
-            ? sourceJob.prompt.trim()
-            : "Reference import",
-        sourceType:
-          sourceJob.sourceType === "url" || sourceJob.sourceType === "image"
-            ? sourceJob.sourceType
-            : "none",
-        sourceUrl:
-          typeof sourceJob.sourceUrl === "string" && sourceJob.sourceUrl.trim()
-            ? sourceJob.sourceUrl.trim()
-            : undefined,
-        startedAt: mockEnabled ? now : undefined,
+        providerJobId: submission.providerJobId || undefined,
+        progress: submission.progress,
+        prompt,
+        sourceType,
+        sourceUrl: sourceUrl || undefined,
+        startedAt:
+          submission.status === "processing" || submission.status === "completed" ? now : undefined,
+        completedAt: submission.status === "completed" ? now : undefined,
         result: {
-          modelUrl: "",
-          previewUrl: "",
-          format: "unknown",
+          modelUrl: submission.result?.modelUrl || "",
+          previewUrl: submission.result?.previewUrl || "",
+          format: submission.result?.format || "unknown",
         },
-        errorMessage: "",
+        errorMessage: submission.errorMessage || "",
       },
     });
 
@@ -261,6 +283,9 @@ export async function POST(
       {
         success: true,
         job: serializeJob(created),
+        providerRequested: providerResolution.requestedProvider,
+        providerEffective: provider,
+        hint: providerResolution.fallbackToMock ? providerResolution.reason : null,
       },
       { status: 200 }
     );

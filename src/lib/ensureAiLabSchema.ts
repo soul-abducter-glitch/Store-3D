@@ -82,6 +82,7 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "status" varchar NOT NULL DEFAULT 'queued',
         "mode" varchar NOT NULL DEFAULT 'image',
         "provider" varchar DEFAULT 'mock',
+        "provider_job_id" varchar,
         "progress" numeric NOT NULL DEFAULT 0,
         "prompt" text NOT NULL DEFAULT '',
         "source_type" varchar DEFAULT 'none',
@@ -113,6 +114,10 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "provider" varchar DEFAULT 'mock'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "provider_job_id" varchar`
   );
   await executeRaw(
     payload,
@@ -167,6 +172,10 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_jobs_status_idx" ON ${aiJobsTable} ("status")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_jobs_provider_job_id_idx" ON ${aiJobsTable} ("provider_job_id")`
   );
   await executeRaw(
     payload,

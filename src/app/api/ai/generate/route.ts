@@ -2,16 +2,17 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { resolveProvider, submitProviderJob } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
-const getPayloadClient = async () => getPayload({ config: payloadConfig });
-
 const DEFAULT_MOCK_MODEL_URL =
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
+
+const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const clampProgress = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
@@ -29,14 +30,6 @@ const resolveStage = (status: string, progress: number) => {
   if (progress >= 45) return "GENETIC_MAPPING";
   if (progress >= 25) return "PREP_INPUT";
   return "QUEUE_ASSIGNMENT";
-};
-
-const parseBoolean = (value: string | undefined, fallback: boolean) => {
-  if (value === undefined) return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
 };
 
 const normalizeMode = (value: unknown): "image" | "text" => {
@@ -88,6 +81,10 @@ const serializeJob = (job: any) => ({
   status: typeof job?.status === "string" ? job.status : "queued",
   mode: typeof job?.mode === "string" ? job.mode : "image",
   provider: typeof job?.provider === "string" ? job.provider : "mock",
+  providerJobId:
+    typeof job?.providerJobId === "string" || typeof job?.providerJobId === "number"
+      ? String(job.providerJobId)
+      : "",
   progress: clampProgress(job?.progress),
   stage: resolveStage(
     typeof job?.status === "string" ? job.status : "queued",
@@ -174,33 +171,54 @@ export async function POST(request: NextRequest) {
 
     if (!prompt && sourceType === "none") {
       return NextResponse.json(
-        { success: false, error: "Prompt или референс обязательны." },
+        { success: false, error: "Prompt or reference is required." },
         { status: 400 }
       );
     }
 
-    const provider = toNonEmptyString(process.env.AI_GENERATION_PROVIDER).toLowerCase() || "mock";
-    const mockEnabled = parseBoolean(process.env.AI_GENERATION_MOCK_ENABLED, true);
+    const providerResolution = resolveProvider();
+    if (!providerResolution.configured && !providerResolution.fallbackToMock) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: providerResolution.reason || "AI provider is not configured.",
+        },
+        { status: 400 }
+      );
+    }
+
+    const provider = providerResolution.effectiveProvider;
     const now = new Date().toISOString();
+    const submission = await submitProviderJob({
+      provider,
+      mode,
+      prompt: prompt || "Reference import",
+      sourceType: sourceType as "none" | "url" | "image",
+      sourceUrl,
+    });
 
     const created = await payload.create({
       collection: "ai_jobs",
       overrideAccess: true,
       data: {
         user: userId as any,
-        status: "queued",
+        status: submission.status,
         mode,
         provider,
-        progress: 5,
+        providerJobId: submission.providerJobId || undefined,
+        progress: submission.progress,
         prompt: prompt || "Reference import",
         sourceType,
         sourceUrl: sourceUrl || undefined,
-        startedAt: mockEnabled ? now : undefined,
+        startedAt:
+          submission.status === "processing" || submission.status === "completed" ? now : undefined,
+        completedAt: submission.status === "completed" ? now : undefined,
         result: {
-          modelUrl: "",
-          previewUrl: "",
-          format: "unknown",
+          modelUrl: submission.result?.modelUrl || "",
+          previewUrl: submission.result?.previewUrl || "",
+          format: submission.result?.format || "unknown",
         },
+        errorMessage: submission.errorMessage || "",
       },
     });
 
@@ -208,17 +226,21 @@ export async function POST(request: NextRequest) {
       {
         success: true,
         job: serializeJob(created),
-        mock: mockEnabled,
-        hint: mockEnabled
-          ? "MVP mock mode: статус завершится автоматически при запросе статуса."
-          : "Провайдер не подключен. Задача поставлена в очередь.",
+        mock: provider === "mock",
+        hint: providerResolution.fallbackToMock
+          ? providerResolution.reason
+          : provider === "mock"
+            ? "MVP mock mode: status will auto-complete during polling."
+            : "Provider job submitted successfully.",
+        providerRequested: providerResolution.requestedProvider,
+        providerEffective: provider,
         defaults: {
           modelUrl: process.env.AI_GENERATION_MOCK_MODEL_URL || DEFAULT_MOCK_MODEL_URL,
         },
       },
       { status: 200 }
     );
-  } catch (error: any) {
+  } catch (error) {
     console.error("[ai/generate:create] failed", error);
     return NextResponse.json(
       {

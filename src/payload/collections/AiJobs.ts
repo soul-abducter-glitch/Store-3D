@@ -89,6 +89,14 @@ export const AiJobs: CollectionConfig = {
       },
     },
     {
+      name: "providerJobId",
+      type: "text",
+      admin: {
+        position: "sidebar",
+        readOnly: true,
+      },
+    },
+    {
       name: "progress",
       type: "number",
       min: 0,
@@ -163,4 +171,3 @@ export const AiJobs: CollectionConfig = {
     },
   ],
 };
-
