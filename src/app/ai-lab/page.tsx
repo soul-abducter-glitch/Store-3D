@@ -357,6 +357,8 @@ function AiLabContent() {
   const [tokensLoading, setTokensLoading] = useState(true);
   const [topupOpen, setTopupOpen] = useState(false);
   const [topupLoadingPack, setTopupLoadingPack] = useState<string | null>(null);
+  const [focusMode, setFocusMode] = useState(false);
+  const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -1060,6 +1062,7 @@ function AiLabContent() {
     const nextScale = Math.min(1.25, Math.max(0.6, MODEL_STAGE_TARGET_SIZE / bounds.size));
     setModelScale(nextScale);
   }, []);
+  const isDesktopPanelHidden = focusMode || panelCollapsed;
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[#030304] text-white">
@@ -1103,15 +1106,52 @@ function AiLabContent() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className="relative z-30 mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pb-20 pt-10 sm:px-6 lg:grid lg:grid-cols-[1.6fr_0.9fr]"
+        className={`relative z-30 mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pb-20 pt-10 sm:px-6 lg:grid ${
+          isDesktopPanelHidden ? "lg:grid-cols-1" : "lg:grid-cols-[1.6fr_0.9fr]"
+        }`}
       >
-        <section className="relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] bg-transparent">
-          <div className="absolute left-6 top-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/70">
-            <Cpu className="h-3.5 w-3.5 text-[#2ED1FF]" />
-            REACTOR_VIEW
-          </div>
-          <div className="absolute right-6 top-6 z-20 rounded-full border border-white/10 bg-black/50 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-            STAGE: EXPERIMENTAL // API INTEGRATION IN PROGRESS
+        <section
+          className={`relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] bg-transparent ${
+            focusMode ? "lg:min-h-[680px]" : ""
+          }`}
+        >
+          {!focusMode && (
+            <div className="absolute left-6 top-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/70">
+              <Cpu className="h-3.5 w-3.5 text-[#2ED1FF]" />
+              REACTOR_VIEW
+            </div>
+          )}
+          <div className="absolute right-6 top-6 z-20 flex flex-wrap items-center justify-end gap-2">
+            {!focusMode && (
+              <div className="rounded-full border border-white/10 bg-black/50 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+                STAGE: EXPERIMENTAL // API INTEGRATION IN PROGRESS
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setFocusMode((prev) => !prev)}
+              className={`rounded-full border px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] transition ${
+                focusMode
+                  ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
+                  : "border-white/20 bg-black/50 text-white/70 hover:border-white/40 hover:text-white"
+              }`}
+            >
+              {focusMode ? "FOCUS ON" : "FOCUS"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (focusMode) setFocusMode(false);
+                setPanelCollapsed((prev) => !prev);
+              }}
+              className={`rounded-full border px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] transition ${
+                isDesktopPanelHidden
+                  ? "border-emerald-400/55 bg-emerald-500/10 text-emerald-200"
+                  : "border-white/20 bg-black/50 text-white/70 hover:border-white/40 hover:text-white"
+              }`}
+            >
+              {isDesktopPanelHidden ? "PANEL OFF" : "PANEL ON"}
+            </button>
           </div>
 
           <div className="relative h-[520px] w-full sm:h-[600px] lg:h-full">
@@ -1190,7 +1230,11 @@ function AiLabContent() {
           </div>
         </section>
 
-        <aside className="relative flex h-fit flex-col gap-5 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:sticky lg:top-24">
+        <aside
+          className={`relative flex h-fit flex-col gap-5 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:sticky lg:top-24 ${
+            isDesktopPanelHidden ? "lg:hidden" : "lg:flex"
+          }`}
+        >
           <div className="space-y-2">
             <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/50">
               AI 3D GENERATION SUITE
