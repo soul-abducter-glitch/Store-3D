@@ -2,15 +2,13 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
+import { runAiWorkerTick } from "@/lib/aiWorker";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
-
-const DEFAULT_MOCK_MODEL_URL =
-  "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 
 const clampProgress = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
@@ -173,66 +171,6 @@ const findAuthorizedJob = async (
   };
 };
 
-const maybeAdvanceMockJob = async (payload: any, job: any) => {
-  const provider =
-    typeof job?.provider === "string" ? job.provider.trim().toLowerCase() : "mock";
-  const status = typeof job?.status === "string" ? job.status.trim().toLowerCase() : "queued";
-  if (provider !== "mock") {
-    return job;
-  }
-  if (status === "completed" || status === "failed") {
-    return job;
-  }
-
-  const createdAtMs = new Date(String(job?.createdAt || Date.now())).getTime();
-  const elapsedMs = Math.max(0, Date.now() - createdAtMs);
-  const nextData: Record<string, unknown> = {};
-
-  if (elapsedMs >= 6200) {
-    const modelUrl = process.env.AI_GENERATION_MOCK_MODEL_URL || DEFAULT_MOCK_MODEL_URL;
-    nextData.status = "completed";
-    nextData.progress = 100;
-    nextData.completedAt = new Date().toISOString();
-    nextData.result = {
-      modelUrl,
-      previewUrl: typeof job?.sourceUrl === "string" ? job.sourceUrl : "",
-      format: modelUrl.toLowerCase().includes(".gltf") ? "gltf" : "glb",
-    };
-    nextData.errorMessage = "";
-  } else if (elapsedMs >= 5200) {
-    nextData.status = "processing";
-    nextData.progress = 94;
-    nextData.startedAt = job?.startedAt || new Date().toISOString();
-  } else if (elapsedMs >= 4300) {
-    nextData.status = "processing";
-    nextData.progress = 82;
-    nextData.startedAt = job?.startedAt || new Date().toISOString();
-  } else if (elapsedMs >= 3200) {
-    nextData.status = "processing";
-    nextData.progress = 65;
-    nextData.startedAt = job?.startedAt || new Date().toISOString();
-  } else if (elapsedMs >= 2200) {
-    nextData.status = "processing";
-    nextData.progress = 45;
-    nextData.startedAt = job?.startedAt || new Date().toISOString();
-  } else if (elapsedMs >= 1200) {
-    nextData.status = "processing";
-    nextData.progress = 25;
-    nextData.startedAt = job?.startedAt || new Date().toISOString();
-  } else {
-    nextData.status = "queued";
-    nextData.progress = 8;
-  }
-
-  const updated = await payload.update({
-    collection: "ai_jobs",
-    id: job.id,
-    data: nextData,
-    overrideAccess: true,
-  });
-  return updated;
-};
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -243,8 +181,14 @@ export async function GET(
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const job = authorized.job;
-
-    const actualJob = await maybeAdvanceMockJob(payload, job);
+    await runAiWorkerTick(payload as any, { jobId: job.id, limit: 1 });
+    const actualJob =
+      (await payload.findByID({
+        collection: "ai_jobs",
+        id: job.id,
+        depth: 0,
+        overrideAccess: true,
+      })) ?? job;
 
     return NextResponse.json(
       {

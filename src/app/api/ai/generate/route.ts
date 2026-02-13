@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { runAiWorkerTick } from "@/lib/aiWorker";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
@@ -119,6 +120,8 @@ export async function GET(request: NextRequest) {
 
     const rawLimit = Number(request.nextUrl.searchParams.get("limit") || 8);
     const limit = Math.max(1, Math.min(20, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 8));
+
+    await runAiWorkerTick(payload as any, { limit });
 
     const found = await payload.find({
       collection: "ai_jobs",
