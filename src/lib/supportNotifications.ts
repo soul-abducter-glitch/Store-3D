@@ -65,6 +65,7 @@ const sendNewTicketNotifications = async (doc: any, logger?: NotifyArgs["logger"
     await sendNotificationEmail({
       to: supportInbox,
       subject: `Новый тикет поддержки #${ticketId}`,
+      replyTo: customerEmail || undefined,
       text: [
         `Поступил новый тикет #${ticketId}.`,
         `Пользователь: ${customerName} <${customerEmail || "no-email"}>`,
@@ -83,9 +84,11 @@ const sendNewTicketNotifications = async (doc: any, logger?: NotifyArgs["logger"
   }
 
   if (customerEmail) {
+    const supportReplyTo = supportInbox || undefined;
     await sendNotificationEmail({
       to: customerEmail,
       subject: `Тикет принят #${ticketId}`,
+      replyTo: supportReplyTo,
       text: [
         `Здравствуйте, ${customerName}.`,
         "Ваше обращение принято в работу.",
@@ -104,6 +107,7 @@ const sendTicketUpdateNotification = async (
   previousDoc: any,
   logger?: NotifyArgs["logger"]
 ) => {
+  const supportInbox = resolveSupportInbox();
   const customerEmail = normalizeEmail(doc?.email);
   if (!customerEmail) return;
 
@@ -122,6 +126,7 @@ const sendTicketUpdateNotification = async (
   await sendNotificationEmail({
     to: customerEmail,
     subject: `Обновление по тикету #${ticketId}`,
+    replyTo: supportInbox || undefined,
     text: [
       `Тикет #${ticketId}: ${title}`,
       `Статус: ${currentStatus}`,
@@ -154,4 +159,3 @@ export const notifySupportTicketIfNeeded = async (args: NotifyArgs) => {
     });
   }
 };
-

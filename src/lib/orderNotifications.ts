@@ -215,6 +215,7 @@ export const sendNotificationEmail = async (args: {
   to: string;
   subject: string;
   text: string;
+  replyTo?: string;
   logger?: LoggerLike;
 }): Promise<SendResult> => {
   const settings = getOrderEmailSettings();
@@ -236,7 +237,7 @@ export const sendNotificationEmail = async (args: {
     const info = await transporter.sendMail({
       from: settings.from,
       to,
-      replyTo: settings.replyTo,
+      replyTo: args.replyTo || settings.replyTo,
       subject: args.subject,
       text: args.text,
     });
