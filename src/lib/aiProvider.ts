@@ -384,3 +384,10 @@ export const normalizeProviderStatus = (value: unknown): ProviderJobStatus => {
   if (normalized === "processing") return "processing";
   return "queued";
 };
+
+export const validateProviderInput = (input: SubmitJobInput): string | null => {
+  if (input.provider === "meshy" && input.mode === "image" && !toNonEmptyString(input.sourceUrl)) {
+    return "Meshy image mode requires public sourceUrl. Falling back to mock mode.";
+  }
+  return null;
+};

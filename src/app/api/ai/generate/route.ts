@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { resolveProvider, submitProviderJob } from "@/lib/aiProvider";
+import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
@@ -187,7 +187,19 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const provider = providerResolution.effectiveProvider;
+    let provider = providerResolution.effectiveProvider;
+    let fallbackHint = providerResolution.fallbackToMock ? providerResolution.reason : null;
+    const inputValidationError = validateProviderInput({
+      provider,
+      mode,
+      prompt: prompt || "Reference import",
+      sourceType: sourceType as "none" | "url" | "image",
+      sourceUrl,
+    });
+    if (inputValidationError && provider !== "mock") {
+      provider = "mock";
+      fallbackHint = inputValidationError;
+    }
     const now = new Date().toISOString();
     const submission = await submitProviderJob({
       provider,
@@ -227,8 +239,8 @@ export async function POST(request: NextRequest) {
         success: true,
         job: serializeJob(created),
         mock: provider === "mock",
-        hint: providerResolution.fallbackToMock
-          ? providerResolution.reason
+        hint: fallbackHint
+          ? fallbackHint
           : provider === "mock"
             ? "MVP mock mode: status will auto-complete during polling."
             : "Provider job submitted successfully.",

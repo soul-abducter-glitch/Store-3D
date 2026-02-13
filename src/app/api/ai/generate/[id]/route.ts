@@ -2,7 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
-import { resolveProvider, submitProviderJob } from "@/lib/aiProvider";
+import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
@@ -231,7 +231,8 @@ export async function POST(
       );
     }
 
-    const provider = providerResolution.effectiveProvider;
+    let provider = providerResolution.effectiveProvider;
+    let fallbackHint = providerResolution.fallbackToMock ? providerResolution.reason : null;
     const mode = sourceJob.mode === "text" ? "text" : "image";
     const prompt =
       typeof sourceJob.prompt === "string" && sourceJob.prompt.trim()
@@ -245,6 +246,18 @@ export async function POST(
       typeof sourceJob.sourceUrl === "string" && sourceJob.sourceUrl.trim()
         ? sourceJob.sourceUrl.trim()
         : "";
+
+    const inputValidationError = validateProviderInput({
+      provider,
+      mode,
+      prompt,
+      sourceType,
+      sourceUrl,
+    });
+    if (inputValidationError && provider !== "mock") {
+      provider = "mock";
+      fallbackHint = inputValidationError;
+    }
 
     const submission = await submitProviderJob({
       provider,
@@ -285,7 +298,7 @@ export async function POST(
         job: serializeJob(created),
         providerRequested: providerResolution.requestedProvider,
         providerEffective: provider,
-        hint: providerResolution.fallbackToMock ? providerResolution.reason : null,
+        hint: fallbackHint,
       },
       { status: 200 }
     );
