@@ -11,7 +11,7 @@ type PayloadLike = {
 };
 
 export type ReadinessCheck = {
-  name: "database" | "ai_schema" | "ai_provider" | "storage";
+  name: "database" | "ai_schema" | "ai_provider" | "storage" | "payments";
   ok: boolean;
   required: boolean;
   message: string;
@@ -38,6 +38,33 @@ const hasS3Config = () => {
   const bucket = toNonEmptyString(process.env.S3_PUBLIC_BUCKET || process.env.S3_BUCKET);
   const endpoint = toNonEmptyString(process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT);
   return Boolean(accessKey && secretKey && bucket && endpoint);
+};
+
+const hasStripeTopupConfig = () => {
+  const mode = toNonEmptyString(process.env.AI_TOPUP_MODE || "mock").toLowerCase();
+  if (mode !== "stripe") {
+    return { ok: true, message: "Top-up mode is mock." };
+  }
+  const stripeKey = toNonEmptyString(process.env.STRIPE_SECRET_KEY);
+  if (!stripeKey) {
+    return { ok: false, message: "AI_TOPUP_MODE=stripe but STRIPE_SECRET_KEY is missing." };
+  }
+  const webhookSecret = toNonEmptyString(process.env.STRIPE_WEBHOOK_SECRET);
+  if (!webhookSecret) {
+    return { ok: false, message: "AI_TOPUP_MODE=stripe but STRIPE_WEBHOOK_SECRET is missing." };
+  }
+  const allowLive = toNonEmptyString(process.env.AI_TOPUP_STRIPE_ALLOW_LIVE).toLowerCase();
+  const isLive = stripeKey.startsWith("sk_live_");
+  if (isLive && !["1", "true", "yes", "on"].includes(allowLive)) {
+    return {
+      ok: false,
+      message: "Stripe top-up is locked to test mode but sk_live_ key is configured.",
+    };
+  }
+  return {
+    ok: true,
+    message: isLive ? "Stripe top-up configured (live enabled)." : "Stripe top-up configured in test mode.",
+  };
 };
 
 export const runServiceReadinessChecks = async (
@@ -84,7 +111,7 @@ export const runServiceReadinessChecks = async (
     });
   }
 
-  const provider = resolveProvider(process.env.AI_GENERATION_PROVIDER);
+  const provider = resolveProvider(process.env.AI_PROVIDER ?? process.env.AI_GENERATION_PROVIDER);
   const providerOk = provider.configured || provider.effectiveProvider === "mock";
   checks.push({
     name: "ai_provider",
@@ -103,6 +130,14 @@ export const runServiceReadinessChecks = async (
     ok: storageOk,
     required: true,
     message: storageOk ? "Storage is configured." : "Storage variables are not configured.",
+  });
+
+  const payments = hasStripeTopupConfig();
+  checks.push({
+    name: "payments",
+    ok: payments.ok,
+    required: false,
+    message: payments.message,
   });
 
   const ok = checks.every((check) => (check.required ? check.ok : true));

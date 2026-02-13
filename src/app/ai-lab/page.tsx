@@ -102,9 +102,9 @@ const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
 const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
 const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
-  { id: "starter", title: "STARTER", credits: 50, note: "MVP PACK" },
-  { id: "pro", title: "PRO", credits: 200, note: "MVP PACK" },
-  { id: "max", title: "MAX", credits: 500, note: "MVP PACK" },
+  { id: "starter", title: "STARTER", credits: 50, note: "STRIPE TEST" },
+  { id: "pro", title: "PRO", credits: 200, note: "STRIPE TEST" },
+  { id: "max", title: "MAX", credits: 500, note: "STRIPE TEST" },
 ];
 const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   queued: "SERVER_QUEUE",
@@ -541,6 +541,13 @@ function AiLabContent() {
         if (!response.ok) {
           throw new Error(typeof data?.error === "string" ? data.error : "Failed to top up tokens.");
         }
+        if (typeof data?.checkoutUrl === "string" && data.checkoutUrl) {
+          showSuccess("Redirecting to Stripe Checkout (test mode)...");
+          if (typeof window !== "undefined") {
+            window.location.href = data.checkoutUrl;
+          }
+          return;
+        }
         if (typeof data?.tokens === "number" && Number.isFinite(data.tokens)) {
           setTokens(Math.max(0, Math.trunc(data.tokens)));
         } else {
@@ -561,6 +568,25 @@ function AiLabContent() {
     },
     [fetchTokenHistory, fetchTokens, pushUiError, showSuccess, topupLoadingPack]
   );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const url = new URL(window.location.href);
+    const topupStatus = url.searchParams.get("topup");
+    if (!topupStatus) return;
+
+    if (topupStatus === "success") {
+      showSuccess("Payment received. Token balance will update after webhook confirmation.");
+      void fetchTokens(false);
+      void fetchTokenHistory(false);
+    } else if (topupStatus === "cancel") {
+      pushUiError("Top-up was cancelled.");
+    }
+
+    url.searchParams.delete("topup");
+    url.searchParams.delete("session_id");
+    window.history.replaceState({}, "", url.toString());
+  }, [fetchTokenHistory, fetchTokens, pushUiError, showSuccess]);
 
   useEffect(() => {
     if (!uploadPreview) return;
@@ -1816,7 +1842,7 @@ function AiLabContent() {
               [ TOKEN TOP UP ]
             </div>
             <p className="mt-4 text-sm text-white/75">
-              Выберите пакет для пополнения. Сейчас работает MVP mock-режим.
+              Выберите пакет для пополнения. Перед релизом включен Stripe Checkout в test-режиме.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {TOPUP_PACKS.map((pack) => {

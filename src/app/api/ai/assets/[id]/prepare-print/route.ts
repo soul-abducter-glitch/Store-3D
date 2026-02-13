@@ -70,6 +70,17 @@ type PrecheckResult = {
   resolvedFormat: "glb" | "gltf" | "obj" | "stl" | "unknown";
 };
 
+type PrecheckLogEntry = {
+  at: string;
+  status: PrecheckResult["status"];
+  summary: string;
+  issues: PrecheckIssue[];
+  modelBytes: number | null;
+  contentType: string;
+  resolvedFormat: PrecheckResult["resolvedFormat"];
+  blocked: boolean;
+};
+
 const PRECHECK_TIMEOUT_MS = 8000;
 const RISK_SIZE_BYTES = 60 * 1024 * 1024;
 const CRITICAL_SIZE_BYTES = 120 * 1024 * 1024;
@@ -334,6 +345,23 @@ const findMediaByUrl = async (payload: any, modelUrl: string) => {
   return found?.docs?.[0] ?? null;
 };
 
+const appendPrecheckLog = async (
+  payload: any,
+  asset: any,
+  entry: PrecheckLogEntry
+) => {
+  const currentLogs = Array.isArray(asset?.precheckLogs) ? asset.precheckLogs : [];
+  const nextLogs = [...currentLogs, entry].slice(-25);
+  await payload.update({
+    collection: "ai_assets",
+    id: asset.id,
+    overrideAccess: true,
+    data: {
+      precheckLogs: nextLogs,
+    },
+  });
+};
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -365,6 +393,20 @@ export async function POST(
     }
 
     const precheck = await inspectModelPrecheck(modelUrl, formatRaw);
+    const precheckLog: PrecheckLogEntry = {
+      at: new Date().toISOString(),
+      status: precheck.status,
+      summary: precheck.summary,
+      issues: precheck.issues,
+      modelBytes: precheck.modelBytes,
+      contentType: precheck.contentType,
+      resolvedFormat: precheck.resolvedFormat,
+      blocked: precheck.status === "critical",
+    };
+    await appendPrecheckLog(payload, asset, precheckLog).catch((error) => {
+      console.error("[ai/assets:prepare-print] failed to persist precheck log", error);
+    });
+
     if (precheck.status === "critical") {
       return NextResponse.json(
         {

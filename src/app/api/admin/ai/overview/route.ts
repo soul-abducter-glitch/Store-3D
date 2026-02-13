@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
+import { buildAiQueueSnapshot } from "@/lib/aiQueue";
 import { runServiceReadinessChecks } from "@/lib/serviceReadiness";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +24,13 @@ type UserAggregate = {
   adjust: number;
   net: number;
   balanceAfter: number | null;
+};
+
+type PrecheckLog = {
+  at?: string;
+  status?: "ok" | "risk" | "critical";
+  summary?: string;
+  blocked?: boolean;
 };
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
@@ -84,6 +92,17 @@ const parseDateMs = (value: unknown) => {
   return Number.isFinite(ms) ? ms : 0;
 };
 
+const matchesUserFilter = (user: UserSummary, filter: string) => {
+  if (!filter) return true;
+  const needle = filter.trim().toLowerCase();
+  if (!needle) return true;
+  return (
+    user.id.toLowerCase().includes(needle) ||
+    user.email.toLowerCase().includes(needle) ||
+    user.name.toLowerCase().includes(needle)
+  );
+};
+
 const aggregateUsers = (events: any[]): UserAggregate[] => {
   const byUser = new Map<string, UserAggregate>();
 
@@ -138,14 +157,15 @@ export async function GET(request: NextRequest) {
     const sinceIso = new Date(sinceMs).toISOString();
     const staleMinutes = parseHours(request.nextUrl.searchParams.get("staleMinutes"), 30);
     const staleMs = staleMinutes * 60 * 1000;
+    const userFilter = normalizeString(request.nextUrl.searchParams.get("user")).toLowerCase();
 
     const readiness = await runServiceReadinessChecks(payload as any);
 
-    const [eventsFound, jobsFound, failedFound] = await Promise.all([
+    const [eventsFound, jobsFound, assetsFound, queueSnapshot] = await Promise.all([
       payload.find({
         collection: "ai_token_events",
         depth: 1,
-        limit: 600,
+        limit: 1000,
         sort: "-createdAt",
         overrideAccess: true,
         where: {
@@ -157,7 +177,7 @@ export async function GET(request: NextRequest) {
       payload.find({
         collection: "ai_jobs",
         depth: 1,
-        limit: 600,
+        limit: 1000,
         sort: "-createdAt",
         overrideAccess: true,
         where: {
@@ -167,22 +187,27 @@ export async function GET(request: NextRequest) {
         },
       }),
       payload.find({
-        collection: "ai_jobs",
+        collection: "ai_assets",
         depth: 1,
-        limit: 20,
+        limit: 1000,
         sort: "-updatedAt",
         overrideAccess: true,
         where: {
-          status: {
-            equals: "failed",
+          updatedAt: {
+            greater_than_equal: sinceIso,
           },
         },
       }),
+      buildAiQueueSnapshot(payload as any),
     ]);
 
-    const events = Array.isArray(eventsFound?.docs) ? eventsFound.docs : [];
-    const jobs = Array.isArray(jobsFound?.docs) ? jobsFound.docs : [];
-    const failedJobs = Array.isArray(failedFound?.docs) ? failedFound.docs : [];
+    const rawEvents = Array.isArray(eventsFound?.docs) ? eventsFound.docs : [];
+    const rawJobs = Array.isArray(jobsFound?.docs) ? jobsFound.docs : [];
+    const rawAssets = Array.isArray(assetsFound?.docs) ? assetsFound.docs : [];
+
+    const events = rawEvents.filter((event) => matchesUserFilter(normalizeUser(event?.user), userFilter));
+    const jobs = rawJobs.filter((job) => matchesUserFilter(normalizeUser(job?.user), userFilter));
+    const assets = rawAssets.filter((asset) => matchesUserFilter(normalizeUser(asset?.user), userFilter));
 
     const tokenTotals = {
       spend: 0,
@@ -232,21 +257,28 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    const finished = Math.max(0, (statusCounts.completed || 0) + (statusCounts.failed || 0));
+    const successRate = finished > 0 ? Number((((statusCounts.completed || 0) / finished) * 100).toFixed(2)) : 0;
+
     const topUsers = aggregateUsers(events).slice(0, 10);
-    const recentFailures = failedJobs.map((job) => {
-      const user = normalizeUser(job?.user);
-      return {
-        id: normalizeString(job?.id),
-        user,
-        provider: normalizeString(job?.provider) || "unknown",
-        mode: normalizeString(job?.mode) || "image",
-        status: normalizeString(job?.status) || "failed",
-        prompt: normalizeString(job?.prompt).slice(0, 160),
-        error: normalizeString(job?.errorMessage).slice(0, 240),
-        updatedAt: normalizeString(job?.updatedAt),
-        createdAt: normalizeString(job?.createdAt),
-      };
-    });
+    const recentFailures = jobs
+      .filter((job) => normalizeString(job?.status).toLowerCase() === "failed")
+      .sort((a, b) => parseDateMs(b?.updatedAt) - parseDateMs(a?.updatedAt))
+      .slice(0, 20)
+      .map((job) => {
+        const user = normalizeUser(job?.user);
+        return {
+          id: normalizeString(job?.id),
+          user,
+          provider: normalizeString(job?.provider) || "unknown",
+          mode: normalizeString(job?.mode) || "image",
+          status: normalizeString(job?.status) || "failed",
+          prompt: normalizeString(job?.prompt).slice(0, 160),
+          error: normalizeString(job?.errorMessage).slice(0, 240),
+          updatedAt: normalizeString(job?.updatedAt),
+          createdAt: normalizeString(job?.createdAt),
+        };
+      });
 
     const recentEvents = events.slice(0, 20).map((event) => {
       const user = normalizeUser(event?.user);
@@ -261,9 +293,62 @@ export async function GET(request: NextRequest) {
       };
     });
 
+    const precheckStats = {
+      total: 0,
+      ok: 0,
+      risk: 0,
+      critical: 0,
+      blocked: 0,
+    };
+
+    const recentPrechecks: Array<{
+      assetId: string;
+      user: UserSummary;
+      at: string;
+      status: string;
+      summary: string;
+      blocked: boolean;
+    }> = [];
+
+    for (const asset of assets) {
+      const logs = Array.isArray(asset?.precheckLogs) ? (asset.precheckLogs as PrecheckLog[]) : [];
+      const user = normalizeUser(asset?.user);
+      const assetId = normalizeString(asset?.id);
+
+      for (const log of logs) {
+        const at = normalizeString(log?.at);
+        const atMs = parseDateMs(at);
+        if (atMs <= 0 || atMs < sinceMs) continue;
+
+        const status = normalizeString(log?.status).toLowerCase();
+        const blocked = Boolean(log?.blocked) || status === "critical";
+
+        precheckStats.total += 1;
+        if (status === "ok") precheckStats.ok += 1;
+        if (status === "risk") precheckStats.risk += 1;
+        if (status === "critical") precheckStats.critical += 1;
+        if (blocked) precheckStats.blocked += 1;
+
+        recentPrechecks.push({
+          assetId,
+          user,
+          at,
+          status: status || "unknown",
+          summary: normalizeString(log?.summary).slice(0, 200),
+          blocked,
+        });
+      }
+    }
+
+    recentPrechecks.sort((a, b) => parseDateMs(b.at) - parseDateMs(a.at));
+
     return NextResponse.json(
       {
         success: true,
+        filters: {
+          hours,
+          user: userFilter || null,
+        },
         window: {
           hours,
           since: sinceIso,
@@ -275,11 +360,18 @@ export async function GET(request: NextRequest) {
           staleMinutes,
           staleJobs,
           oldestActiveAgeMinutes,
+          successRate,
+          queueDepth: queueSnapshot.queueDepth,
+          activeQueueJobs: queueSnapshot.activeCount,
         },
         tokens: {
           ...tokenTotals,
           topUsers,
           recentEvents,
+        },
+        prechecks: {
+          ...precheckStats,
+          recent: recentPrechecks.slice(0, 20),
         },
         failures: recentFailures,
       },

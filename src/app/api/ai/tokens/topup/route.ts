@@ -1,21 +1,29 @@
+import Stripe from "stripe";
 import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
 import { getUserAiCredits, refundUserAiCredits } from "@/lib/aiCredits";
+import { resolveAiTopupMode, resolveAiTopupPacks, type AiTopupPackId } from "@/lib/aiConfig";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { enforceUserAndIpQuota } from "@/lib/aiQuota";
+import { resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
-const TOPUP_MODE = (process.env.AI_TOPUP_MODE || "mock").trim().toLowerCase();
+const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
+const stripeWebhookSecret = (process.env.STRIPE_WEBHOOK_SECRET || "").trim();
+const stripe = stripeSecretKey ? new Stripe(stripeSecretKey) : null;
 
-const TOPUP_PACKS: Record<string, { credits: number; label: string }> = {
-  starter: { credits: 50, label: "Starter 50" },
-  pro: { credits: 200, label: "Pro 200" },
-  max: { credits: 500, label: "Max 500" },
+const toBoolean = (value: unknown, fallback: boolean) => {
+  if (typeof value !== "string") return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
 };
 
 const normalizeRelationshipId = (value: unknown): string | number | null => {
@@ -35,14 +43,46 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
   return raw;
 };
 
-const toPackId = (value: unknown) => {
+const toPackId = (value: unknown): AiTopupPackId | "" => {
   if (typeof value !== "string") return "";
-  return value.trim().toLowerCase();
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "starter" || normalized === "pro" || normalized === "max") return normalized;
+  return "";
 };
 
 const toIdempotencyKey = (value: unknown) => {
   if (typeof value !== "string") return "";
   return value.trim().slice(0, 120);
+};
+
+const getTopupQuota = () => ({
+  userMinute: Number.parseInt(process.env.AI_TOPUP_LIMIT_USER_MINUTE || "", 10) || 2,
+  userHour: Number.parseInt(process.env.AI_TOPUP_LIMIT_USER_HOUR || "", 10) || 8,
+  userDay: Number.parseInt(process.env.AI_TOPUP_LIMIT_USER_DAY || "", 10) || 24,
+  ipMinute: Number.parseInt(process.env.AI_TOPUP_LIMIT_IP_MINUTE || "", 10) || 6,
+  ipHour: Number.parseInt(process.env.AI_TOPUP_LIMIT_IP_HOUR || "", 10) || 24,
+  ipDay: Number.parseInt(process.env.AI_TOPUP_LIMIT_IP_DAY || "", 10) || 120,
+});
+
+const isStripeTopupTestModeAllowed = () => {
+  if (!stripeSecretKey) return false;
+  const allowLive = toBoolean(process.env.AI_TOPUP_STRIPE_ALLOW_LIVE, false);
+  if (allowLive) return true;
+  return stripeSecretKey.startsWith("sk_test_");
+};
+
+const resolveCheckoutUrl = (request: NextRequest, type: "success" | "cancel") => {
+  const envUrl =
+    type === "success"
+      ? (process.env.AI_TOPUP_STRIPE_SUCCESS_URL || "").trim()
+      : (process.env.AI_TOPUP_STRIPE_CANCEL_URL || "").trim();
+  if (envUrl) return envUrl;
+  const url = new URL("/ai-lab", request.nextUrl.origin);
+  url.searchParams.set("topup", type === "success" ? "success" : "cancel");
+  if (type === "success") {
+    url.searchParams.set("session_id", "{CHECKOUT_SESSION_ID}");
+  }
+  return url.toString();
 };
 
 export async function POST(request: NextRequest) {
@@ -55,24 +95,132 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
 
+    const userIp = resolveClientIp(request.headers);
+    const quotaConfig = getTopupQuota();
+    const quota = enforceUserAndIpQuota({
+      scope: "ai-topup",
+      userId,
+      ip: userIp,
+      actionLabel: "token top-up",
+      ...quotaConfig,
+    });
+    if (!quota.ok) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: quota.message,
+          retryAfter: quota.retryAfterSec,
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(quota.retryAfterSec),
+          },
+        }
+      );
+    }
+
     const body = await request.json().catch(() => null);
     const packId = toPackId(body?.packId);
     const idempotencyKey =
       toIdempotencyKey(request.headers.get("idempotency-key")) ||
       toIdempotencyKey(body?.idempotencyKey);
-    const selectedPack = TOPUP_PACKS[packId];
+
+    const packs = resolveAiTopupPacks();
+    const selectedPack = packId ? packs[packId] : null;
     if (!selectedPack) {
       return NextResponse.json({ success: false, error: "Invalid top-up package." }, { status: 400 });
     }
 
-    if (TOPUP_MODE !== "mock") {
+    const mode = resolveAiTopupMode();
+    if (mode === "stripe") {
+      if (!stripe) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Stripe top-up is not configured: STRIPE_SECRET_KEY is missing.",
+            mode,
+          },
+          { status: 503 }
+        );
+      }
+      if (!stripeWebhookSecret) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Stripe top-up is not configured: STRIPE_WEBHOOK_SECRET is missing.",
+            mode,
+          },
+          { status: 503 }
+        );
+      }
+      if (!isStripeTopupTestModeAllowed()) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              "Stripe top-up is locked to test mode. Use sk_test_ key or set AI_TOPUP_STRIPE_ALLOW_LIVE=1 after QA.",
+            mode,
+          },
+          { status: 503 }
+        );
+      }
+
+      const metadata: Record<string, string> = {
+        kind: "ai_token_topup",
+        userId: String(userId),
+        packId,
+        credits: String(selectedPack.credits),
+      };
+      if (idempotencyKey) {
+        metadata.requestIdempotencyKey = idempotencyKey;
+      }
+
+      const lineItem = selectedPack.stripePriceId
+        ? { price: selectedPack.stripePriceId, quantity: 1 }
+        : {
+            price_data: {
+              currency: selectedPack.currency,
+              product_data: {
+                name: `AI Tokens ${selectedPack.label}`,
+                description: `${selectedPack.credits} AI tokens pack`,
+              },
+              unit_amount: selectedPack.amountCents,
+            },
+            quantity: 1,
+          };
+
+      const session = await stripe.checkout.sessions.create(
+        {
+          mode: "payment",
+          success_url: resolveCheckoutUrl(request, "success"),
+          cancel_url: resolveCheckoutUrl(request, "cancel"),
+          payment_method_types: ["card"],
+          line_items: [lineItem],
+          metadata,
+          client_reference_id: `${userId}:${packId}`,
+          customer_email:
+            typeof authResult?.user?.email === "string" ? authResult.user.email : undefined,
+        },
+        idempotencyKey
+          ? {
+              idempotencyKey: `ai-topup:${String(userId)}:${idempotencyKey}`,
+            }
+          : undefined
+      );
+
       return NextResponse.json(
         {
-          success: false,
-          error: "Top-up provider is not configured yet.",
-          mode: TOPUP_MODE || "unknown",
+          success: true,
+          mode,
+          requiresWebhookConfirmation: true,
+          checkoutSessionId: session.id,
+          checkoutUrl: session.url,
+          packId,
+          packLabel: selectedPack.label,
+          creditsAdded: selectedPack.credits,
         },
-        { status: 503 }
+        { status: 200 }
       );
     }
 
@@ -146,6 +294,7 @@ export async function POST(request: NextRequest) {
       meta: {
         packId,
         packLabel: selectedPack.label,
+        mode: "mock",
       },
     });
 

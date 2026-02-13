@@ -3,7 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
+import { refundUserAiCredits } from "@/lib/aiCredits";
+import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 
 export const dynamic = "force-dynamic";
 
@@ -50,6 +51,29 @@ const normalizeProvider = (value?: unknown) => {
   return String(value).trim().toLowerCase();
 };
 
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  let current: unknown = value;
+  while (typeof current === "object" && current !== null) {
+    current =
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+  }
+  if (current === null || current === undefined) return null;
+  if (typeof current === "number") return current;
+  const raw = String(current).trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+};
+
+const toPositiveInt = (value: unknown, fallback = 0) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+};
+
 const isWebhookAuthorized = (request: NextRequest) => {
   const expected = (process.env.PAYMENTS_WEBHOOK_TOKEN || "").trim();
   if (!expected) {
@@ -83,12 +107,124 @@ const mapStripeEventToStatus = (eventType: string) => {
   return null;
 };
 
+const hasTopupIdempotencyEvent = async (payload: any, idempotencyKey: string) => {
+  if (!idempotencyKey) return false;
+  const found = await payload.find({
+    collection: "ai_token_events",
+    depth: 0,
+    limit: 1,
+    sort: "-createdAt",
+    overrideAccess: true,
+    where: {
+      and: [
+        {
+          reason: {
+            equals: "topup",
+          },
+        },
+        {
+          idempotencyKey: {
+            equals: idempotencyKey,
+          },
+        },
+      ],
+    },
+  });
+  return Boolean(found?.docs?.[0]);
+};
+
+const handleStripeTopupWebhook = async (payload: any, event: Stripe.Event) => {
+  if (event.type !== "checkout.session.completed") {
+    return null;
+  }
+
+  const session = event.data.object as Stripe.Checkout.Session;
+  const meta = (session.metadata || {}) as Record<string, string>;
+  const kind = String(meta.kind || "").trim().toLowerCase();
+  if (kind !== "ai_token_topup") {
+    return null;
+  }
+
+  await ensureAiLabSchemaOnce(payload as any);
+
+  const paid =
+    String(session.payment_status || "").trim().toLowerCase() === "paid" ||
+    String(session.status || "").trim().toLowerCase() === "complete";
+  if (!paid) {
+    return NextResponse.json(
+      { success: true, ignored: true, reason: "topup_not_paid", type: event.type },
+      { status: 200 }
+    );
+  }
+
+  const userId = normalizeRelationshipId(meta.userId);
+  const credits = toPositiveInt(meta.credits, 0);
+  const packId = String(meta.packId || "").trim().toLowerCase();
+
+  if (!userId || !credits || !packId) {
+    return NextResponse.json(
+      {
+        success: true,
+        ignored: true,
+        reason: "topup_metadata_missing",
+        type: event.type,
+      },
+      { status: 200 }
+    );
+  }
+
+  const idempotencyKey = `stripe_topup_session:${session.id}`;
+  const isDuplicate = await hasTopupIdempotencyEvent(payload, idempotencyKey);
+  if (isDuplicate) {
+    return NextResponse.json(
+      {
+        success: true,
+        ignored: true,
+        reason: "duplicate_topup_event",
+        type: event.type,
+        sessionId: session.id,
+      },
+      { status: 200 }
+    );
+  }
+
+  const tokens = await refundUserAiCredits(payload as any, userId, credits, {
+    reason: "topup",
+    source: "ai_tokens:topup_stripe",
+    referenceId: session.id,
+    idempotencyKey,
+    meta: {
+      provider: "stripe",
+      eventId: event.id,
+      checkoutSessionId: session.id,
+      paymentIntentId:
+        typeof session.payment_intent === "string" ? session.payment_intent : undefined,
+      customerEmail: session.customer_details?.email || session.customer_email || undefined,
+      livemode: Boolean(session.livemode),
+      packId,
+      credits,
+      requestIdempotencyKey: meta.requestIdempotencyKey || undefined,
+    },
+  });
+
+  return NextResponse.json(
+    {
+      success: true,
+      topup: true,
+      sessionId: session.id,
+      creditsAdded: credits,
+      tokens,
+      type: event.type,
+    },
+    { status: 200 }
+  );
+};
+
 export async function POST(request: NextRequest) {
   try {
-    const paymentsMode = resolveServerPaymentsMode();
     const payload = await getPayloadClient();
 
-    if (paymentsMode === "stripe" && stripe && stripeWebhookSecret) {
+    if (stripe && stripeWebhookSecret) {
       const signature = request.headers.get("stripe-signature") || "";
       if (!signature) {
         return NextResponse.json({ success: false, error: "Missing stripe signature." }, { status: 401 });
@@ -103,6 +239,11 @@ export async function POST(request: NextRequest) {
           { success: false, error: error?.message || "Invalid stripe signature." },
           { status: 401 }
         );
+      }
+
+      const topupResponse = await handleStripeTopupWebhook(payload, event);
+      if (topupResponse) {
+        return topupResponse;
       }
 
       const nextStatus = mapStripeEventToStatus(event.type);
@@ -321,4 +462,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

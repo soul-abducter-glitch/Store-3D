@@ -7,7 +7,8 @@ import { runAiWorkerTick } from "@/lib/aiWorker";
 import { AI_TOKEN_COST, refundUserAiCredits, spendUserAiCredits } from "@/lib/aiCredits";
 import { buildAiQueueSnapshot, withAiQueueMeta } from "@/lib/aiQueue";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
-import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
+import { enforceUserAndIpQuota } from "@/lib/aiQuota";
+import { resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -16,16 +17,33 @@ const DEFAULT_MOCK_MODEL_URL =
   "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
-const GENERATE_RATE_LIMIT_MAX = (() => {
-  const parsed = Number.parseInt(process.env.AI_GENERATE_RATE_LIMIT_MAX || "", 10);
-  if (!Number.isFinite(parsed) || parsed <= 0) return 12;
-  return parsed;
-})();
-const GENERATE_RATE_LIMIT_WINDOW_MS = (() => {
-  const parsed = Number.parseInt(process.env.AI_GENERATE_RATE_LIMIT_WINDOW_MS || "", 10);
-  if (!Number.isFinite(parsed) || parsed < 1000) return 60_000;
-  return parsed;
-})();
+const toPositiveInt = (value: string | undefined, fallback: number) => {
+  const parsed = Number.parseInt(value || "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+};
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+};
+const GENERATE_QUOTA = {
+  userMinute: toPositiveInt(
+    process.env.AI_GENERATE_LIMIT_USER_MINUTE,
+    toPositiveInt(process.env.AI_GENERATE_RATE_LIMIT_MAX, 12)
+  ),
+  userHour: toPositiveInt(process.env.AI_GENERATE_LIMIT_USER_HOUR, 72),
+  userDay: toPositiveInt(process.env.AI_GENERATE_LIMIT_USER_DAY, 220),
+  ipMinute: toPositiveInt(process.env.AI_GENERATE_LIMIT_IP_MINUTE, 24),
+  ipHour: toPositiveInt(process.env.AI_GENERATE_LIMIT_IP_HOUR, 220),
+  ipDay: toPositiveInt(process.env.AI_GENERATE_LIMIT_IP_DAY, 720),
+};
+const ENABLE_PROVIDER_RUNTIME_FALLBACK = parseBoolean(
+  process.env.AI_PROVIDER_RUNTIME_FALLBACK_TO_MOCK,
+  true
+);
 
 const clampProgress = (value: unknown) => {
   if (typeof value !== "number" || !Number.isFinite(value)) return 0;
@@ -87,6 +105,13 @@ const toPublicError = (error: unknown, fallback: string) => {
     return "AI service lock table is out of sync.";
   }
   return fallback;
+};
+
+const toProviderFallbackHint = (provider: string, error: unknown) => {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  const safeError = raw.replace(/\s+/g, " ").trim().slice(0, 180);
+  if (!safeError) return `Provider ${provider} failed. Switched to mock mode.`;
+  return `Provider ${provider} failed (${safeError}). Switched to mock mode.`;
 };
 
 const serializeJob = (job: any) => ({
@@ -198,25 +223,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const rateKey = `${String(userId)}:${resolveClientIp(request.headers)}`;
-    const rateResult = checkRateLimit({
+    const quota = enforceUserAndIpQuota({
       scope: "ai-generate-create",
-      key: rateKey,
-      max: GENERATE_RATE_LIMIT_MAX,
-      windowMs: GENERATE_RATE_LIMIT_WINDOW_MS,
+      userId,
+      ip: resolveClientIp(request.headers),
+      actionLabel: "AI generation",
+      ...GENERATE_QUOTA,
     });
-    if (!rateResult.ok) {
-      const retryAfterSec = Math.max(1, Math.ceil(rateResult.retryAfterMs / 1000));
+    if (!quota.ok) {
       return NextResponse.json(
         {
           success: false,
-          error: "Too many generation requests. Please retry later.",
-          retryAfter: retryAfterSec,
+          error: quota.message,
+          retryAfter: quota.retryAfterSec,
         },
         {
           status: 429,
           headers: {
-            "Retry-After": String(retryAfterSec),
+            "Retry-After": String(quota.retryAfterSec),
           },
         }
       );
@@ -269,12 +293,26 @@ export async function POST(request: NextRequest) {
     chargedUserId = userId;
 
     const now = new Date().toISOString();
-    const submission = await submitProviderJob({
+    let submission = await submitProviderJob({
       provider,
       mode,
       prompt: prompt || "Reference import",
       sourceType: sourceType as "none" | "url" | "image",
       sourceUrl,
+    }).catch(async (providerError) => {
+      if (!ENABLE_PROVIDER_RUNTIME_FALLBACK || provider === "mock") {
+        throw providerError;
+      }
+      const failedProvider = provider;
+      provider = "mock";
+      fallbackHint = toProviderFallbackHint(failedProvider, providerError);
+      return submitProviderJob({
+        provider: "mock",
+        mode,
+        prompt: prompt || "Reference import",
+        sourceType: sourceType as "none" | "url" | "image",
+        sourceUrl,
+      });
     });
 
     const created = await payload.create({

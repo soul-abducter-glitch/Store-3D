@@ -126,5 +126,12 @@ export const AiAssets: CollectionConfig = {
         { label: "Unknown", value: "unknown" },
       ],
     },
+    {
+      name: "precheckLogs",
+      type: "json",
+      admin: {
+        description: "History of print preflight checks for this asset.",
+      },
+    },
   ],
 };
