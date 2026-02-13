@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { DragEvent } from "react";
@@ -1579,7 +1579,7 @@ function AiLabContent() {
               [ TOKEN TOP UP ]
             </div>
             <p className="mt-4 text-sm text-white/75">
-              Р’С‹Р±РµСЂРёС‚Рµ РїР°РєРµС‚ РґР»СЏ РїРѕРїРѕР»РЅРµРЅРёСЏ. РЎРµР№С‡Р°СЃ СЂР°Р±РѕС‚Р°РµС‚ MVP РјРѕРє-СЂРµР¶РёРј.
+              Выберите пакет для пополнения. Сейчас работает MVP mock-режим.
             </p>
             <div className="mt-5 grid gap-3 sm:grid-cols-3">
               {TOPUP_PACKS.map((pack) => {
