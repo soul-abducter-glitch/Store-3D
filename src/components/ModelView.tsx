@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useGLTF } from "@react-three/drei";
 import type { Material } from "three";
 import { Box3, Color, Mesh, Sphere, Vector3, type Object3D } from "three";
+import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { resolveAssetUrl, type Finish } from "@/lib/products";
 
@@ -53,6 +54,7 @@ export default function ModelView({
     readyNotifiedRef.current = false;
   }, [resolvedUrl]);
   const gltf = useGLTF(resolvedUrl);
+  const scene = useMemo(() => cloneSkeleton(gltf.scene), [gltf.scene]);
   const originalMaterials = useRef<Map<string, Material | Material[]>>(new Map());
   const materialStates = useRef<
     Map<
@@ -140,37 +142,37 @@ export default function ModelView({
     originalMaterials.current = new Map();
     materialStates.current = new Map();
 
-    if (!normalizedScenes.current.has(gltf.scene)) {
-      gltf.scene.updateMatrixWorld(true);
+    if (!normalizedScenes.current.has(scene)) {
+      scene.updateMatrixWorld(true);
 
-      const initialBox = computeMeshBounds(gltf.scene);
+      const initialBox = computeMeshBounds(scene);
       const initialSize = new Vector3();
       initialBox.getSize(initialSize);
       const maxDim = Math.max(initialSize.x, initialSize.y, initialSize.z);
 
       if (maxDim > 0) {
         const targetScale = 3.5 / maxDim;
-        gltf.scene.scale.setScalar(targetScale);
-        gltf.scene.updateMatrixWorld(true);
+        scene.scale.setScalar(targetScale);
+        scene.updateMatrixWorld(true);
 
-        const scaledBox = computeMeshBounds(gltf.scene);
+        const scaledBox = computeMeshBounds(scene);
         const center = new Vector3();
         scaledBox.getCenter(center);
-        gltf.scene.position.x -= center.x;
-        gltf.scene.position.y -= center.y;
-        gltf.scene.position.z -= center.z;
-        gltf.scene.updateMatrixWorld(true);
+        scene.position.x -= center.x;
+        scene.position.y -= center.y;
+        scene.position.z -= center.z;
+        scene.updateMatrixWorld(true);
 
-        const groundedBox = computeMeshBounds(gltf.scene);
-        gltf.scene.position.y -= groundedBox.min.y;
-        gltf.scene.updateMatrixWorld(true);
+        const groundedBox = computeMeshBounds(scene);
+        scene.position.y -= groundedBox.min.y;
+        scene.updateMatrixWorld(true);
       }
 
-      normalizedScenes.current.add(gltf.scene);
+      normalizedScenes.current.add(scene);
     }
 
-    gltf.scene.updateMatrixWorld(true);
-    const boundsBox = computeMeshBounds(gltf.scene);
+    scene.updateMatrixWorld(true);
+    const boundsBox = computeMeshBounds(scene);
     const size = new Vector3();
     const sphere = new Sphere();
     boundsBox.getSize(size);
@@ -187,7 +189,7 @@ export default function ModelView({
 
     let polyCount = 0;
     let meshCount = 0;
-    gltf.scene.traverse((child) => {
+    scene.traverse((child) => {
       if (!(child instanceof Mesh)) return;
       const geometry = child.geometry;
       if (!geometry) return;
@@ -289,7 +291,7 @@ export default function ModelView({
       materialStates.current.set(material.uuid, state);
     };
 
-    gltf.scene.traverse((child) => {
+    scene.traverse((child) => {
       if (child instanceof Mesh) {
         originalMaterials.current.set(child.uuid, child.material);
         const materials = Array.isArray(child.material)
@@ -306,7 +308,7 @@ export default function ModelView({
       readyNotifiedRef.current = true;
       onReady?.();
     }
-  }, [gltf.scene, onBounds, onReady]);
+  }, [scene, onBounds, onReady]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -314,7 +316,7 @@ export default function ModelView({
     const isWireframe = renderMode === "wireframe";
     const useBase = renderMode === "base";
 
-    gltf.scene.traverse((child) => {
+    scene.traverse((child) => {
       if (!(child instanceof Mesh)) return;
 
       let nextMaterial: Material | Material[] | null = null;
@@ -459,13 +461,13 @@ export default function ModelView({
   }, [
     finish,
     renderMode,
-    gltf.scene,
+    scene,
     paintedModelUrl,
     isReady,
     accentColor,
   ]);
 
-  return <primitive object={gltf.scene} dispose={null} />;
+  return <primitive object={scene} dispose={null} />;
 }
 
 if (typeof window !== "undefined") {
