@@ -637,6 +637,7 @@ function PrintServiceContent() {
   const [targetHeightMm, setTargetHeightMm] = useState(DEFAULT_PRINT_HEIGHT_MM);
   const [printOrientation, setPrintOrientation] = useState<PrintOrientationKey>("upright");
   const [orientationTouched, setOrientationTouched] = useState(false);
+  const [showOrientationDetails, setShowOrientationDetails] = useState(false);
   const [isHollowModel, setIsHollowModel] = useState(true);
   const [infillPercent, setInfillPercent] = useState(DEFAULT_FDM_INFILL_PERCENT);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -1025,6 +1026,7 @@ function PrintServiceContent() {
       setMetrics(null);
       setPrintOrientation("upright");
       setOrientationTouched(false);
+      setShowOrientationDetails(false);
       setTechnologyLocked(false);
       setModelObject(null);
       setSourceThumb(null);
@@ -2336,63 +2338,99 @@ function PrintServiceContent() {
               </div>
               {orientationAdvisor && (
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="mb-2 flex items-center justify-between">
-                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/55">
-                      Orientation advisor
-                    </p>
-                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
-                      3 варианта
-                    </span>
-                  </div>
-                  <div className="grid gap-2">
-                    {orientationAdvisor.items.map((item) => {
-                      const selected = item.key === printOrientation;
-                      const recommended = item.key === orientationAdvisor.recommendedKey;
-                      const statusTone =
-                        item.riskStatus === "critical"
-                          ? "text-red-200"
-                          : item.riskStatus === "risk"
-                            ? "text-amber-100"
-                            : "text-emerald-100";
-                      const statusLabel =
-                        item.riskStatus === "critical"
-                          ? "critical"
-                          : item.riskStatus === "risk"
-                            ? "risk"
-                            : "ok";
-                      return (
-                        <button
-                          key={item.key}
-                          type="button"
-                          onClick={() => {
-                            setOrientationTouched(true);
-                            setPrintOrientation(item.key);
-                          }}
-                          className={`rounded-xl border px-3 py-2 text-left transition ${
-                            selected
-                              ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10"
-                              : "border-white/10 bg-white/[0.03] hover:border-white/30"
-                          }`}
-                        >
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="text-xs uppercase tracking-[0.2em] text-white/80">
-                              {item.label}
-                              {recommended ? " • recommended" : ""}
-                            </p>
-                            <p className={`text-[10px] uppercase tracking-[0.2em] ${statusTone}`}>
-                              {statusLabel} • Q:{item.riskScore}
-                            </p>
-                          </div>
-                          <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/45">
-                            {item.note} • ETA ~{item.etaMinutes}m
+                  {(() => {
+                    const recommendedOrientation =
+                      orientationAdvisor.items.find(
+                        (item) => item.key === orientationAdvisor.recommendedKey
+                      ) || orientationAdvisor.items[0];
+                    const allCritical = orientationAdvisor.items.every(
+                      (item) => item.riskStatus === "critical"
+                    );
+
+                    return (
+                      <>
+                        <div className="mb-2 flex items-center justify-between gap-2">
+                          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/55">
+                            Рекомендация по ориентации
                           </p>
-                          <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/50">
-                            {`${formatNumber(item.size.x)} x ${formatNumber(item.size.y)} x ${formatNumber(item.size.z)} мм`}
+                          <button
+                            type="button"
+                            onClick={() => setShowOrientationDetails((prev) => !prev)}
+                            className="rounded-full border border-white/15 px-2 py-1 text-[9px] uppercase tracking-[0.16em] text-white/60 transition hover:border-white/35 hover:text-white"
+                          >
+                            {showOrientationDetails ? "Скрыть детали" : "Подробнее"}
+                          </button>
+                        </div>
+
+                        {recommendedOrientation && (
+                          <p className="mb-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100/90">
+                            Рекомендуем: <span className="font-semibold">{recommendedOrientation.label}</span>.{" "}
+                            Срок печати около {recommendedOrientation.etaMinutes} мин.
                           </p>
-                        </button>
-                      );
-                    })}
-                  </div>
+                        )}
+
+                        {allCritical && (
+                          <p className="mb-3 rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-2 text-xs text-red-100">
+                            Текущий размер слишком большой для стола 200 мм. Уменьшите высоту модели.
+                          </p>
+                        )}
+
+                        <div className="grid gap-2">
+                          {orientationAdvisor.items.map((item) => {
+                            const selected = item.key === printOrientation;
+                            const recommended = item.key === orientationAdvisor.recommendedKey;
+                            const statusTone =
+                              item.riskStatus === "critical"
+                                ? "text-red-200"
+                                : item.riskStatus === "risk"
+                                  ? "text-amber-100"
+                                  : "text-emerald-100";
+                            const statusLabel =
+                              item.riskStatus === "critical"
+                                ? "Не подходит"
+                                : item.riskStatus === "risk"
+                                  ? "Есть риск"
+                                  : "Подходит";
+                            return (
+                              <button
+                                key={item.key}
+                                type="button"
+                                onClick={() => {
+                                  setOrientationTouched(true);
+                                  setPrintOrientation(item.key);
+                                }}
+                                className={`rounded-xl border px-3 py-2 text-left transition ${
+                                  selected
+                                    ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10"
+                                    : "border-white/10 bg-white/[0.03] hover:border-white/30"
+                                }`}
+                              >
+                                <div className="flex items-center justify-between gap-2">
+                                  <p className="text-xs uppercase tracking-[0.2em] text-white/80">
+                                    {item.label}
+                                    {recommended ? " • рекомендуем" : ""}
+                                  </p>
+                                  <p className={`text-[10px] uppercase tracking-[0.2em] ${statusTone}`}>
+                                    {statusLabel}
+                                  </p>
+                                </div>
+                                <p className="mt-1 text-[11px] text-white/60">
+                                  {item.note}. Примерный срок: {item.etaMinutes} мин.
+                                </p>
+                                {showOrientationDetails && (
+                                  <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/45">
+                                    {`${formatNumber(item.size.x)} x ${formatNumber(item.size.y)} x ${formatNumber(
+                                      item.size.z
+                                    )} мм • risk score ${item.riskScore}`}
+                                  </p>
+                                )}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
               <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/80">
