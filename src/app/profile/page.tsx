@@ -20,6 +20,7 @@ import {
   Save,
   Settings,
   ShoppingCart,
+  Columns2,
   Trash2,
   User,
 } from "lucide-react";
@@ -102,6 +103,9 @@ type AiAssetEntry = {
   mediaId?: string | null;
   isInMedia?: boolean;
   jobId?: string | null;
+  previousAssetId?: string | null;
+  familyId?: string;
+  version?: number;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -320,6 +324,10 @@ export default function ProfilePage() {
   const [deletingAiAssetId, setDeletingAiAssetId] = useState<string | null>(null);
   const [downloadingAiAssetId, setDownloadingAiAssetId] = useState<string | null>(null);
   const [preparingAiAssetId, setPreparingAiAssetId] = useState<string | null>(null);
+  const [compareAssetIds, setCompareAssetIds] = useState<{
+    beforeId: string;
+    afterId: string;
+  } | null>(null);
   const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
   const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -676,6 +684,65 @@ export default function ProfilePage() {
     window.addEventListener("ai-assets-updated", handleAiAssetsUpdated);
     return () => window.removeEventListener("ai-assets-updated", handleAiAssetsUpdated);
   }, [fetchAiAssets]);
+
+  const aiAssetById = useMemo(() => {
+    const map = new Map<string, AiAssetEntry>();
+    aiAssets.forEach((asset) => {
+      map.set(asset.id, asset);
+    });
+    return map;
+  }, [aiAssets]);
+
+  const aiAssetFamilies = useMemo(() => {
+    const map = new Map<string, AiAssetEntry[]>();
+    aiAssets.forEach((asset) => {
+      const key = typeof asset.familyId === "string" && asset.familyId.trim() ? asset.familyId.trim() : asset.id;
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)?.push(asset);
+    });
+    map.forEach((items) => {
+      items.sort((a, b) => {
+        const av = typeof a.version === "number" ? a.version : 1;
+        const bv = typeof b.version === "number" ? b.version : 1;
+        return av - bv;
+      });
+    });
+    return map;
+  }, [aiAssets]);
+
+  const resolvePreviousVersionAsset = useCallback(
+    (asset: AiAssetEntry) => {
+      if (!asset) return null;
+      if (asset.previousAssetId && aiAssetById.has(asset.previousAssetId)) {
+        return aiAssetById.get(asset.previousAssetId) ?? null;
+      }
+      const familyKey =
+        typeof asset.familyId === "string" && asset.familyId.trim() ? asset.familyId.trim() : asset.id;
+      const family = aiAssetFamilies.get(familyKey) || [];
+      const version = typeof asset.version === "number" ? asset.version : 1;
+      if (family.length <= 1 || version <= 1) return null;
+      const byVersion = family.find((entry) => (typeof entry.version === "number" ? entry.version : 1) === version - 1);
+      return byVersion ?? null;
+    },
+    [aiAssetById, aiAssetFamilies]
+  );
+
+  const handleOpenCompareAiAsset = useCallback(
+    (asset: AiAssetEntry) => {
+      const previous = resolvePreviousVersionAsset(asset);
+      if (!previous) {
+        toast.error("Для сравнения нужна предыдущая версия модели.", { className: "sonner-toast" });
+        return;
+      }
+      setCompareAssetIds({
+        beforeId: previous.id,
+        afterId: asset.id,
+      });
+    },
+    [resolvePreviousVersionAsset]
+  );
 
   const handleLogout = async () => {
     try {
@@ -1647,6 +1714,8 @@ export default function ProfilePage() {
   const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
   const cartTotalLabel = formatPrice(cartTotal);
   const canCheckout = selectedCartItems.length > 0;
+  const compareBeforeAsset = compareAssetIds ? aiAssetById.get(compareAssetIds.beforeId) ?? null : null;
+  const compareAfterAsset = compareAssetIds ? aiAssetById.get(compareAssetIds.afterId) ?? null : null;
 
   if (loading) {
     return (
@@ -2389,6 +2458,13 @@ export default function ProfilePage() {
                   >
                     {(() => {
                       const storage = getAiAssetStorageState(asset);
+                      const familyKey =
+                        typeof asset.familyId === "string" && asset.familyId.trim()
+                          ? asset.familyId.trim()
+                          : asset.id;
+                      const family = aiAssetFamilies.get(familyKey) || [asset];
+                      const version = typeof asset.version === "number" ? asset.version : 1;
+                      const previousVersion = resolvePreviousVersionAsset(asset);
                       return (
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                       <div className="flex items-center gap-3">
@@ -2413,6 +2489,10 @@ export default function ProfilePage() {
                           </p>
                           <p className={`mt-1 text-xs ${storage.tone}`}>
                             {storage.label} • {storage.readyLabel}
+                          </p>
+                          <p className="mt-1 text-xs text-white/45">
+                            Версия v{version} • в цепочке {family.length}
+                            {previousVersion ? ` • база: v${previousVersion.version || 1}` : ""}
                           </p>
                           {asset.createdAt && (
                             <p className="mt-1 text-xs text-white/45">
@@ -2439,6 +2519,15 @@ export default function ProfilePage() {
                         >
                           <ShoppingCart className="h-4 w-4" />
                           {preparingAiAssetId === asset.id ? "Подготовка..." : "В печать"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleOpenCompareAiAsset(asset)}
+                          disabled={!previousVersion}
+                          className="flex w-full items-center justify-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-500/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-cyan-100/80 transition hover:border-cyan-300/40 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+                        >
+                          <Columns2 className="h-4 w-4" />
+                          Сравнить
                         </button>
                         <button
                           type="button"
@@ -2625,6 +2714,72 @@ export default function ProfilePage() {
             </div>
           )}
         </div>
+
+        {compareBeforeAsset && compareAfterAsset && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
+            <div className="w-full max-w-5xl rounded-[28px] border border-white/10 bg-[#0a0f14] p-6">
+              <div className="mb-4 flex items-center justify-between">
+                <div>
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-cyan-200/70">
+                    Compare View
+                  </p>
+                  <p className="mt-1 text-sm text-white/60">
+                    До/после для версии v{compareAfterAsset.version || 1}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCompareAssetIds(null)}
+                  className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 transition hover:border-white/35 hover:text-white"
+                >
+                  Закрыть
+                </button>
+              </div>
+
+              <div className="grid gap-4 md:grid-cols-2">
+                {[
+                  { key: "before", label: "До", asset: compareBeforeAsset },
+                  { key: "after", label: "После", asset: compareAfterAsset },
+                ].map((entry) => (
+                  <div key={entry.key} className="rounded-2xl border border-white/10 bg-black/25 p-4">
+                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/45">
+                      {entry.label}
+                    </p>
+                    <p className="mt-1 text-lg font-semibold text-white">
+                      {entry.asset.title || "AI Model"}
+                    </p>
+                    <p className="mt-1 text-xs text-white/50">
+                      v{entry.asset.version || 1} • {(entry.asset.format || "unknown").toUpperCase()}
+                    </p>
+                    <div className="mt-3 h-56 overflow-hidden rounded-xl border border-white/10 bg-white/5">
+                      {entry.asset.previewUrl ? (
+                        <img
+                          src={entry.asset.previewUrl}
+                          alt={entry.asset.title || "AI model"}
+                          className="h-full w-full object-cover"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.2em] text-white/35">
+                          Нет превью
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => void handlePrintAiAsset(compareAfterAsset)}
+                  className="rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300/55 hover:text-white"
+                >
+                  В печать (после)
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

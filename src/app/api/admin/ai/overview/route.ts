@@ -103,6 +103,30 @@ const matchesUserFilter = (user: UserSummary, filter: string) => {
   );
 };
 
+const normalizeRelationshipId = (value: unknown): string => {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "object") {
+    const candidate =
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      "";
+    return normalizeString(candidate);
+  }
+  return normalizeString(value);
+};
+
+const normalizeOrderUser = (order: any): UserSummary => {
+  const fromUser = normalizeUser(order?.user);
+  if (fromUser.id && fromUser.id !== "unknown") return fromUser;
+  const customer = order?.customer && typeof order.customer === "object" ? order.customer : {};
+  return {
+    id: normalizeRelationshipId(order?.user) || "unknown",
+    email: normalizeEmail((customer as { email?: unknown }).email),
+    name: normalizeString((customer as { name?: unknown }).name),
+  };
+};
+
 const aggregateUsers = (events: any[]): UserAggregate[] => {
   const byUser = new Map<string, UserAggregate>();
 
@@ -161,7 +185,7 @@ export async function GET(request: NextRequest) {
 
     const readiness = await runServiceReadinessChecks(payload as any);
 
-    const [eventsFound, jobsFound, assetsFound, queueSnapshot] = await Promise.all([
+    const [eventsFound, jobsFound, assetsFound, ordersFound, queueSnapshot] = await Promise.all([
       payload.find({
         collection: "ai_token_events",
         depth: 1,
@@ -198,16 +222,32 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
+      payload.find({
+        collection: "orders",
+        depth: 1,
+        limit: 1000,
+        sort: "-createdAt",
+        overrideAccess: true,
+        where: {
+          createdAt: {
+            greater_than_equal: sinceIso,
+          },
+        },
+      }),
       buildAiQueueSnapshot(payload as any),
     ]);
 
     const rawEvents = Array.isArray(eventsFound?.docs) ? eventsFound.docs : [];
     const rawJobs = Array.isArray(jobsFound?.docs) ? jobsFound.docs : [];
     const rawAssets = Array.isArray(assetsFound?.docs) ? assetsFound.docs : [];
+    const rawOrders = Array.isArray(ordersFound?.docs) ? ordersFound.docs : [];
 
     const events = rawEvents.filter((event) => matchesUserFilter(normalizeUser(event?.user), userFilter));
     const jobs = rawJobs.filter((job) => matchesUserFilter(normalizeUser(job?.user), userFilter));
     const assets = rawAssets.filter((asset) => matchesUserFilter(normalizeUser(asset?.user), userFilter));
+    const orders = rawOrders.filter((order) =>
+      matchesUserFilter(normalizeOrderUser(order), userFilter)
+    );
 
     const tokenTotals = {
       spend: 0,
@@ -342,6 +382,52 @@ export async function GET(request: NextRequest) {
 
     recentPrechecks.sort((a, b) => parseDateMs(b.at) - parseDateMs(a.at));
 
+    const completedGenerations = statusCounts.completed || 0;
+    const savedAssets = assets.filter((asset) => Boolean(normalizeRelationshipId(asset?.job))).length;
+    const printedAssets = new Set(
+      recentPrechecks.map((entry) => normalizeString(entry.assetId)).filter(Boolean)
+    ).size;
+
+    let cartOrders = 0;
+    let cartItems = 0;
+    for (const order of orders) {
+      const items = Array.isArray(order?.items) ? order.items : [];
+      let orderHasCartStep = false;
+      for (const item of items) {
+        const format = normalizeString(item?.format).toLowerCase();
+        const isPhysical = format === "physical";
+        const customerUploadId = normalizeRelationshipId(item?.customerUpload);
+        if (!isPhysical || !customerUploadId) continue;
+        const quantity = Math.max(1, Math.trunc(toNumber(item?.quantity) || 1));
+        cartItems += quantity;
+        orderHasCartStep = true;
+      }
+      if (orderHasCartStep) {
+        cartOrders += 1;
+      }
+    }
+
+    const toRate = (current: number, previous: number) =>
+      previous > 0 ? Number(((current / previous) * 100).toFixed(1)) : 0;
+
+    const funnel = {
+      generate: completedGenerations,
+      save: savedAssets,
+      print: printedAssets,
+      cart: cartItems,
+      cartOrders,
+      rates: {
+        generateToSave: toRate(savedAssets, completedGenerations),
+        saveToPrint: toRate(printedAssets, savedAssets),
+        printToCart: toRate(cartItems, printedAssets),
+      },
+      dropoff: {
+        generateToSave: Math.max(0, completedGenerations - savedAssets),
+        saveToPrint: Math.max(0, savedAssets - printedAssets),
+        printToCart: Math.max(0, printedAssets - cartItems),
+      },
+    };
+
     return NextResponse.json(
       {
         success: true,
@@ -373,6 +459,7 @@ export async function GET(request: NextRequest) {
           ...precheckStats,
           recent: recentPrechecks.slice(0, 20),
         },
+        funnel,
         failures: recentFailures,
       },
       { status: 200 }

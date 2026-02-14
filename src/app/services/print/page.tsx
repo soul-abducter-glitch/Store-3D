@@ -49,11 +49,23 @@ import { toast } from "sonner";
 type TechMode = "sla" | "fdm";
 type QualityKey = "pro" | "standard";
 type PreviewMode = "hologram" | "resin" | "plastic" | "original";
+type PrintOrientationKey = "upright" | "side_x" | "side_y";
 
 type ModelMetrics = {
   size: { x: number; y: number; z: number };
   volumeCm3: number;
   volumeMethod: "mesh" | "fallback";
+};
+
+type OrientationAdvisorItem = {
+  key: PrintOrientationKey;
+  label: string;
+  note: string;
+  size: { x: number; y: number; z: number };
+  fitsBed: boolean;
+  riskStatus: "ok" | "risk" | "critical";
+  riskScore: number;
+  etaMinutes: number;
 };
 
 const BED_SIZE = 200;
@@ -143,6 +155,68 @@ const toPrinterAxes = (size: { x: number; y: number; z: number }) => ({
   y: size.z,
   z: size.y,
 });
+
+const ORIENTATION_OPTIONS: Array<{
+  key: PrintOrientationKey;
+  label: string;
+  note: string;
+}> = [
+  { key: "upright", label: "Вертикально", note: "Базовая ориентация" },
+  { key: "side_x", label: "На бок X", note: "Меньше высота, больше основание" },
+  { key: "side_y", label: "На бок Y", note: "Баланс по времени/устойчивости" },
+];
+
+const orientPrinterDimensions = (
+  base: { x: number; y: number; z: number },
+  orientation: PrintOrientationKey
+) => {
+  if (orientation === "side_x") {
+    return { x: base.y, y: base.z, z: base.x };
+  }
+  if (orientation === "side_y") {
+    return { x: base.x, y: base.z, z: base.y };
+  }
+  return { x: base.x, y: base.y, z: base.z };
+};
+
+const evaluateOrientationAdvisor = (size: { x: number; y: number; z: number }): Omit<
+  OrientationAdvisorItem,
+  "key" | "label" | "note"
+> => {
+  const x = Math.max(0, size.x);
+  const y = Math.max(0, size.y);
+  const z = Math.max(0, size.z);
+  const fitsBed = x <= BED_SIZE && y <= BED_SIZE && z <= BED_SIZE;
+  if (!fitsBed) {
+    return {
+      size,
+      fitsBed,
+      riskStatus: "critical",
+      riskScore: 100,
+      etaMinutes: Math.max(20, Math.round(z * 0.6 + 25)),
+    };
+  }
+
+  const baseAreaRatio = Math.min(1.4, (x * y) / (BED_SIZE * BED_SIZE));
+  const slenderness = z / Math.max(1, Math.max(x, y));
+  const edgePenalty = Math.max(x, y) > BED_SIZE * 0.92 ? 8 : 0;
+  const riskScore = Math.round(
+    Math.min(99, Math.max(0, baseAreaRatio * 48 + slenderness * 36 + edgePenalty))
+  );
+  const riskStatus: "ok" | "risk" = riskScore >= 65 ? "risk" : "ok";
+  const etaMinutes = Math.max(
+    20,
+    Math.round(18 + z * 0.58 + baseAreaRatio * 95 + (riskStatus === "risk" ? 10 : 0))
+  );
+
+  return {
+    size,
+    fitsBed,
+    riskStatus,
+    riskScore,
+    etaMinutes,
+  };
+};
 
 const buildProxyUrlFromSource = (value: string) => {
   const normalized = value.split("?")[0] ?? value;
@@ -561,6 +635,8 @@ function PrintServiceContent() {
   const [uploadAttempt, setUploadAttempt] = useState(1);
   const [uploadRetryInMs, setUploadRetryInMs] = useState<number | null>(null);
   const [targetHeightMm, setTargetHeightMm] = useState(DEFAULT_PRINT_HEIGHT_MM);
+  const [printOrientation, setPrintOrientation] = useState<PrintOrientationKey>("upright");
+  const [orientationTouched, setOrientationTouched] = useState(false);
   const [isHollowModel, setIsHollowModel] = useState(true);
   const [infillPercent, setInfillPercent] = useState(DEFAULT_FDM_INFILL_PERCENT);
   const uploadXhrRef = useRef<XMLHttpRequest | null>(null);
@@ -733,19 +809,58 @@ function PrintServiceContent() {
     []
   );
 
+  const orientationAdvisor = useMemo(() => {
+    if (!metrics) return null;
+    const printerBase = toPrinterAxes(metrics.size);
+    const items: OrientationAdvisorItem[] = ORIENTATION_OPTIONS.map((option) => {
+      const oriented = orientPrinterDimensions(printerBase, option.key);
+      const evaluated = evaluateOrientationAdvisor(oriented);
+      return {
+        key: option.key,
+        label: option.label,
+        note: option.note,
+        ...evaluated,
+      };
+    });
+
+    const fittingSorted = items
+      .filter((item) => item.fitsBed)
+      .sort(
+        (a, b) =>
+          a.riskScore - b.riskScore ||
+          a.etaMinutes - b.etaMinutes ||
+          a.size.z - b.size.z
+      );
+    const recommendedKey = fittingSorted[0]?.key || "upright";
+    return {
+      items,
+      recommendedKey,
+    };
+  }, [metrics]);
+
+  useEffect(() => {
+    if (!orientationAdvisor || orientationTouched) return;
+    setPrintOrientation(orientationAdvisor.recommendedKey);
+  }, [orientationAdvisor, orientationTouched]);
+
+  const orientedBaseDimensions = useMemo(() => {
+    if (!metrics) return null;
+    const printerBase = toPrinterAxes(metrics.size);
+    return orientPrinterDimensions(printerBase, printOrientation);
+  }, [metrics, printOrientation]);
+
   const maxHeightForBedMm = useMemo(() => {
-    if (!metrics) return MAX_PRINT_HEIGHT_MM;
-    const printBase = toPrinterAxes(metrics.size);
-    const sx = Math.max(printBase.x, 1);
-    const sy = Math.max(printBase.y, 1);
-    const sz = Math.max(printBase.z, 1);
+    if (!orientedBaseDimensions) return MAX_PRINT_HEIGHT_MM;
+    const sx = Math.max(orientedBaseDimensions.x, 1);
+    const sy = Math.max(orientedBaseDimensions.y, 1);
+    const sz = Math.max(orientedBaseDimensions.z, 1);
     const maxScale = Math.min(BED_SIZE / sx, BED_SIZE / sy, BED_SIZE / sz);
     if (!Number.isFinite(maxScale) || maxScale <= 0) {
       return MIN_PRINT_HEIGHT_MM;
     }
     const recommended = Math.floor(sz * maxScale);
     return Math.max(MIN_PRINT_HEIGHT_MM, Math.min(MAX_PRINT_HEIGHT_MM, recommended));
-  }, [metrics]);
+  }, [orientedBaseDimensions]);
 
   const heightInputMax = useMemo(() => {
     return Math.max(
@@ -755,8 +870,8 @@ function PrintServiceContent() {
   }, [maxHeightForBedMm]);
 
   useEffect(() => {
-    if (!metrics) return;
-    const measuredHeight = toPrinterAxes(metrics.size).z;
+    if (!orientedBaseDimensions) return;
+    const measuredHeight = orientedBaseDimensions.z;
     const suggestedHeight =
       Number.isFinite(measuredHeight) &&
       measuredHeight >= MIN_PRINT_HEIGHT_MM &&
@@ -765,25 +880,24 @@ function PrintServiceContent() {
         : DEFAULT_PRINT_HEIGHT_MM;
     const next = Math.min(heightInputMax, suggestedHeight);
     setTargetHeightMm(Math.max(MIN_PRINT_HEIGHT_MM, next));
-  }, [heightInputMax, metrics]);
+  }, [heightInputMax, orientedBaseDimensions]);
 
   useEffect(() => {
     setTargetHeightMm((prev) => Math.min(prev, heightInputMax));
   }, [heightInputMax]);
 
   const scaledMetrics = useMemo(() => {
-    if (!metrics) return null;
-    const printBase = toPrinterAxes(metrics.size);
-    const baseHeight = Math.max(printBase.z, 1);
+    if (!metrics || !orientedBaseDimensions) return null;
+    const baseHeight = Math.max(orientedBaseDimensions.z, 1);
     const safeTargetHeight = Math.min(
       heightInputMax,
       Math.max(MIN_PRINT_HEIGHT_MM, targetHeightMm)
     );
     const scale = safeTargetHeight / baseHeight;
     const size = {
-      x: printBase.x * scale,
-      y: printBase.y * scale,
-      z: printBase.z * scale,
+      x: orientedBaseDimensions.x * scale,
+      y: orientedBaseDimensions.y * scale,
+      z: orientedBaseDimensions.z * scale,
     };
     const volumeCm3 = Math.max(0, metrics.volumeCm3 * Math.pow(scale, 3));
     return {
@@ -792,7 +906,7 @@ function PrintServiceContent() {
       scale,
       safeTargetHeight,
     };
-  }, [heightInputMax, metrics, targetHeightMm]);
+  }, [heightInputMax, metrics, orientedBaseDimensions, targetHeightMm]);
 
   const preflight = useMemo(
     () =>
@@ -909,6 +1023,8 @@ function PrintServiceContent() {
 
       setUploadedMedia(null);
       setMetrics(null);
+      setPrintOrientation("upright");
+      setOrientationTouched(false);
       setTechnologyLocked(false);
       setModelObject(null);
       setSourceThumb(null);
@@ -2218,6 +2334,67 @@ function PrintServiceContent() {
                   className="mt-3 w-full accent-[#2ED1FF]"
                 />
               </div>
+              {orientationAdvisor && (
+                <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <div className="mb-2 flex items-center justify-between">
+                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/55">
+                      Orientation advisor
+                    </p>
+                    <span className="text-[10px] uppercase tracking-[0.2em] text-white/40">
+                      3 варианта
+                    </span>
+                  </div>
+                  <div className="grid gap-2">
+                    {orientationAdvisor.items.map((item) => {
+                      const selected = item.key === printOrientation;
+                      const recommended = item.key === orientationAdvisor.recommendedKey;
+                      const statusTone =
+                        item.riskStatus === "critical"
+                          ? "text-red-200"
+                          : item.riskStatus === "risk"
+                            ? "text-amber-100"
+                            : "text-emerald-100";
+                      const statusLabel =
+                        item.riskStatus === "critical"
+                          ? "critical"
+                          : item.riskStatus === "risk"
+                            ? "risk"
+                            : "ok";
+                      return (
+                        <button
+                          key={item.key}
+                          type="button"
+                          onClick={() => {
+                            setOrientationTouched(true);
+                            setPrintOrientation(item.key);
+                          }}
+                          className={`rounded-xl border px-3 py-2 text-left transition ${
+                            selected
+                              ? "border-[#2ED1FF]/60 bg-[#2ED1FF]/10"
+                              : "border-white/10 bg-white/[0.03] hover:border-white/30"
+                          }`}
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="text-xs uppercase tracking-[0.2em] text-white/80">
+                              {item.label}
+                              {recommended ? " • recommended" : ""}
+                            </p>
+                            <p className={`text-[10px] uppercase tracking-[0.2em] ${statusTone}`}>
+                              {statusLabel} • Q:{item.riskScore}
+                            </p>
+                          </div>
+                          <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/45">
+                            {item.note} • ETA ~{item.etaMinutes}m
+                          </p>
+                          <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/50">
+                            {`${formatNumber(item.size.x)} x ${formatNumber(item.size.y)} x ${formatNumber(item.size.z)} мм`}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
               <div className="rounded-2xl border border-white/10 bg-black/30 p-4 text-sm text-white/80">
                 <div className="flex items-center justify-between text-base uppercase tracking-[0.2em] text-white/60">
                   <span>X</span>
@@ -2240,7 +2417,7 @@ function PrintServiceContent() {
                     <div className="mt-2 flex items-center justify-between text-sm tracking-[0.15em] text-white/40">
                       <span>База</span>
                       <span>
-                        {formatNumber(toPrinterAxes(metrics.size).z)}мм → {formatNumber(scaledMetrics.safeTargetHeight, 0)}мм
+                        {formatNumber(orientedBaseDimensions?.z || 0)}мм → {formatNumber(scaledMetrics.safeTargetHeight, 0)}мм
                       </span>
                     </div>
                   )}

@@ -55,6 +55,23 @@ type OverviewResponse = {
       blocked: boolean;
     }>;
   };
+  funnel?: {
+    generate: number;
+    save: number;
+    print: number;
+    cart: number;
+    cartOrders: number;
+    rates: {
+      generateToSave: number;
+      saveToPrint: number;
+      printToCart: number;
+    };
+    dropoff: {
+      generateToSave: number;
+      saveToPrint: number;
+      printToCart: number;
+    };
+  };
   failures?: Array<{
     id: string;
     user: { id: string; email: string; name: string };
@@ -122,6 +139,7 @@ export default function AdminToolsPage() {
   const topUsers = data?.tokens?.topUsers || [];
   const failures = data?.failures || [];
   const recentPrechecks = data?.prechecks?.recent || [];
+  const funnel = data?.funnel;
 
   return (
     <main className="min-h-screen bg-[#06090f] text-white">
@@ -265,6 +283,37 @@ export default function AdminToolsPage() {
                 </p>
               </article>
             </section>
+
+            {funnel && (
+              <section className={metricClass}>
+                <h2 className="mb-4 text-lg font-semibold">AI Funnel (generate → save → print → cart)</h2>
+                <div className="grid gap-3 md:grid-cols-4">
+                  {[
+                    { key: "generate", label: "Generate", value: funnel.generate },
+                    { key: "save", label: "Save", value: funnel.save },
+                    { key: "print", label: "Print", value: funnel.print },
+                    { key: "cart", label: "Cart items", value: funnel.cart },
+                  ].map((step) => (
+                    <div key={step.key} className="rounded-xl border border-white/10 bg-black/25 p-3">
+                      <p className="text-xs uppercase tracking-[0.2em] text-white/55">{step.label}</p>
+                      <p className="mt-1 text-2xl font-semibold text-white">{formatNumber(step.value)}</p>
+                    </div>
+                  ))}
+                </div>
+                <div className="mt-3 grid gap-2 text-xs text-white/70 md:grid-cols-3">
+                  <p>
+                    generate→save: {funnel.rates.generateToSave}% (drop {formatNumber(funnel.dropoff.generateToSave)})
+                  </p>
+                  <p>
+                    save→print: {funnel.rates.saveToPrint}% (drop {formatNumber(funnel.dropoff.saveToPrint)})
+                  </p>
+                  <p>
+                    print→cart: {funnel.rates.printToCart}% (drop {formatNumber(funnel.dropoff.printToCart)})
+                  </p>
+                </div>
+                <p className="mt-2 text-xs text-white/45">cart orders: {formatNumber(funnel.cartOrders)}</p>
+              </section>
+            )}
 
             <section className="grid gap-4 lg:grid-cols-2">
               <article className={metricClass}>
