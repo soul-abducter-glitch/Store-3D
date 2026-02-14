@@ -5,6 +5,13 @@ import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
 import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
+import {
+  buildYookassaIdempotencyKey,
+  createYookassaPayment,
+  getYookassaPayment,
+  mapYookassaPaymentStatus,
+  resolveYookassaConfig,
+} from "@/lib/yookassa";
 
 export const dynamic = "force-dynamic";
 
@@ -14,6 +21,7 @@ const buildIntentId = () => `mock_${randomUUID().slice(0, 12)}`;
 
 const stripeSecretKey = (process.env.STRIPE_SECRET_KEY || "").trim();
 const stripe = stripeSecretKey !== "" ? new Stripe(stripeSecretKey) : null;
+const expectedCurrency = (process.env.PAYMENTS_CURRENCY || "rub").trim().toUpperCase();
 
 const deliveryCostMap: Record<string, number> = {
   cdek: 200,
@@ -23,11 +31,9 @@ const deliveryCostMap: Record<string, number> = {
   pickup: 0,
 };
 
-const resolveOrderAmount = (order: any) => {
+const resolveOrderAmountMinor = (order: any) => {
   const baseTotal =
-    typeof order?.total === "number" && Number.isFinite(order.total)
-      ? order.total
-      : 0;
+    typeof order?.total === "number" && Number.isFinite(order.total) ? order.total : 0;
   const shippingMethod =
     typeof order?.shipping?.method === "string" ? order.shipping.method : "";
   const deliveryCost = deliveryCostMap[shippingMethod] ?? 0;
@@ -42,6 +48,16 @@ const normalizeOrderStatus = (value?: unknown) => {
 
 const isStripePaymentIntentId = (value?: unknown) =>
   typeof value === "string" && value.trim().startsWith("pi_");
+
+const isYookassaPaymentId = (value?: unknown) => {
+  if (typeof value !== "string") return false;
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (normalized.startsWith("pi_")) return false;
+  if (normalized.startsWith("mock_")) return false;
+  if (normalized.startsWith("checkout:req:")) return false;
+  return true;
+};
 
 const REUSABLE_STRIPE_STATUSES = new Set([
   "requires_payment_method",
@@ -84,6 +100,26 @@ const extractRelationshipId = (value: unknown): string | number | null => {
     return normalizeRelationshipId(candidate);
   }
   return normalizeRelationshipId(value);
+};
+
+const buildYookassaReturnUrl = (request: NextRequest, orderId: string) => {
+  const config = resolveYookassaConfig();
+  if (config.returnUrl) {
+    try {
+      const url = new URL(config.returnUrl);
+      if (!url.searchParams.has("orderId")) {
+        url.searchParams.set("orderId", orderId);
+      }
+      return url.toString();
+    } catch {
+      return config.returnUrl;
+    }
+  }
+
+  const fallback = new URL("/checkout", request.nextUrl.origin);
+  fallback.searchParams.set("orderId", orderId);
+  fallback.searchParams.set("payment", "return");
+  return fallback.toString();
 };
 
 export async function POST(request: NextRequest) {
@@ -246,8 +282,8 @@ export async function POST(request: NextRequest) {
         }
       }
 
-      const amount = resolveOrderAmount(order);
-      if (!amount) {
+      const amountMinor = resolveOrderAmountMinor(order);
+      if (!amountMinor) {
         return NextResponse.json(
           { success: false, error: "Order total is invalid." },
           { status: 400 }
@@ -255,8 +291,8 @@ export async function POST(request: NextRequest) {
       }
 
       const paymentIntent = await stripe.paymentIntents.create({
-        amount,
-        currency: "rub",
+        amount: amountMinor,
+        currency: expectedCurrency.toLowerCase(),
         receipt_email: order?.customer?.email ?? undefined,
         metadata: { orderId },
       });
@@ -284,6 +320,142 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (paymentsMode === "yookassa") {
+      const yookassaConfig = resolveYookassaConfig();
+      if (!yookassaConfig.shopId || !yookassaConfig.secretKey) {
+        return NextResponse.json(
+          { success: false, error: "YooKassa credentials are not configured." },
+          { status: 500 }
+        );
+      }
+
+      const currentPaymentStatus = String(order?.paymentStatus || "pending").toLowerCase();
+      if (currentPaymentStatus === "paid") {
+        return NextResponse.json(
+          {
+            success: true,
+            orderId,
+            paymentStatus: "paid",
+            paymentIntentId:
+              typeof order?.paymentIntentId === "string" ? order.paymentIntentId : null,
+          },
+          { status: 200 }
+        );
+      }
+
+      const existingPaymentIntentId =
+        typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
+
+      if (isYookassaPaymentId(existingPaymentIntentId)) {
+        try {
+          const existingPayment = await getYookassaPayment(existingPaymentIntentId, yookassaConfig);
+          const mappedStatus = mapYookassaPaymentStatus(existingPayment?.status);
+          const confirmationUrl =
+            typeof existingPayment?.confirmation?.confirmation_url === "string"
+              ? existingPayment.confirmation.confirmation_url
+              : null;
+
+          await payload.update({
+            collection: "orders",
+            id: orderId,
+            data: {
+              paymentStatus: mappedStatus === "failed" ? "failed" : mappedStatus,
+              paymentProvider: "yookassa",
+              paymentIntentId: existingPayment.id,
+              ...(mappedStatus === "paid"
+                ? { status: "paid", paidAt: new Date().toISOString() }
+                : {}),
+            },
+            overrideAccess: true,
+            req: {
+              headers: new Headers({
+                "x-internal-payment": "yookassa",
+              }),
+            } as any,
+          });
+
+          if (mappedStatus === "paid") {
+            return NextResponse.json(
+              {
+                success: true,
+                orderId,
+                paymentStatus: "paid",
+                paymentIntentId: existingPayment.id,
+              },
+              { status: 200 }
+            );
+          }
+
+          if (mappedStatus === "pending") {
+            return NextResponse.json(
+              {
+                success: true,
+                orderId,
+                paymentStatus: "pending",
+                paymentIntentId: existingPayment.id,
+                confirmationUrl,
+              },
+              { status: 200 }
+            );
+          }
+        } catch {
+          // Failed to reuse existing payment, create a new one below.
+        }
+      }
+
+      const amountMinor = resolveOrderAmountMinor(order);
+      if (!amountMinor) {
+        return NextResponse.json(
+          { success: false, error: "Order total is invalid." },
+          { status: 400 }
+        );
+      }
+
+      const payment = await createYookassaPayment(
+        {
+          orderId,
+          amountMinor,
+          currency: expectedCurrency,
+          description: `Order #${orderId}`,
+          returnUrl: buildYookassaReturnUrl(request, orderId),
+          idempotencyKey: buildYookassaIdempotencyKey("order", orderId),
+        },
+        yookassaConfig
+      );
+
+      const confirmationUrl =
+        typeof payment?.confirmation?.confirmation_url === "string"
+          ? payment.confirmation.confirmation_url
+          : null;
+
+      await payload.update({
+        collection: "orders",
+        id: orderId,
+        data: {
+          paymentStatus: "pending",
+          paymentProvider: "yookassa",
+          paymentIntentId: payment.id,
+        },
+        overrideAccess: true,
+        req: {
+          headers: new Headers({
+            "x-internal-payment": "yookassa",
+          }),
+        } as any,
+      });
+
+      return NextResponse.json(
+        {
+          success: true,
+          orderId,
+          paymentStatus: "pending",
+          paymentIntentId: payment.id,
+          confirmationUrl,
+        },
+        { status: 200 }
+      );
+    }
+
     const paymentIntentId = order.paymentIntentId ?? buildIntentId();
     await payload.update({
       collection: "orders",
@@ -294,6 +466,11 @@ export async function POST(request: NextRequest) {
         paymentIntentId,
       },
       overrideAccess: true,
+      req: {
+        headers: new Headers({
+          "x-internal-payment": "mock",
+        }),
+      } as any,
     });
 
     return NextResponse.json(
@@ -312,4 +489,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

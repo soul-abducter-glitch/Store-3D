@@ -155,7 +155,7 @@ export async function GET(
     },
   ];
 
-  if (paymentProvider === "stripe" || paymentProvider === "mock") {
+  if (paymentProvider === "stripe" || paymentProvider === "mock" || paymentProvider === "yookassa") {
     events.push({
       id: `idempotency-note-${String(order?.id)}`,
       code: "note",

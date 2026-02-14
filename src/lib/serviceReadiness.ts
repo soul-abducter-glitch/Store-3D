@@ -67,6 +67,43 @@ const hasStripeTopupConfig = () => {
   };
 };
 
+const hasOrderPaymentsConfig = () => {
+  const mode = toNonEmptyString(process.env.PAYMENTS_MODE || "off").toLowerCase();
+  if (!mode || mode === "off" || mode === "mock") {
+    return { ok: true, message: "Order payments are off/mock." };
+  }
+  if (mode === "stripe" || mode === "live") {
+    const stripeKey = toNonEmptyString(process.env.STRIPE_SECRET_KEY);
+    if (!stripeKey) {
+      return { ok: false, message: "PAYMENTS_MODE=stripe but STRIPE_SECRET_KEY is missing." };
+    }
+    return {
+      ok: true,
+      message: stripeKey.startsWith("sk_live_")
+        ? "Order payments via Stripe are configured in live mode."
+        : "Order payments via Stripe are configured in test mode.",
+    };
+  }
+  if (mode === "yookassa" || mode === "yoo") {
+    const shopId = toNonEmptyString(process.env.YOOKASSA_SHOP_ID);
+    if (!shopId) {
+      return { ok: false, message: "PAYMENTS_MODE=yookassa but YOOKASSA_SHOP_ID is missing." };
+    }
+    const secretKey = toNonEmptyString(process.env.YOOKASSA_SECRET_KEY);
+    if (!secretKey) {
+      return { ok: false, message: "PAYMENTS_MODE=yookassa but YOOKASSA_SECRET_KEY is missing." };
+    }
+    const returnUrl = toNonEmptyString(process.env.YOOKASSA_RETURN_URL);
+    return {
+      ok: true,
+      message: returnUrl
+        ? "Order payments via YooKassa are configured."
+        : "Order payments via YooKassa are configured (return URL fallback is used).",
+    };
+  }
+  return { ok: false, message: `Unsupported PAYMENTS_MODE value: ${mode}.` };
+};
+
 export const runServiceReadinessChecks = async (
   payload: PayloadLike
 ): Promise<ReadinessResult> => {
@@ -132,7 +169,12 @@ export const runServiceReadinessChecks = async (
     message: storageOk ? "Storage is configured." : "Storage variables are not configured.",
   });
 
-  const payments = hasStripeTopupConfig();
+  const topup = hasStripeTopupConfig();
+  const orderPayments = hasOrderPaymentsConfig();
+  const payments = {
+    ok: topup.ok && orderPayments.ok,
+    message: `${topup.message} ${orderPayments.message}`.trim(),
+  };
   checks.push({
     name: "payments",
     ok: payments.ok,

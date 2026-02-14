@@ -93,7 +93,8 @@ const normalizeOrderStatus = (value?: string) => {
 
 const resolvePaymentsMode = () => {
   const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
-  if (raw === "mock" || raw === "live" || raw === "stripe") return raw;
+  if (raw === "mock" || raw === "yookassa") return raw;
+  if (raw === "live" || raw === "stripe") return "stripe";
   return "off";
 };
 

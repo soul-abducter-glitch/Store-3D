@@ -4,6 +4,13 @@ import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
 import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
+import {
+  getYookassaPayment,
+  mapYookassaPaymentStatus,
+  resolveYookassaConfig,
+  yookassaAmountToMinor,
+  YookassaApiError,
+} from "@/lib/yookassa";
 
 export const dynamic = "force-dynamic";
 
@@ -200,9 +207,138 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    if (paymentsMode === "yookassa") {
+      const yookassaConfig = resolveYookassaConfig();
+      if (!yookassaConfig.shopId || !yookassaConfig.secretKey) {
+        return NextResponse.json(
+          { success: false, error: "YooKassa credentials are missing." },
+          { status: 500 }
+        );
+      }
+
+      if (!paymentIntentId) {
+        return NextResponse.json(
+          { success: false, error: "Missing paymentIntentId." },
+          { status: 400 }
+        );
+      }
+
+      const storedIntentId =
+        typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
+      if (storedIntentId && storedIntentId !== paymentIntentId) {
+        return NextResponse.json(
+          { success: false, error: "Payment id does not match order." },
+          { status: 400 }
+        );
+      }
+
+      let payment: Awaited<ReturnType<typeof getYookassaPayment>>;
+      try {
+        payment = await getYookassaPayment(paymentIntentId, yookassaConfig);
+      } catch (error: any) {
+        if (error instanceof YookassaApiError) {
+          return NextResponse.json(
+            { success: false, error: error.message, yookassaCode: error.statusCode },
+            { status: error.statusCode || 400 }
+          );
+        }
+        return NextResponse.json(
+          { success: false, error: error?.message || "YooKassa request failed." },
+          { status: 400 }
+        );
+      }
+
+      const metadataOrderId =
+        typeof payment?.metadata?.orderId === "string" ? payment.metadata.orderId.trim() : "";
+      if (metadataOrderId && metadataOrderId !== String(order.id)) {
+        return NextResponse.json(
+          { success: false, error: "Payment does not match order." },
+          { status: 400 }
+        );
+      }
+
+      const mappedStatus = mapYookassaPaymentStatus(payment?.status);
+      if (mappedStatus !== "paid") {
+        await payload.update({
+          collection: "orders",
+          id: order.id,
+          data: {
+            paymentStatus: mappedStatus === "failed" ? "failed" : "pending",
+            paymentProvider: "yookassa",
+            paymentIntentId,
+          },
+          overrideAccess: true,
+          req: {
+            user: authUser ?? undefined,
+            headers: new Headers({
+              "x-internal-payment": "yookassa",
+            }),
+          } as any,
+        });
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Payment status: ${String(payment?.status || "pending")}`,
+            paymentStatus: mappedStatus,
+          },
+          { status: 422 }
+        );
+      }
+
+      const expectedAmount = resolveExpectedAmountCents(order);
+      const paidAmount = yookassaAmountToMinor(payment?.amount?.value);
+      const paidCurrency = String(payment?.amount?.currency || "").trim().toLowerCase();
+      if (paidCurrency && paidCurrency !== expectedCurrency) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Payment currency does not match order currency.",
+            paidCurrency,
+            expectedCurrency,
+          },
+          { status: 422 }
+        );
+      }
+      if (expectedAmount > 0 && paidAmount < expectedAmount) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: "Paid amount is less than order total.",
+            paidAmount,
+            expectedAmount,
+          },
+          { status: 422 }
+        );
+      }
+
+      await payload.update({
+        collection: "orders",
+        id: order.id,
+        data: {
+          paymentStatus: "paid",
+          status: "paid",
+          paidAt: new Date().toISOString(),
+          paymentProvider: "yookassa",
+          paymentIntentId,
+        },
+        overrideAccess: true,
+        req: {
+          user: authUser ?? undefined,
+          headers: new Headers({
+            "x-internal-payment": "yookassa",
+          }),
+        } as any,
+      });
+
+      return NextResponse.json(
+        { success: true, orderId, paymentStatus: "paid" },
+        { status: 200 }
+      );
+    }
+
     if (paymentsMode !== "stripe") {
       return NextResponse.json(
-        { success: false, error: "Stripe mode is disabled." },
+        { success: false, error: "Card payments mode is disabled." },
         { status: 400 }
       );
     }
@@ -315,4 +451,3 @@ export async function POST(request: NextRequest) {
     );
   }
 }
-

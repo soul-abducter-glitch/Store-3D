@@ -42,7 +42,7 @@ const isInternalPaymentUpdate = (req?: any) => {
         req.headers["X-Internal-Payment"])) ||
     "";
   const normalized = String(headerValue || "").toLowerCase();
-  return normalized === "stripe" || normalized === "mock";
+  return normalized === "stripe" || normalized === "mock" || normalized === "yookassa";
 };
 
 const isOrderOwner: Access = ({ req }) => {
@@ -146,7 +146,8 @@ const normalizeOrderStatus = (value?: string) => {
 
 const resolvePaymentsMode = () => {
   const raw = (process.env.PAYMENTS_MODE || "off").trim().toLowerCase();
-  if (raw === "mock" || raw === "live" || raw === "stripe") return raw;
+  if (raw === "mock" || raw === "yookassa") return raw;
+  if (raw === "live" || raw === "stripe") return "stripe";
   return "off";
 };
 

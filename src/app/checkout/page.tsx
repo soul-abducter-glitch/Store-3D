@@ -945,6 +945,7 @@ const CheckoutPage = () => {
   const [pendingOrderPayload, setPendingOrderPayload] = useState<Record<string, any> | null>(null);
   const [paymentIntentId, setPaymentIntentId] = useState<string | null>(null);
   const [paymentClientSecret, setPaymentClientSecret] = useState<string | null>(null);
+  const [paymentConfirmationUrl, setPaymentConfirmationUrl] = useState<string | null>(null);
   const [paymentStageError, setPaymentStageError] = useState<string | null>(null);
   const [paymentLoading, setPaymentLoading] = useState(false);
   const [sbpQrSvg, setSbpQrSvg] = useState<string | null>(null);
@@ -962,6 +963,7 @@ const CheckoutPage = () => {
   const paymentsMode = normalizePaymentsMode(process.env.NEXT_PUBLIC_PAYMENTS_MODE || "mock");
   const isPaymentsMock = paymentsMode === "mock";
   const isStripeMode = paymentsMode === "stripe";
+  const isYookassaMode = paymentsMode === "yookassa";
   const [form, setForm] = useState({
     name: "",
     email: "",
@@ -1723,7 +1725,7 @@ const CheckoutPage = () => {
   );
 
   const handleRefreshPaymentIntent = useCallback(async () => {
-    if (paymentsMode !== "stripe") return;
+    if (paymentsMode !== "stripe" && paymentsMode !== "yookassa") return;
     if (!pendingOrderId) return;
     setPaymentLoading(true);
     setPaymentStageError(null);
@@ -1736,6 +1738,9 @@ const CheckoutPage = () => {
         typeof paymentData?.clientSecret === "string" ? paymentData.clientSecret : null;
       setPaymentIntentId(nextIntent);
       setPaymentClientSecret(nextClientSecret);
+      if (typeof paymentData?.confirmationUrl === "string" && paymentData.confirmationUrl) {
+        setPaymentConfirmationUrl(paymentData.confirmationUrl);
+      }
       if (nextStatus === "paid") {
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("orders-updated"));
@@ -1836,9 +1841,12 @@ const CheckoutPage = () => {
       );
       let nextIntentId: string | null = null;
       let nextClientSecret: string | null = null;
+      let nextConfirmationUrl: string | null = null;
       let paymentIntentError: string | null = null;
       const shouldRequestPayment =
-        Boolean(createdOrderId) && paymentMethod === "card" && paymentsMode === "stripe";
+        Boolean(createdOrderId) &&
+        paymentMethod === "card" &&
+        (paymentsMode === "stripe" || paymentsMode === "yookassa");
       if (shouldRequestPayment && createdOrderId) {
         try {
           const paymentData = await requestPaymentIntent(createdOrderId);
@@ -1850,6 +1858,10 @@ const CheckoutPage = () => {
           nextClientSecret =
             typeof paymentData?.clientSecret === "string"
               ? paymentData.clientSecret
+              : null;
+          nextConfirmationUrl =
+            typeof paymentData?.confirmationUrl === "string"
+              ? paymentData.confirmationUrl
               : null;
         } catch (error) {
           paymentIntentError =
@@ -1873,6 +1885,7 @@ const CheckoutPage = () => {
         paymentStatus,
         nextIntentId,
         nextClientSecret,
+        nextConfirmationUrl,
         paymentIntentError,
       };
     },
@@ -2086,6 +2099,7 @@ const CheckoutPage = () => {
         setPendingOrderId(null);
         setPaymentIntentId(null);
         setPaymentClientSecret(null);
+        setPaymentConfirmationUrl(null);
         setPaymentStageError(null);
         setStep("payment");
         setSubmitLock(false);
@@ -2097,6 +2111,7 @@ const CheckoutPage = () => {
         paymentStatus,
         nextIntentId,
         nextClientSecret,
+        nextConfirmationUrl,
         paymentIntentError,
       } = await createOrder(payload);
 
@@ -2116,6 +2131,7 @@ const CheckoutPage = () => {
         setPendingOrderId(createdOrderId);
         setPaymentIntentId(nextIntentId);
         setPaymentClientSecret(nextClientSecret);
+        setPaymentConfirmationUrl(nextConfirmationUrl);
         setPaymentStageError(paymentIntentError);
         setStep("payment");
         setSubmitLock(false);
@@ -2677,8 +2693,8 @@ const CheckoutPage = () => {
                         </div>
                       ) : (
                         <p className="text-xs text-white/50">
-                          Для цифровых файлов доступна только оплата картой. Настройте Stripe,
-                          чтобы продолжить.
+                          Для цифровых файлов доступна только оплата картой. Настройте платежный
+                          провайдер, чтобы продолжить.
                         </p>
                       )}
                       <div className="flex flex-wrap justify-center gap-3">
@@ -2693,6 +2709,45 @@ const CheckoutPage = () => {
                       </div>
                     </div>
                   )
+                ) : isYookassaMode && paymentMethod === "card" ? (
+                  <div className="mx-auto mt-6 w-full max-w-[480px] space-y-4 text-left">
+                    <div className="rounded-2xl border border-white/10 bg-black/40 px-4 py-4">
+                      <p className="text-xs uppercase tracking-[0.3em] text-white/50">
+                        Оплата через YooKassa
+                      </p>
+                      <p className="mt-2 text-sm text-white/70">
+                        Для оплаты откроется защищенная страница кассы.
+                      </p>
+                      <p className="mt-2 text-[11px] text-white/50">
+                        Работает в тестовом режиме, пока не включим боевые ключи.
+                      </p>
+                    </div>
+
+                    {paymentConfirmationUrl ? (
+                      <a
+                        href={paymentConfirmationUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex w-full items-center justify-center rounded-full bg-white px-6 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-black shadow-[0_0_18px_rgba(46,209,255,0.35)] transition hover:bg-white/95"
+                      >
+                        Перейти к оплате
+                      </a>
+                    ) : (
+                      <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+                        Не удалось получить ссылку оплаты. Нажмите «Проверить статус» или
+                        повторите создание платежа.
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:text-xs"
+                      onClick={handleRefreshPaymentIntent}
+                      disabled={paymentLoading}
+                    >
+                      Проверить статус
+                    </button>
+                  </div>
                 ) : (
                   <div className="mt-6 flex flex-col items-center gap-4">
                     {isPaymentsMock && paymentMethod !== "card" && (
@@ -2778,7 +2833,7 @@ const CheckoutPage = () => {
                             : "Подтвердить заказ"}
                       </button>
                     )}
-                    {isStripeMode && (
+                    {(isStripeMode || isYookassaMode) && (
                       <button
                         type="button"
                         className="w-full rounded-full border border-white/20 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white sm:w-auto sm:text-xs"

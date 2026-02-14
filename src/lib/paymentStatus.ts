@@ -9,6 +9,7 @@ const PAYMENT_STATUS_LABELS: Record<PaymentStatusKey, string> = {
 
 const PAYMENT_PROVIDER_LABELS: Record<string, string> = {
   stripe: "Stripe",
+  yookassa: "YooKassa",
   mock: "Тестовый режим (Mock)",
   internal: "Внутренний",
   unknown: "Не указан",
@@ -31,4 +32,3 @@ export const getPaymentProviderLabel = (value?: string | null) => {
   if (!raw) return PAYMENT_PROVIDER_LABELS.unknown;
   return PAYMENT_PROVIDER_LABELS[raw] || raw.toUpperCase();
 };
-

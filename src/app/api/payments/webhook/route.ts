@@ -5,6 +5,12 @@ import { getPayload } from "payload";
 import payloadConfig from "../../../../../payload.config";
 import { refundUserAiCredits } from "@/lib/aiCredits";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
+import {
+  isYookassaWebhookAuthorized,
+  resolveYookassaConfig,
+  yookassaAmountToMinor,
+} from "@/lib/yookassa";
 
 export const dynamic = "force-dynamic";
 
@@ -105,6 +111,22 @@ const mapStripeEventToStatus = (eventType: string) => {
   if (eventType === "payment_intent.payment_failed") return "failed";
   if (eventType === "charge.refunded") return "refunded";
   return null;
+};
+
+const mapYookassaEventToStatus = (eventType: string) => {
+  if (eventType === "payment.succeeded") return "paid";
+  if (eventType === "payment.canceled") return "failed";
+  if (eventType === "payment.waiting_for_capture") return "pending";
+  return null;
+};
+
+const parseJsonSafe = (value?: string | null) => {
+  if (!value) return null;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return null;
+  }
 };
 
 const hasTopupIdempotencyEvent = async (payload: any, idempotencyKey: string) => {
@@ -220,20 +242,166 @@ const handleStripeTopupWebhook = async (payload: any, event: Stripe.Event) => {
   );
 };
 
+const handleYookassaWebhook = async (
+  payload: any,
+  eventType: string,
+  paymentObject: any
+) => {
+  const nextStatus = mapYookassaEventToStatus(eventType);
+  if (!nextStatus) {
+    return NextResponse.json(
+      { success: true, ignored: true, type: eventType },
+      { status: 200 }
+    );
+  }
+
+  const paymentIntentId =
+    typeof paymentObject?.id === "string" ? paymentObject.id.trim() : "";
+  const metadataOrderId =
+    typeof paymentObject?.metadata?.orderId === "string"
+      ? paymentObject.metadata.orderId.trim()
+      : "";
+  const orderId =
+    metadataOrderId || (await resolveOrderIdFromIntent(payload, paymentIntentId || ""));
+
+  if (!orderId) {
+    return NextResponse.json(
+      { success: true, ignored: true, reason: "order_not_found", type: eventType },
+      { status: 200 }
+    );
+  }
+
+  const order = await payload.findByID({
+    collection: "orders",
+    id: orderId,
+    depth: 0,
+    overrideAccess: true,
+  });
+  if (!order) {
+    return NextResponse.json(
+      { success: true, ignored: true, reason: "order_not_found", type: eventType, orderId },
+      { status: 200 }
+    );
+  }
+
+  const orderStatus = normalizeOrderStatus(order?.status);
+  const currentPaymentStatus = normalizePaymentStatus(order?.paymentStatus);
+  const currentProvider = normalizeProvider(order?.paymentProvider);
+  const currentIntentId =
+    typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
+
+  if (
+    nextStatus === "paid" &&
+    (orderStatus === "cancelled" || orderStatus === "canceled" || orderStatus === "completed")
+  ) {
+    return NextResponse.json(
+      { success: true, ignored: true, reason: "order_terminal_status", orderId, type: eventType },
+      { status: 200 }
+    );
+  }
+
+  if (nextStatus === "paid") {
+    const expectedAmount = resolveExpectedAmountCents(order);
+    const paidAmount = yookassaAmountToMinor(
+      typeof paymentObject?.amount?.value === "string" ? paymentObject.amount.value : undefined
+    );
+    const paidCurrency = String(paymentObject?.amount?.currency || "").trim().toLowerCase();
+
+    if (paidCurrency && paidCurrency !== expectedCurrency) {
+      return NextResponse.json(
+        {
+          success: true,
+          ignored: true,
+          reason: "currency_mismatch",
+          orderId,
+          paidCurrency,
+          expectedCurrency,
+          type: eventType,
+        },
+        { status: 200 }
+      );
+    }
+
+    if (expectedAmount > 0 && paidAmount < expectedAmount) {
+      return NextResponse.json(
+        {
+          success: true,
+          ignored: true,
+          reason: "amount_mismatch",
+          orderId,
+          paidAmount,
+          expectedAmount,
+          type: eventType,
+        },
+        { status: 200 }
+      );
+    }
+  }
+
+  const sameIntent = !paymentIntentId || currentIntentId === paymentIntentId;
+  const paidStateAlreadyApplied =
+    nextStatus !== "paid" ||
+    ((orderStatus === "paid" || orderStatus === "completed") && Boolean(order?.paidAt));
+  const isDuplicateEvent =
+    currentPaymentStatus === nextStatus &&
+    currentProvider === "yookassa" &&
+    sameIntent &&
+    paidStateAlreadyApplied;
+
+  if (isDuplicateEvent) {
+    return NextResponse.json(
+      { success: true, ignored: true, reason: "duplicate_event", orderId, type: eventType },
+      { status: 200 }
+    );
+  }
+
+  const updateData: Record<string, unknown> = {
+    paymentStatus: nextStatus,
+    paymentProvider: "yookassa",
+  };
+  if (paymentIntentId) {
+    updateData.paymentIntentId = paymentIntentId;
+  }
+  if (nextStatus === "paid") {
+    updateData.status = "paid";
+    updateData.paidAt = new Date().toISOString();
+  }
+
+  await payload.update({
+    collection: "orders",
+    id: orderId,
+    data: updateData,
+    overrideAccess: true,
+    req: {
+      headers: new Headers({
+        "x-internal-payment": "yookassa",
+      }),
+    } as any,
+  });
+
+  return NextResponse.json(
+    { success: true, orderId, paymentStatus: nextStatus, type: eventType },
+    { status: 200 }
+  );
+};
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
+    const rawBody = await request.text();
 
-    if (stripe && stripeWebhookSecret) {
-      const signature = request.headers.get("stripe-signature") || "";
-      if (!signature) {
-        return NextResponse.json({ success: false, error: "Missing stripe signature." }, { status: 401 });
+    const stripeSignature = request.headers.get("stripe-signature") || "";
+    if (stripeSignature) {
+      if (!stripe || !stripeWebhookSecret) {
+        return NextResponse.json(
+          { success: false, error: "Stripe webhook is not configured." },
+          { status: 401 }
+        );
       }
 
-      const rawBody = await request.text();
       let event: Stripe.Event;
       try {
-        event = stripe.webhooks.constructEvent(rawBody, signature, stripeWebhookSecret);
+        event = stripe.webhooks.constructEvent(rawBody, stripeSignature, stripeWebhookSecret);
       } catch (error: any) {
         return NextResponse.json(
           { success: false, error: error?.message || "Invalid stripe signature." },
@@ -387,11 +555,45 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const jsonBody = parseJsonSafe(rawBody);
+    const yookassaEventType =
+      typeof jsonBody?.event === "string" ? jsonBody.event.trim().toLowerCase() : "";
+    const yookassaObject =
+      jsonBody?.object && typeof jsonBody.object === "object" ? jsonBody.object : null;
+    const looksLikeYookassa = Boolean(yookassaEventType.startsWith("payment.") && yookassaObject);
+
+    if (looksLikeYookassa) {
+      const paymentsMode = resolveServerPaymentsMode();
+      if (paymentsMode !== "yookassa") {
+        return NextResponse.json(
+          { success: true, ignored: true, reason: "payments_mode_mismatch", type: yookassaEventType },
+          { status: 200 }
+        );
+      }
+
+      const yookassaConfig = resolveYookassaConfig();
+      if (!yookassaConfig.shopId || !yookassaConfig.secretKey) {
+        return NextResponse.json(
+          { success: false, error: "YooKassa webhook received but credentials are missing." },
+          { status: 500 }
+        );
+      }
+
+      if (!isYookassaWebhookAuthorized(request, yookassaConfig)) {
+        return NextResponse.json(
+          { success: false, error: "Unauthorized YooKassa webhook." },
+          { status: 401 }
+        );
+      }
+
+      return handleYookassaWebhook(payload, yookassaEventType, yookassaObject);
+    }
+
     if (!isWebhookAuthorized(request)) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
     }
 
-    const data = await request.json().catch(() => null);
+    const data = jsonBody && typeof jsonBody === "object" ? jsonBody : {};
     const orderId = data?.orderId ? String(data.orderId).trim() : "";
     if (!orderId) {
       return NextResponse.json({ success: false, error: "Missing orderId." }, { status: 400 });
