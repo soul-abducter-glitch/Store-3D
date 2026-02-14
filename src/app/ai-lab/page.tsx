@@ -751,6 +751,11 @@ function AiLabContent() {
     });
   }, []);
 
+  const clearInputReferences = useCallback(() => {
+    setInputReferences([]);
+    setUploadPreview(null);
+  }, []);
+
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragActive(false);
@@ -1012,6 +1017,7 @@ function AiLabContent() {
             format: nextJob.result.format,
             localOnly: false,
           });
+          clearInputReferences();
           void fetchJobHistory(true);
         }
         failureCount = 0;
@@ -1042,7 +1048,15 @@ function AiLabContent() {
         window.clearTimeout(timer);
       }
     };
-  }, [fetchJobHistory, inputReferences, pushUiError, registerGeneratedAsset, serverJob?.id, serverJob?.status]);
+  }, [
+    clearInputReferences,
+    fetchJobHistory,
+    inputReferences,
+    pushUiError,
+    registerGeneratedAsset,
+    serverJob?.id,
+    serverJob?.status,
+  ]);
 
   const handleSelectAsset = (asset: GeneratedAsset) => {
     if (!asset.modelUrl) {
@@ -1681,7 +1695,10 @@ function AiLabContent() {
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60" />
                 <div className="absolute bottom-3 left-3 flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-emerald-200">
                   <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.7)]" />
-                  SCANNING
+                  {`REFS: ${inputReferences.length} / ${MAX_INPUT_REFERENCES}`}
+                </div>
+                <div className="absolute bottom-3 right-3 rounded-full border border-white/20 bg-black/50 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75">
+                  Add more
                 </div>
               </div>
             ) : uploadedModelName ? (
@@ -1709,9 +1726,22 @@ function AiLabContent() {
           <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
               <span>References</span>
-              <span>
-                {inputReferences.length} / {MAX_INPUT_REFERENCES}
-              </span>
+              <div className="flex items-center gap-2">
+                <span>
+                  {inputReferences.length} / {MAX_INPUT_REFERENCES}
+                </span>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    clearInputReferences();
+                  }}
+                  disabled={inputReferences.length === 0}
+                  className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/65 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  Clear
+                </button>
+              </div>
             </div>
             {inputReferences.length === 0 ? (
               <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
@@ -1980,9 +2010,9 @@ function AiLabContent() {
                           onClick={() => void handleVariationHistoryJob(job)}
                           disabled={historyAction?.id === job.id || job.status !== "completed"}
                           className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          title="Создать вариацию"
+                          title="Создать ремикс (альтернативный вариант)"
                         >
-                          {historyAction?.id === job.id && historyAction.type === "variation" ? "..." : "VAR"}
+                          {historyAction?.id === job.id && historyAction.type === "variation" ? "..." : "REMIX"}
                         </button>
                         <button
                           type="button"

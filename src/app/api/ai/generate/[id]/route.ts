@@ -383,7 +383,13 @@ export async function POST(
     let provider = providerResolution.effectiveProvider;
     let fallbackHint = providerResolution.fallbackToMock ? providerResolution.reason : null;
     const mode = sourceJob.mode === "text" ? "text" : "image";
-    const prompt = toNonEmptyString(body?.prompt).slice(0, 800) || toNonEmptyString(sourceJob?.prompt) || "Reference import";
+    const requestedPrompt = toNonEmptyString(body?.prompt).slice(0, 800);
+    const sourcePrompt = toNonEmptyString(sourceJob?.prompt) || "Reference import";
+    const variationSuffix =
+      action === "variation" && !requestedPrompt
+        ? ` variation-${Date.now().toString().slice(-6)}`
+        : "";
+    const prompt = (requestedPrompt || `${sourcePrompt}${variationSuffix}`).slice(0, 800);
     const sourceUrlFromBody = toNonEmptyString(body?.sourceUrl).slice(0, 2048);
     const inheritedSourceUrl = toNonEmptyString(sourceJob?.sourceUrl).slice(0, 2048);
     const seedPreviewUrl = toNonEmptyString(sourceJob?.result?.previewUrl).slice(0, 2048);
