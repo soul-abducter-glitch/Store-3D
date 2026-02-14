@@ -61,6 +61,32 @@ export const AiAssets: CollectionConfig = {
       },
     },
     {
+      name: "previousAsset",
+      type: "relationship",
+      relationTo: "ai_assets",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "familyId",
+      type: "text",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "version",
+      type: "number",
+      defaultValue: 1,
+      min: 1,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "status",
       type: "select",
       required: true,

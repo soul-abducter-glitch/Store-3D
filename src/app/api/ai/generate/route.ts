@@ -73,6 +73,61 @@ const toNonEmptyString = (value: unknown) => {
   return value.trim();
 };
 
+type InputReference = {
+  url: string;
+  name?: string;
+  type?: string;
+};
+
+const isHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const normalizeInputReferences = (value: unknown): InputReference[] => {
+  if (!Array.isArray(value)) return [];
+  const normalized: InputReference[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const url = toNonEmptyString((item as { url?: unknown; sourceUrl?: unknown }).url);
+    const fallbackUrl = toNonEmptyString((item as { url?: unknown; sourceUrl?: unknown }).sourceUrl);
+    const name = toNonEmptyString((item as { name?: unknown }).name).slice(0, 120);
+    const rawUrl = (url || fallbackUrl).slice(0, 2048);
+    const resolvedUrl = rawUrl.startsWith("data:")
+      ? `inline://local-image/${encodeURIComponent(name || `ref-${normalized.length + 1}`)}`
+      : rawUrl;
+    if (!resolvedUrl) continue;
+    const type = toNonEmptyString((item as { type?: unknown; mime?: unknown }).type || (item as any).mime).slice(
+      0,
+      80
+    );
+    normalized.push({
+      url: resolvedUrl,
+      ...(name ? { name } : {}),
+      ...(type ? { type } : {}),
+    });
+    if (normalized.length >= 4) break;
+  }
+  return normalized;
+};
+
+const pickProviderSourceUrl = (sourceUrl: string, refs: InputReference[]) => {
+  if (isHttpUrl(sourceUrl)) return sourceUrl;
+  const firstPublic = refs.find((ref) => isHttpUrl(ref.url));
+  if (firstPublic) return firstPublic.url;
+  return "";
+};
+
+const extractRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    const candidate =
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+    return normalizeRelationshipId(candidate);
+  }
+  return normalizeRelationshipId(value);
+};
+
 const normalizeRelationshipId = (value: unknown): string | number | null => {
   let current: unknown = value;
   while (typeof current === "object" && current !== null) {
@@ -131,6 +186,15 @@ const serializeJob = (job: any) => ({
   prompt: typeof job?.prompt === "string" ? job.prompt : "",
   sourceType: typeof job?.sourceType === "string" ? job.sourceType : "none",
   sourceUrl: typeof job?.sourceUrl === "string" ? job.sourceUrl : "",
+  inputRefs: normalizeInputReferences(job?.inputRefs),
+  parentJobId: (() => {
+    const id = extractRelationshipId(job?.parentJob);
+    return id === null ? null : String(id);
+  })(),
+  parentAssetId: (() => {
+    const id = extractRelationshipId(job?.parentAsset);
+    return id === null ? null : String(id);
+  })(),
   errorMessage: typeof job?.errorMessage === "string" ? job.errorMessage : "",
   result: {
     modelUrl: typeof job?.result?.modelUrl === "string" ? job.result.modelUrl : "",
@@ -213,8 +277,23 @@ export async function POST(request: NextRequest) {
     const mode = normalizeMode(body?.mode);
     const prompt = toNonEmptyString(body?.prompt).slice(0, 800);
     const sourceUrl = toNonEmptyString(body?.sourceUrl).slice(0, 2048);
-    const hasImageReference = Boolean(body?.hasImageReference);
-    const sourceType = sourceUrl ? "url" : hasImageReference ? "image" : "none";
+    const parentJobId = normalizeRelationshipId(body?.parentJobId);
+    const parentAssetId = normalizeRelationshipId(body?.parentAssetId);
+    const sourceRefsFromBody = normalizeInputReferences(body?.sourceRefs);
+    const sourceRefs = (() => {
+      const next = [...sourceRefsFromBody];
+      if (sourceUrl && !next.some((ref) => ref.url === sourceUrl)) {
+        next.unshift({
+          url: sourceUrl,
+          name: "primary-reference",
+        });
+      }
+      return next.slice(0, 4);
+    })();
+    const hasImageReference = Boolean(body?.hasImageReference) || sourceRefs.length > 0;
+    const providerSourceUrl = pickProviderSourceUrl(sourceUrl, sourceRefs);
+    const sourceType: "none" | "url" | "image" =
+      providerSourceUrl ? "url" : hasImageReference ? "image" : "none";
 
     if (!prompt && sourceType === "none") {
       return NextResponse.json(
@@ -263,8 +342,8 @@ export async function POST(request: NextRequest) {
       provider,
       mode,
       prompt: prompt || "Reference import",
-      sourceType: sourceType as "none" | "url" | "image",
-      sourceUrl,
+      sourceType,
+      sourceUrl: providerSourceUrl,
     });
     if (inputValidationError && provider !== "mock") {
       provider = "mock";
@@ -297,8 +376,8 @@ export async function POST(request: NextRequest) {
       provider,
       mode,
       prompt: prompt || "Reference import",
-      sourceType: sourceType as "none" | "url" | "image",
-      sourceUrl,
+      sourceType,
+      sourceUrl: providerSourceUrl,
     }).catch(async (providerError) => {
       if (!ENABLE_PROVIDER_RUNTIME_FALLBACK || provider === "mock") {
         throw providerError;
@@ -310,8 +389,8 @@ export async function POST(request: NextRequest) {
         provider: "mock",
         mode,
         prompt: prompt || "Reference import",
-        sourceType: sourceType as "none" | "url" | "image",
-        sourceUrl,
+        sourceType,
+        sourceUrl: providerSourceUrl,
       });
     });
 
@@ -327,7 +406,10 @@ export async function POST(request: NextRequest) {
         progress: submission.progress,
         prompt: prompt || "Reference import",
         sourceType,
-        sourceUrl: sourceUrl || undefined,
+        sourceUrl: sourceUrl || providerSourceUrl || undefined,
+        inputRefs: sourceRefs.length > 0 ? sourceRefs : undefined,
+        parentJob: parentJobId ?? undefined,
+        parentAsset: parentAssetId ?? undefined,
         startedAt:
           submission.status === "processing" || submission.status === "completed" ? now : undefined,
         completedAt: submission.status === "completed" ? now : undefined,

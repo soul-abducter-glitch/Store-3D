@@ -21,6 +21,13 @@ import ModelView from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 
 type SynthesisMode = "image" | "text";
+type AiReferenceItem = {
+  id: string;
+  url: string;
+  name: string;
+  type: string;
+  previewUrl: string | null;
+};
 
 type GeneratedAsset = {
   id: string;
@@ -42,6 +49,9 @@ type AiGenerationJob = {
   prompt: string;
   sourceType: "none" | "url" | "image";
   sourceUrl: string;
+  inputRefs?: Array<{ url: string; name?: string; type?: string }>;
+  parentJobId?: string | null;
+  parentAssetId?: string | null;
   errorMessage: string;
   result: {
     modelUrl: string;
@@ -63,6 +73,9 @@ type AiGenerationJob = {
 type AiAssetRecord = {
   id: string;
   jobId: string | null;
+  previousAssetId?: string | null;
+  familyId?: string;
+  version?: number;
   title: string;
   modelUrl: string;
   previewUrl: string;
@@ -101,6 +114,7 @@ const AI_ASSETS_API_URL = "/api/ai/assets";
 const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
 const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
+const MAX_INPUT_REFERENCES = 4;
 const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
   { id: "starter", title: "STARTER", credits: 50, note: "STRIPE TEST" },
   { id: "pro", title: "PRO", credits: 200, note: "STRIPE TEST" },
@@ -384,6 +398,7 @@ function AiLabContent() {
   const [mode, setMode] = useState<SynthesisMode>("image");
   const [prompt, setPrompt] = useState("");
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
+  const [inputReferences, setInputReferences] = useState<AiReferenceItem[]>([]);
   const [localPreviewModel, setLocalPreviewModel] = useState<string | null>(null);
   const [localPreviewLabel, setLocalPreviewLabel] = useState<string | null>(null);
   const [uploadedModelName, setUploadedModelName] = useState<string | null>(null);
@@ -410,7 +425,7 @@ function AiLabContent() {
   const [jobHistoryFilter, setJobHistoryFilter] = useState<JobHistoryFilter>("all");
   const [historyAction, setHistoryAction] = useState<{
     id: string;
-    type: "retry" | "delete" | "publish";
+    type: "retry" | "variation" | "delete" | "publish";
   } | null>(null);
   const [publishedAssetsByJobId, setPublishedAssetsByJobId] = useState<Record<string, string>>({});
   const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
@@ -655,43 +670,91 @@ function AiLabContent() {
     }
   }, [gallery]);
 
-  const handleFile = (file?: File | null) => {
-    if (!file) return;
-    const lowerName = file.name.toLowerCase();
-    const isModelFile = /\.(glb|gltf)$/.test(lowerName);
-    const isImageFile =
-      file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/.test(lowerName);
-
-    if (isModelFile) {
-      const nextPreview = URL.createObjectURL(file);
-      setLocalPreviewModel(nextPreview);
-      setLocalPreviewLabel(file.name);
-      setUploadedModelName(file.name);
-      setUploadPreview(null);
-      return;
-    }
-
-    if (isImageFile) {
+  const fileToDataUrl = (file: File) =>
+    new Promise<string>((resolve, reject) => {
       const reader = new FileReader();
       reader.onload = () => {
-        const result = typeof reader.result === "string" ? reader.result : null;
-        setUploadPreview(result);
+        const result = typeof reader.result === "string" ? reader.result : "";
+        if (!result) {
+          reject(new Error("Failed to read image file."));
+          return;
+        }
+        resolve(result);
       };
+      reader.onerror = () => reject(new Error("Failed to read image file."));
       reader.readAsDataURL(file);
-      setLocalPreviewModel(null);
-      setLocalPreviewLabel(null);
-      setUploadedModelName(null);
-      return;
-    }
+    });
 
-    pushUiError("Неподдерживаемый формат. Разрешены изображения и .glb/.gltf.");
-  };
+  const handleFiles = useCallback(
+    async (files?: FileList | File[] | null) => {
+      const incoming = files ? Array.from(files) : [];
+      if (incoming.length === 0) return;
+
+      const modelFile = incoming.find((file) => /\.(glb|gltf)$/i.test(file.name));
+      const imageFiles = incoming.filter((file) => {
+        const lowerName = file.name.toLowerCase();
+        return file.type.startsWith("image/") || /\.(png|jpe?g|webp|gif|bmp)$/i.test(lowerName);
+      });
+
+      if (modelFile) {
+        const nextPreview = URL.createObjectURL(modelFile);
+        setLocalPreviewModel(nextPreview);
+        setLocalPreviewLabel(modelFile.name);
+        setUploadedModelName(modelFile.name);
+      }
+
+      if (imageFiles.length > 0) {
+        const slotsLeft = Math.max(0, MAX_INPUT_REFERENCES - inputReferences.length);
+        if (slotsLeft <= 0) {
+          pushUiError(`Можно добавить максимум ${MAX_INPUT_REFERENCES} референса.`);
+          return;
+        }
+        const acceptedImageFiles = imageFiles.slice(0, slotsLeft);
+        const loadedReferences = await Promise.all(
+          acceptedImageFiles.map(async (file) => {
+            const url = await fileToDataUrl(file);
+            return {
+              id: createId(),
+              url,
+              name: file.name.slice(0, 80) || "reference-image",
+              type: file.type || "image/*",
+              previewUrl: url,
+            } as AiReferenceItem;
+          })
+        );
+        setInputReferences((prev) => {
+          const next = [...prev, ...loadedReferences].slice(0, MAX_INPUT_REFERENCES);
+          setUploadPreview(next[0]?.previewUrl ?? null);
+          return next;
+        });
+        setLocalPreviewModel(null);
+        setLocalPreviewLabel(null);
+        setUploadedModelName(null);
+        if (acceptedImageFiles.length < imageFiles.length) {
+          pushUiError(`Лишние файлы пропущены. Лимит: ${MAX_INPUT_REFERENCES}.`);
+        }
+        return;
+      }
+
+      if (!modelFile) {
+        pushUiError("Неподдерживаемый формат. Разрешены изображения и .glb/.gltf.");
+      }
+    },
+    [inputReferences.length, pushUiError]
+  );
+
+  const handleRemoveInputReference = useCallback((refId: string) => {
+    setInputReferences((prev) => {
+      const next = prev.filter((item) => item.id !== refId);
+      setUploadPreview(next[0]?.previewUrl ?? null);
+      return next;
+    });
+  }, []);
 
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragActive(false);
-    const file = event.dataTransfer.files?.[0];
-    handleFile(file);
+    void handleFiles(event.dataTransfer.files);
   };
 
   const handleBrowse = () => {
@@ -779,7 +842,7 @@ function AiLabContent() {
         const assets = Array.isArray(data?.assets) ? (data.assets as AiAssetRecord[]) : [];
         const next: Record<string, string> = {};
         assets.forEach((asset) => {
-          if (asset?.jobId) {
+          if (asset?.jobId && !next[String(asset.jobId)]) {
             next[String(asset.jobId)] = String(asset.id);
           }
         });
@@ -811,7 +874,7 @@ function AiLabContent() {
       showError(`Not enough tokens. Need ${tokenCost}.`);
       return;
     }
-    if (!prompt.trim() && !uploadPreview && !localPreviewModel && !previewModel) {
+    if (!prompt.trim() && inputReferences.length === 0 && !localPreviewModel && !previewModel) {
       showError("Add a prompt or reference before generation.");
       return;
     }
@@ -823,6 +886,20 @@ function AiLabContent() {
     setLatestCompletedJob(null);
 
     try {
+      const sourceRefsPayload = inputReferences
+        .map((ref) => ({
+          url: ref.url,
+          name: ref.name,
+          type: ref.type,
+        }))
+        .slice(0, MAX_INPUT_REFERENCES);
+      if (previewModel && !sourceRefsPayload.some((ref) => ref.url === previewModel)) {
+        sourceRefsPayload.unshift({
+          url: previewModel,
+          name: "preview-model",
+          type: "model/preview",
+        });
+      }
       const response = await fetch(AI_GENERATE_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -831,7 +908,8 @@ function AiLabContent() {
           mode,
           prompt: prompt.trim(),
           sourceUrl: previewModel || "",
-          hasImageReference: Boolean(uploadPreview || localPreviewModel),
+          sourceRefs: sourceRefsPayload.slice(0, MAX_INPUT_REFERENCES),
+          hasImageReference: Boolean(inputReferences.length > 0 || localPreviewModel || previewModel),
         }),
       });
       const data = await response.json().catch(() => null);
@@ -870,6 +948,7 @@ function AiLabContent() {
     fetchJobHistory,
     fetchTokenHistory,
     fetchTokens,
+    inputReferences,
     localPreviewModel,
     mode,
     isSynthRunning,
@@ -881,7 +960,6 @@ function AiLabContent() {
     tokenCost,
     tokens,
     tokensLoading,
-    uploadPreview,
   ]);
 
   useEffect(() => {
@@ -930,7 +1008,7 @@ function AiLabContent() {
           registerGeneratedAsset({
             name: nextJob.prompt || "AI Model",
             modelUrl: nextJob.result.modelUrl,
-            previewImage: nextJob.result.previewUrl || uploadPreview || null,
+            previewImage: nextJob.result.previewUrl || inputReferences[0]?.previewUrl || null,
             format: nextJob.result.format,
             localOnly: false,
           });
@@ -964,7 +1042,7 @@ function AiLabContent() {
         window.clearTimeout(timer);
       }
     };
-  }, [fetchJobHistory, pushUiError, registerGeneratedAsset, serverJob?.id, serverJob?.status, uploadPreview]);
+  }, [fetchJobHistory, inputReferences, pushUiError, registerGeneratedAsset, serverJob?.id, serverJob?.status]);
 
   const handleSelectAsset = (asset: GeneratedAsset) => {
     if (!asset.modelUrl) {
@@ -1010,6 +1088,30 @@ function AiLabContent() {
       setGeneratedPreviewModel(job.result.modelUrl);
       setGeneratedPreviewLabel(job.prompt || `Job ${job.id}`);
     }
+    const refs = Array.isArray(job.inputRefs)
+      ? job.inputRefs
+          .map((ref) => {
+            const url = typeof ref?.url === "string" ? ref.url.trim() : "";
+            if (!url || url.startsWith("inline://")) return null;
+            const previewUrl = url.startsWith("data:") ? url : null;
+            return {
+              id: createId(),
+              url,
+              name:
+                typeof ref?.name === "string" && ref.name.trim()
+                  ? ref.name.trim().slice(0, 80)
+                  : "history-reference",
+              type:
+                typeof ref?.type === "string" && ref.type.trim()
+                  ? ref.type.trim().slice(0, 80)
+                  : "image/*",
+              previewUrl,
+            } as AiReferenceItem;
+          })
+          .filter(Boolean) as AiReferenceItem[]
+      : [];
+    setInputReferences(refs.slice(0, MAX_INPUT_REFERENCES));
+    setUploadPreview(refs[0]?.previewUrl ?? null);
   };
 
   const handleRetryHistoryJob = useCallback(
@@ -1085,6 +1187,89 @@ function AiLabContent() {
     ]
   );
 
+  const handleVariationHistoryJob = useCallback(
+    async (job: AiGenerationJob) => {
+      if (job.status !== "completed") {
+        showError("Variation is available only for completed jobs.");
+        return;
+      }
+      if (serverJobLoading || isSynthRunning) {
+        showError("Wait until current generation is finished.");
+        return;
+      }
+      if (tokensLoading) {
+        showError("Tokens are still loading.");
+        return;
+      }
+      if (tokens < tokenCost) {
+        showError(`Not enough tokens. Need ${tokenCost}.`);
+        return;
+      }
+
+      setHistoryAction({ id: job.id, type: "variation" });
+      setServerJobError(null);
+      setShowResult(false);
+      setResultAsset(null);
+      setLatestCompletedJob(null);
+
+      try {
+        const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            action: "variation",
+            parentAssetId: publishedAssetsByJobId[job.id] || null,
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
+          setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
+          void fetchTokenHistory(true);
+        }
+        if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
+          setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
+        }
+        if (!response.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to create variation.");
+        }
+        if (typeof data?.tokensRemaining !== "number") {
+          void fetchTokens(true);
+          void fetchTokenHistory(true);
+        }
+        const nextJob = data?.job as AiGenerationJob | undefined;
+        if (!nextJob?.id) {
+          throw new Error("Server returned invalid variation payload.");
+        }
+        completedServerJobRef.current = null;
+        setServerJob(nextJob);
+        void fetchJobHistory(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to create variation.";
+        const normalizedMessage = toUiErrorMessage(message);
+        setServerJobError(normalizedMessage);
+        pushUiError(normalizedMessage);
+      } finally {
+        setHistoryAction((prev) =>
+          prev?.id === job.id && prev.type === "variation" ? null : prev
+        );
+      }
+    },
+    [
+      fetchJobHistory,
+      fetchTokenHistory,
+      fetchTokens,
+      isSynthRunning,
+      publishedAssetsByJobId,
+      pushUiError,
+      serverJobLoading,
+      showError,
+      tokenCost,
+      tokens,
+      tokensLoading,
+    ]
+  );
+
   const handleDeleteHistoryJob = useCallback(
     async (job: AiGenerationJob) => {
       setHistoryAction({ id: job.id, type: "delete" });
@@ -1138,6 +1323,7 @@ function AiLabContent() {
           body: JSON.stringify({
             jobId: job.id,
             title: (job.prompt || "AI Model").trim().slice(0, 90),
+            previousAssetId: job.parentAssetId || undefined,
           }),
         });
         const data = await response.json().catch(() => null);
@@ -1481,8 +1667,12 @@ function AiLabContent() {
               ref={uploadInputRef}
               type="file"
               accept="image/*,.glb,.gltf"
+              multiple
               className="hidden"
-              onChange={(event) => handleFile(event.target.files?.[0])}
+              onChange={(event) => {
+                void handleFiles(event.target.files);
+                event.currentTarget.value = "";
+              }}
             />
             {uploadPreview ? (
               <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/10">
@@ -1510,10 +1700,56 @@ function AiLabContent() {
                 <div className="space-y-1">
                   <p className="text-xs font-semibold text-white">Перетащите изображение</p>
                   <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/50">
-                    DROP IMAGE OR CLICK TO UPLOAD
+                    DROP 2-4 IMAGES OR CLICK TO UPLOAD
                   </p>
                 </div>
               </>
+            )}
+          </div>
+          <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
+              <span>References</span>
+              <span>
+                {inputReferences.length} / {MAX_INPUT_REFERENCES}
+              </span>
+            </div>
+            {inputReferences.length === 0 ? (
+              <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
+                Нет загруженных референсов
+              </p>
+            ) : (
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                {inputReferences.map((ref) => (
+                  <div
+                    key={ref.id}
+                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] p-2"
+                    title={ref.name}
+                  >
+                    <div className="h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/40">
+                      {ref.previewUrl ? (
+                        <img src={ref.previewUrl} alt={ref.name} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center text-[8px] uppercase text-white/35">
+                          REF
+                        </div>
+                      )}
+                    </div>
+                    <p className="min-w-0 flex-1 truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/65">
+                      {ref.name}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleRemoveInputReference(ref.id);
+                      }}
+                      className="rounded-full border border-rose-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300"
+                    >
+                      X
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
           </div>
 
@@ -1700,6 +1936,10 @@ function AiLabContent() {
                         </p>
                         <p className="mt-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                           {formatJobDate(job.createdAt)} • {job.mode}
+                          {Array.isArray(job.inputRefs) && job.inputRefs.length > 0
+                            ? ` • refs:${Math.min(MAX_INPUT_REFERENCES, job.inputRefs.length)}`
+                            : ""}
+                          {job.parentJobId ? " • remix" : ""}
                         </p>
                       </div>
                       <p className={`text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${renderJobStatusTone(job.status)}`}>
@@ -1734,6 +1974,15 @@ function AiLabContent() {
                           className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {historyAction?.id === job.id && historyAction.type === "retry" ? "..." : "RETRY"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleVariationHistoryJob(job)}
+                          disabled={historyAction?.id === job.id || job.status !== "completed"}
+                          className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Создать вариацию"
+                        >
+                          {historyAction?.id === job.id && historyAction.type === "variation" ? "..." : "VAR"}
                         </button>
                         <button
                           type="button"

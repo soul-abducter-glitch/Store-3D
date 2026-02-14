@@ -97,6 +97,24 @@ export const AiJobs: CollectionConfig = {
       },
     },
     {
+      name: "parentJob",
+      type: "relationship",
+      relationTo: "ai_jobs",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "parentAsset",
+      type: "relationship",
+      relationTo: "ai_assets",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "progress",
       type: "number",
       min: 0,
@@ -124,6 +142,13 @@ export const AiJobs: CollectionConfig = {
     {
       name: "sourceUrl",
       type: "text",
+    },
+    {
+      name: "inputRefs",
+      type: "json",
+      admin: {
+        description: "Optional list of 2-4 source references for multi-image generation.",
+      },
     },
     {
       name: "errorMessage",

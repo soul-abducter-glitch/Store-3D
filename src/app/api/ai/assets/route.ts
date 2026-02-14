@@ -55,6 +55,12 @@ const normalizeStatus = (value: unknown) => {
   return "ready";
 };
 
+const normalizeVersion = (value: unknown, fallback = 1) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.trunc(parsed));
+};
+
 const toPublicError = (error: unknown, fallback: string) => {
   const raw = error instanceof Error ? error.message : "";
   if (!raw) return fallback;
@@ -114,6 +120,12 @@ const serializeAsset = (asset: any, mediaId: string | null = null) => ({
     const id = normalizeRelationshipId(asset?.job);
     return id === null ? null : String(id);
   })(),
+  previousAssetId: (() => {
+    const id = normalizeRelationshipId(asset?.previousAsset);
+    return id === null ? null : String(id);
+  })(),
+  familyId: toNonEmptyString(asset?.familyId),
+  version: normalizeVersion(asset?.version, 1),
   createdAt: asset?.createdAt,
   updatedAt: asset?.updatedAt,
 });
@@ -195,39 +207,68 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const existing = await payload.find({
-        collection: "ai_assets",
-        depth: 0,
-        limit: 1,
-        sort: "-createdAt",
-        where: {
-          and: [
-            {
-              user: {
-                equals: userId as any,
-              },
-            },
-            {
-              job: {
-                equals: jobId as any,
-              },
-            },
-          ],
-        },
-        overrideAccess: true,
-      });
-
-      const first = existing?.docs?.[0];
-      if (first) {
-        return NextResponse.json(
-          {
-            success: true,
-            created: false,
-            asset: serializeAsset(first),
-          },
-          { status: 200 }
-        );
+      const requestedPreviousAssetId =
+        normalizeRelationshipId(body?.previousAssetId) ?? normalizeRelationshipId(job?.parentAsset);
+      const requestedFamilyId = toNonEmptyString(body?.familyId).slice(0, 120);
+      let previousAsset: any = null;
+      if (requestedPreviousAssetId !== null) {
+        previousAsset = await payload
+          .findByID({
+            collection: "ai_assets",
+            id: requestedPreviousAssetId as any,
+            depth: 0,
+            overrideAccess: true,
+          })
+          .catch(() => null);
+        if (!previousAsset || !isOwner(previousAsset, userId)) {
+          return NextResponse.json(
+            { success: false, error: "Previous asset not found." },
+            { status: 404 }
+          );
+        }
       }
+      const forceNewVersion = Boolean(previousAsset) || Boolean(requestedFamilyId);
+
+      if (!forceNewVersion) {
+        const existing = await payload.find({
+          collection: "ai_assets",
+          depth: 0,
+          limit: 1,
+          sort: "-createdAt",
+          where: {
+            and: [
+              {
+                user: {
+                  equals: userId as any,
+                },
+              },
+              {
+                job: {
+                  equals: jobId as any,
+                },
+              },
+            ],
+          },
+          overrideAccess: true,
+        });
+
+        const first = existing?.docs?.[0];
+        if (first) {
+          return NextResponse.json(
+            {
+              success: true,
+              created: false,
+              asset: serializeAsset(first),
+            },
+            { status: 200 }
+          );
+        }
+      }
+
+      const familyId =
+        toNonEmptyString(previousAsset?.familyId) ||
+        (previousAsset ? String(previousAsset.id) : requestedFamilyId);
+      const version = previousAsset ? normalizeVersion(previousAsset?.version, 1) + 1 : 1;
 
       const created = await payload.create({
         collection: "ai_assets",
@@ -245,14 +286,29 @@ export async function POST(request: NextRequest) {
           previewUrl: toNonEmptyString(job?.result?.previewUrl) || undefined,
           modelUrl,
           format: normalizeFormat(job?.result?.format, modelUrl),
+          previousAsset: previousAsset ? (previousAsset.id as any) : undefined,
+          familyId: familyId || undefined,
+          version,
         },
       });
+
+      const finalized = !familyId
+        ? await payload.update({
+            collection: "ai_assets",
+            id: created.id,
+            overrideAccess: true,
+            data: {
+              familyId: String(created.id),
+              version: 1,
+            },
+          })
+        : created;
 
       return NextResponse.json(
         {
           success: true,
           created: true,
-          asset: serializeAsset(created),
+          asset: serializeAsset(finalized),
         },
         { status: 201 }
       );
@@ -265,6 +321,29 @@ export async function POST(request: NextRequest) {
         { status: 400 }
       );
     }
+
+    const requestedPreviousAssetId = normalizeRelationshipId(body?.previousAssetId);
+    let previousAsset: any = null;
+    if (requestedPreviousAssetId !== null) {
+      previousAsset = await payload
+        .findByID({
+          collection: "ai_assets",
+          id: requestedPreviousAssetId as any,
+          depth: 0,
+          overrideAccess: true,
+        })
+        .catch(() => null);
+      if (!previousAsset || !isOwner(previousAsset, userId)) {
+        return NextResponse.json(
+          { success: false, error: "Previous asset not found." },
+          { status: 404 }
+        );
+      }
+    }
+    const requestedFamilyId = toNonEmptyString(body?.familyId).slice(0, 120);
+    const familyId =
+      toNonEmptyString(previousAsset?.familyId) || (previousAsset ? String(previousAsset.id) : requestedFamilyId);
+    const version = previousAsset ? normalizeVersion(previousAsset?.version, 1) + 1 : 1;
 
     const created = await payload.create({
       collection: "ai_assets",
@@ -281,14 +360,29 @@ export async function POST(request: NextRequest) {
         previewUrl: toNonEmptyString(body?.previewUrl) || undefined,
         modelUrl,
         format: normalizeFormat(body?.format, modelUrl),
+        previousAsset: previousAsset ? (previousAsset.id as any) : undefined,
+        familyId: familyId || undefined,
+        version,
       },
     });
+
+    const finalized = !familyId
+      ? await payload.update({
+          collection: "ai_assets",
+          id: created.id,
+          overrideAccess: true,
+          data: {
+            familyId: String(created.id),
+            version: 1,
+          },
+        })
+      : created;
 
     return NextResponse.json(
       {
         success: true,
         created: true,
-        asset: serializeAsset(created),
+        asset: serializeAsset(finalized),
       },
       { status: 201 }
     );

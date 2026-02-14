@@ -91,6 +91,61 @@ const toNonEmptyString = (value: unknown) => {
   return value.trim();
 };
 
+type InputReference = {
+  url: string;
+  name?: string;
+  type?: string;
+};
+
+const isHttpUrl = (value: string) => /^https?:\/\//i.test(value);
+
+const normalizeInputReferences = (value: unknown): InputReference[] => {
+  if (!Array.isArray(value)) return [];
+  const normalized: InputReference[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const url = toNonEmptyString((item as { url?: unknown; sourceUrl?: unknown }).url);
+    const fallbackUrl = toNonEmptyString((item as { url?: unknown; sourceUrl?: unknown }).sourceUrl);
+    const name = toNonEmptyString((item as { name?: unknown }).name).slice(0, 120);
+    const rawUrl = (url || fallbackUrl).slice(0, 2048);
+    const resolvedUrl = rawUrl.startsWith("data:")
+      ? `inline://local-image/${encodeURIComponent(name || `ref-${normalized.length + 1}`)}`
+      : rawUrl;
+    if (!resolvedUrl) continue;
+    const type = toNonEmptyString((item as { type?: unknown; mime?: unknown }).type || (item as any).mime).slice(
+      0,
+      80
+    );
+    normalized.push({
+      url: resolvedUrl,
+      ...(name ? { name } : {}),
+      ...(type ? { type } : {}),
+    });
+    if (normalized.length >= 4) break;
+  }
+  return normalized;
+};
+
+const pickProviderSourceUrl = (sourceUrl: string, refs: InputReference[]) => {
+  if (isHttpUrl(sourceUrl)) return sourceUrl;
+  const firstPublic = refs.find((ref) => isHttpUrl(ref.url));
+  if (firstPublic) return firstPublic.url;
+  return "";
+};
+
+const extractRelationshipId = (value: unknown): string | number | null => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    const candidate =
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (value as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+    return normalizeRelationshipId(candidate);
+  }
+  return normalizeRelationshipId(value);
+};
+
 const toPublicError = (error: unknown, fallback: string) => {
   const raw = error instanceof Error ? error.message : "";
   if (!raw) return fallback;
@@ -144,6 +199,15 @@ const serializeJob = (job: any) => ({
   prompt: typeof job?.prompt === "string" ? job.prompt : "",
   sourceType: typeof job?.sourceType === "string" ? job.sourceType : "none",
   sourceUrl: typeof job?.sourceUrl === "string" ? job.sourceUrl : "",
+  inputRefs: normalizeInputReferences(job?.inputRefs),
+  parentJobId: (() => {
+    const id = extractRelationshipId(job?.parentJob);
+    return id === null ? null : String(id);
+  })(),
+  parentAssetId: (() => {
+    const id = extractRelationshipId(job?.parentAsset);
+    return id === null ? null : String(id);
+  })(),
   errorMessage: typeof job?.errorMessage === "string" ? job.errorMessage : "",
   result: {
     modelUrl: typeof job?.result?.modelUrl === "string" ? job.result.modelUrl : "",
@@ -264,6 +328,7 @@ export async function POST(
 ) {
   let payloadRef: Awaited<ReturnType<typeof getPayloadClient>> | null = null;
   let chargedUserId: string | number | null = null;
+  let refundSource = "ai_generate:retry_error";
   try {
     const payload = await getPayloadClient();
     payloadRef = payload;
@@ -274,11 +339,17 @@ export async function POST(
     const userId = authorized.userId;
     const now = new Date().toISOString();
 
+    const body = await request.json().catch(() => null);
+    const action = toNonEmptyString(body?.action).toLowerCase() === "variation" ? "variation" : "retry";
+    const spendSource = action === "variation" ? "ai_generate:variation" : "ai_generate:retry";
+    refundSource =
+      action === "variation" ? "ai_generate:variation_error" : "ai_generate:retry_error";
+
     const quota = enforceUserAndIpQuota({
       scope: "ai-generate-retry",
       userId,
       ip: resolveClientIp(request.headers),
-      actionLabel: "AI retry",
+      actionLabel: action === "variation" ? "AI variation" : "AI retry",
       ...RETRY_QUOTA,
     });
     if (!quota.ok) {
@@ -312,25 +383,64 @@ export async function POST(
     let provider = providerResolution.effectiveProvider;
     let fallbackHint = providerResolution.fallbackToMock ? providerResolution.reason : null;
     const mode = sourceJob.mode === "text" ? "text" : "image";
-    const prompt =
-      typeof sourceJob.prompt === "string" && sourceJob.prompt.trim()
-        ? sourceJob.prompt.trim()
-        : "Reference import";
-    const sourceType =
-      sourceJob.sourceType === "url" || sourceJob.sourceType === "image"
-        ? sourceJob.sourceType
-        : "none";
-    const sourceUrl =
-      typeof sourceJob.sourceUrl === "string" && sourceJob.sourceUrl.trim()
-        ? sourceJob.sourceUrl.trim()
-        : "";
+    const prompt = toNonEmptyString(body?.prompt).slice(0, 800) || toNonEmptyString(sourceJob?.prompt) || "Reference import";
+    const sourceUrlFromBody = toNonEmptyString(body?.sourceUrl).slice(0, 2048);
+    const inheritedSourceUrl = toNonEmptyString(sourceJob?.sourceUrl).slice(0, 2048);
+    const seedPreviewUrl = toNonEmptyString(sourceJob?.result?.previewUrl).slice(0, 2048);
+    const sourceRefsFromBody = normalizeInputReferences(body?.sourceRefs);
+    const inheritedRefs = normalizeInputReferences(sourceJob?.inputRefs);
+    const sourceRefs = (() => {
+      const next: InputReference[] = [];
+      const pushRef = (ref: InputReference) => {
+        const normalizedUrl = toNonEmptyString(ref.url).slice(0, 2048);
+        if (!normalizedUrl) return;
+        if (next.some((entry) => entry.url === normalizedUrl)) return;
+        next.push({
+          ...ref,
+          url: normalizedUrl,
+        });
+      };
+      sourceRefsFromBody.forEach(pushRef);
+      if (action === "variation") {
+        if (seedPreviewUrl) {
+          pushRef({
+            url: seedPreviewUrl,
+            name: "variation-seed",
+          });
+        }
+      }
+      if (inheritedSourceUrl) {
+        pushRef({
+          url: inheritedSourceUrl,
+          name: "primary-reference",
+        });
+      }
+      inheritedRefs.forEach(pushRef);
+      return next.slice(0, 4);
+    })();
+    const fallbackSourceUrl = action === "variation" ? seedPreviewUrl || inheritedSourceUrl : inheritedSourceUrl;
+    const providerSourceUrl = pickProviderSourceUrl(sourceUrlFromBody || fallbackSourceUrl, sourceRefs);
+    const sourceType: "none" | "url" | "image" =
+      providerSourceUrl
+        ? "url"
+        : sourceRefs.length > 0
+          ? "image"
+          : sourceJob?.sourceType === "url" || sourceJob?.sourceType === "image"
+            ? sourceJob.sourceType
+            : "none";
+    const sourceUrlForStorage = sourceUrlFromBody || fallbackSourceUrl;
+    const parentAssetFromBody = normalizeRelationshipId(body?.parentAssetId);
+    const parentAssetFromSource = extractRelationshipId(sourceJob?.parentAsset);
+    const parentJobId = action === "variation" ? normalizeRelationshipId(sourceJob?.id) : null;
+    const parentAssetId =
+      action === "variation" ? parentAssetFromBody ?? parentAssetFromSource : parentAssetFromBody;
 
     const inputValidationError = validateProviderInput({
       provider,
       mode,
       prompt,
       sourceType,
-      sourceUrl,
+      sourceUrl: providerSourceUrl,
     });
     if (inputValidationError && provider !== "mock") {
       provider = "mock";
@@ -339,10 +449,11 @@ export async function POST(
 
     const chargeResult = await spendUserAiCredits(payload as any, userId, AI_TOKEN_COST, {
       reason: "spend",
-      source: "ai_generate:retry",
+      source: spendSource,
       referenceId: String(sourceJob?.id ?? ""),
       meta: {
         mode,
+        action,
         providerRequested: providerResolution.requestedProvider,
       },
     });
@@ -364,7 +475,7 @@ export async function POST(
       mode,
       prompt,
       sourceType,
-      sourceUrl,
+      sourceUrl: providerSourceUrl,
     }).catch(async (providerError) => {
       if (!ENABLE_PROVIDER_RUNTIME_FALLBACK || provider === "mock") {
         throw providerError;
@@ -377,7 +488,7 @@ export async function POST(
         mode,
         prompt,
         sourceType,
-        sourceUrl,
+        sourceUrl: providerSourceUrl,
       });
     });
 
@@ -393,7 +504,10 @@ export async function POST(
         progress: submission.progress,
         prompt,
         sourceType,
-        sourceUrl: sourceUrl || undefined,
+        sourceUrl: sourceUrlForStorage || undefined,
+        inputRefs: sourceRefs.length > 0 ? sourceRefs : undefined,
+        parentJob: parentJobId ?? undefined,
+        parentAsset: parentAssetId ?? undefined,
         startedAt:
           submission.status === "processing" || submission.status === "completed" ? now : undefined,
         completedAt: submission.status === "completed" ? now : undefined,
@@ -414,6 +528,7 @@ export async function POST(
         job: jobWithQueue,
         providerRequested: providerResolution.requestedProvider,
         providerEffective: provider,
+        action,
         hint: fallbackHint,
         queueDepth: queueSnapshot.queueDepth,
         activeQueueJobs: queueSnapshot.activeCount,
@@ -427,7 +542,7 @@ export async function POST(
       try {
         await refundUserAiCredits(payloadRef as any, chargedUserId, AI_TOKEN_COST, {
           reason: "refund",
-          source: "ai_generate:retry_error",
+          source: refundSource,
         });
       } catch (refundError) {
         console.error("[ai/generate:id:retry] token refund failed", refundError);

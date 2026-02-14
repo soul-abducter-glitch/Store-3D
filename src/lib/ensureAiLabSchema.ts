@@ -99,10 +99,13 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "mode" varchar NOT NULL DEFAULT 'image',
         "provider" varchar DEFAULT 'mock',
         "provider_job_id" varchar,
+        "parent_job_id" integer,
+        "parent_asset_id" integer,
         "progress" numeric NOT NULL DEFAULT 0,
         "prompt" text NOT NULL DEFAULT '',
         "source_type" varchar DEFAULT 'none',
         "source_url" text,
+        "input_refs" jsonb,
         "error_message" text,
         "result_model_url" text,
         "result_preview_url" text,
@@ -137,6 +140,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "parent_job_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "parent_asset_id" integer`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "progress" numeric DEFAULT 0`
   );
   await executeRaw(
@@ -148,6 +159,7 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "source_type" varchar DEFAULT 'none'`
   );
   await executeRaw(payload, `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "source_url" text`);
+  await executeRaw(payload, `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "input_refs" jsonb`);
   await executeRaw(
     payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "error_message" text`
@@ -195,6 +207,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `CREATE INDEX IF NOT EXISTS "ai_jobs_parent_job_idx" ON ${aiJobsTable} ("parent_job_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_jobs_parent_asset_idx" ON ${aiJobsTable} ("parent_asset_id")`
+  );
+  await executeRaw(
+    payload,
     `CREATE INDEX IF NOT EXISTS "ai_jobs_created_at_idx" ON ${aiJobsTable} ("created_at")`
   );
 
@@ -205,6 +225,9 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "id" serial PRIMARY KEY,
         "user_id" integer NOT NULL,
         "job_id" integer,
+        "previous_asset_id" integer,
+        "family_id" varchar,
+        "version" integer NOT NULL DEFAULT 1,
         "status" varchar NOT NULL DEFAULT 'ready',
         "provider" varchar DEFAULT 'mock',
         "title" varchar NOT NULL DEFAULT '',
@@ -228,6 +251,18 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "job_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "previous_asset_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "family_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "version" integer DEFAULT 1`
   );
   await executeRaw(
     payload,
@@ -276,6 +311,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_assets_job_idx" ON ${aiAssetsTable} ("job_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_assets_previous_asset_idx" ON ${aiAssetsTable} ("previous_asset_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_assets_family_id_idx" ON ${aiAssetsTable} ("family_id")`
   );
   await executeRaw(
     payload,
