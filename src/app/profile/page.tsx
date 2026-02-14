@@ -3070,15 +3070,17 @@ export default function ProfilePage() {
                   { key: "after", label: "После", asset: compareAfterAsset },
                 ].map((entry) => (
                   <div key={entry.key} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/45">
-                      {entry.label}
-                    </p>
-                    <p className="mt-1 text-lg font-semibold text-white">
-                      {entry.asset.title || "AI Model"}
-                    </p>
-                    <p className="mt-1 text-xs text-white/50">
-                      v{entry.asset.version || 1} • {(entry.asset.format || "unknown").toUpperCase()}
-                    </p>
+                    <div className="min-h-[100px]">
+                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/45">
+                        {entry.label}
+                      </p>
+                      <p className="mt-1 h-[64px] overflow-hidden text-lg font-semibold text-white">
+                        {entry.asset.title || "AI Model"}
+                      </p>
+                      <p className="mt-1 text-xs text-white/50">
+                        v{entry.asset.version || 1} • {(entry.asset.format || "unknown").toUpperCase()}
+                      </p>
+                    </div>
                     <div className="mt-3 h-56 overflow-hidden rounded-xl border border-white/10 bg-white/5">
                       <CompareModelStage modelUrl={entry.asset.modelUrl} />
                     </div>

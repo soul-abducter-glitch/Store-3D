@@ -2444,7 +2444,7 @@ function AiLabContent() {
               <div className="mt-5 space-y-3">
                 {subscriptionMode !== "stripe" ? (
                   <div className="rounded-2xl border border-amber-400/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                    Subscription mode is disabled. Set `AI_SUBSCRIPTIONS_MODE=stripe`.
+                    Режим подписки отключен. Для включения установите AI_SUBSCRIPTIONS_MODE=stripe.
                   </div>
                 ) : subscriptionLoading ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
