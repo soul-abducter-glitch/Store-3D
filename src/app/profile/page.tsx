@@ -2026,8 +2026,8 @@ export default function ProfilePage() {
                       key={order.id}
                       className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                     >
-                      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
+                      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                        <div className="min-w-0">
                           <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                             {order.id}
                           </p>
@@ -2048,7 +2048,7 @@ export default function ProfilePage() {
                             </p>
                           )}
                         </div>
-                        <div className="w-full text-left sm:w-auto sm:text-right">
+                        <div className="w-full text-left lg:w-[420px] lg:max-w-[50%] lg:text-right">
                           <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                             {formatDate(order.createdAt || order.updatedAt)}
                           </p>
@@ -2056,8 +2056,8 @@ export default function ProfilePage() {
                             {statusLabel}
                           </p>
                           {!isDigital && (
-                            <div className="mt-3">
-                              <div className="flex items-center justify-between text-[9px] uppercase tracking-[0.2em] text-white/40 sm:text-[10px]">
+                            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2">
+                              <div className="grid grid-cols-3 gap-2 text-center text-[9px] uppercase tracking-[0.12em] text-white/40 sm:text-[10px]">
                                 {ORDER_PROGRESS_STEPS.map((step, index) => (
                                   <span
                                     key={step}
@@ -2094,42 +2094,44 @@ export default function ProfilePage() {
                           <p className="mt-1 text-sm font-semibold text-white">
                             Итого: {formatPrice(pricingSummary.total)} ₽
                           </p>
-                          <button
-                            type="button"
-                            onClick={() => handleRepeatOrder(order)}
-                            disabled={reorderingOrderId === orderId}
-                            aria-disabled={reorderingOrderId === orderId}
-                            className="mt-3 inline-flex items-center gap-2 rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            <RotateCcw className="h-3.5 w-3.5" />
-                            {reorderingOrderId === orderId ? "Собираем..." : "Повторить заказ"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleTogglePaymentAudit(orderId)}
-                            disabled={isPaymentAuditLoading}
-                            className="mt-3 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {isPaymentAuditOpen ? "Скрыть оплату" : "Детали оплаты"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleOpenOrderReceiptPrint(orderId)}
-                            className="mt-3 rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white"
-                          >
-                            Чек / PDF
-                          </button>
-                          {canCancel && (
+                          <div className="mt-3 flex flex-wrap gap-2 lg:justify-end">
                             <button
                               type="button"
-                              disabled={cancelingOrderId === orderId}
-                              aria-disabled={cancelingOrderId === orderId}
-                              onClick={() => handleCancelOrder(orderId)}
-                              className="mt-3 rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                              onClick={() => handleRepeatOrder(order)}
+                              disabled={reorderingOrderId === orderId}
+                              aria-disabled={reorderingOrderId === orderId}
+                              className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {cancelingOrderId === orderId ? "Отменяем..." : "Отменить весь заказ"}
+                              <RotateCcw className="h-3.5 w-3.5" />
+                              {reorderingOrderId === orderId ? "Собираем..." : "Повторить заказ"}
                             </button>
-                          )}
+                            <button
+                              type="button"
+                              onClick={() => handleTogglePaymentAudit(orderId)}
+                              disabled={isPaymentAuditLoading}
+                              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {isPaymentAuditOpen ? "Скрыть оплату" : "Детали оплаты"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleOpenOrderReceiptPrint(orderId)}
+                              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white"
+                            >
+                              Чек / PDF
+                            </button>
+                            {canCancel && (
+                              <button
+                                type="button"
+                                disabled={cancelingOrderId === orderId}
+                                aria-disabled={cancelingOrderId === orderId}
+                                onClick={() => handleCancelOrder(orderId)}
+                                className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {cancelingOrderId === orderId ? "Отменяем..." : "Отменить весь заказ"}
+                              </button>
+                            )}
+                          </div>
                         </div>
                       </div>
                       {isPaymentAuditOpen && (
