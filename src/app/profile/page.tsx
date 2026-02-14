@@ -11,6 +11,7 @@ import {
   Gift,
   LifeBuoy,
   LogOut,
+  CreditCard,
   RotateCcw,
   Package,
   Plus,
@@ -2100,25 +2101,41 @@ export default function ProfilePage() {
                               onClick={() => handleRepeatOrder(order)}
                               disabled={reorderingOrderId === orderId}
                               aria-disabled={reorderingOrderId === orderId}
-                              className="inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                              title="Повторить заказ"
+                              className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
                               <RotateCcw className="h-3.5 w-3.5" />
-                              {reorderingOrderId === orderId ? "Собираем..." : "Повторить заказ"}
+                              <span className="sm:hidden">
+                                {reorderingOrderId === orderId ? "..." : "Повтор"}
+                              </span>
+                              <span className="hidden sm:inline">
+                                {reorderingOrderId === orderId ? "Собираем..." : "Повторить заказ"}
+                              </span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleTogglePaymentAudit(orderId)}
                               disabled={isPaymentAuditLoading}
-                              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                              title={isPaymentAuditOpen ? "Скрыть оплату" : "Детали оплаты"}
+                              className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
                             >
-                              {isPaymentAuditOpen ? "Скрыть оплату" : "Детали оплаты"}
+                              <CreditCard className="h-3.5 w-3.5" />
+                              <span className="sm:hidden">
+                                {isPaymentAuditOpen ? "Скрыть" : "Оплата"}
+                              </span>
+                              <span className="hidden sm:inline">
+                                {isPaymentAuditOpen ? "Скрыть оплату" : "Детали оплаты"}
+                              </span>
                             </button>
                             <button
                               type="button"
                               onClick={() => handleOpenOrderReceiptPrint(orderId)}
-                              className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white"
+                              title="Чек / PDF"
+                              className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-white/20 bg-white/5 px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-white/70 transition hover:border-white/40 hover:bg-white/10 hover:text-white"
                             >
-                              Чек / PDF
+                              <Download className="h-3.5 w-3.5" />
+                              <span className="sm:hidden">Чек</span>
+                              <span className="hidden sm:inline">Чек / PDF</span>
                             </button>
                             {canCancel && (
                               <button
@@ -2126,9 +2143,16 @@ export default function ProfilePage() {
                                 disabled={cancelingOrderId === orderId}
                                 aria-disabled={cancelingOrderId === orderId}
                                 onClick={() => handleCancelOrder(orderId)}
-                                className="inline-flex items-center justify-center whitespace-nowrap rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
+                                title="Отменить весь заказ"
+                                className="inline-flex items-center justify-center gap-1.5 whitespace-nowrap rounded-full border border-red-400/20 bg-transparent px-3 py-1.5 text-[10px] uppercase tracking-[0.22em] text-red-200/70 transition hover:border-red-400/40 hover:bg-red-500/10 hover:text-red-200 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {cancelingOrderId === orderId ? "Отменяем..." : "Отменить весь заказ"}
+                                <Trash2 className="h-3.5 w-3.5" />
+                                <span className="sm:hidden">
+                                  {cancelingOrderId === orderId ? "..." : "Отмена"}
+                                </span>
+                                <span className="hidden sm:inline">
+                                  {cancelingOrderId === orderId ? "Отменяем..." : "Отменить весь заказ"}
+                                </span>
                               </button>
                             )}
                           </div>
