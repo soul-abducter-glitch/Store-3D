@@ -4,6 +4,11 @@ import { getPayload } from "payload";
 import payloadConfig from "../../../../../../payload.config";
 import { buildAiQueueSnapshot } from "@/lib/aiQueue";
 import { runServiceReadinessChecks } from "@/lib/serviceReadiness";
+import {
+  isAiSubscriptionActive,
+  normalizeAiPlanCode,
+  resolveAiPlans,
+} from "@/lib/aiSubscriptionConfig";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -36,6 +41,7 @@ type PrecheckLog = {
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const normalizeString = (value: unknown) => (typeof value === "string" ? value.trim() : "");
+const adminCurrency = (process.env.PAYMENTS_CURRENCY || "rub").trim().toLowerCase();
 
 const normalizeEmail = (value?: unknown) => normalizeString(value).toLowerCase();
 
@@ -185,7 +191,15 @@ export async function GET(request: NextRequest) {
 
     const readiness = await runServiceReadinessChecks(payload as any);
 
-    const [eventsFound, jobsFound, assetsFound, ordersFound, queueSnapshot] = await Promise.all([
+    const [
+      eventsFound,
+      jobsFound,
+      assetsFound,
+      ordersFound,
+      subscriptionsFound,
+      processedWebhooksFound,
+      queueSnapshot,
+    ] = await Promise.all([
       payload.find({
         collection: "ai_token_events",
         depth: 1,
@@ -234,6 +248,25 @@ export async function GET(request: NextRequest) {
           },
         },
       }),
+      payload.find({
+        collection: "ai_subscriptions",
+        depth: 1,
+        limit: 2000,
+        sort: "-updatedAt",
+        overrideAccess: true,
+      }),
+      payload.find({
+        collection: "processed_webhooks",
+        depth: 0,
+        limit: 2000,
+        sort: "-createdAt",
+        overrideAccess: true,
+        where: {
+          createdAt: {
+            greater_than_equal: sinceIso,
+          },
+        },
+      }),
       buildAiQueueSnapshot(payload as any),
     ]);
 
@@ -241,6 +274,10 @@ export async function GET(request: NextRequest) {
     const rawJobs = Array.isArray(jobsFound?.docs) ? jobsFound.docs : [];
     const rawAssets = Array.isArray(assetsFound?.docs) ? assetsFound.docs : [];
     const rawOrders = Array.isArray(ordersFound?.docs) ? ordersFound.docs : [];
+    const rawSubscriptions = Array.isArray(subscriptionsFound?.docs) ? subscriptionsFound.docs : [];
+    const rawProcessedWebhooks = Array.isArray(processedWebhooksFound?.docs)
+      ? processedWebhooksFound.docs
+      : [];
 
     const events = rawEvents.filter((event) => matchesUserFilter(normalizeUser(event?.user), userFilter));
     const jobs = rawJobs.filter((job) => matchesUserFilter(normalizeUser(job?.user), userFilter));
@@ -248,11 +285,16 @@ export async function GET(request: NextRequest) {
     const orders = rawOrders.filter((order) =>
       matchesUserFilter(normalizeOrderUser(order), userFilter)
     );
+    const subscriptions = rawSubscriptions.filter((subscription) =>
+      matchesUserFilter(normalizeUser(subscription?.user), userFilter)
+    );
 
     const tokenTotals = {
       spend: 0,
       refund: 0,
       topup: 0,
+      topupSubscription: 0,
+      topupOneTime: 0,
       adjust: 0,
       net: 0,
       events: events.length,
@@ -261,10 +303,19 @@ export async function GET(request: NextRequest) {
     for (const event of events) {
       const reason = normalizeReason(event?.reason);
       const delta = Math.trunc(toNumber(event?.delta));
+      const source = normalizeString(event?.source).toLowerCase();
       tokenTotals.net += delta;
       if (reason === "spend") tokenTotals.spend += Math.abs(delta);
       if (reason === "refund") tokenTotals.refund += Math.abs(delta);
-      if (reason === "topup") tokenTotals.topup += Math.abs(delta);
+      if (reason === "topup") {
+        const amount = Math.abs(delta);
+        tokenTotals.topup += amount;
+        if (source === "subscription_cycle") {
+          tokenTotals.topupSubscription += amount;
+        } else {
+          tokenTotals.topupOneTime += amount;
+        }
+      }
       if (reason === "adjust") tokenTotals.adjust += delta;
     }
 
@@ -428,6 +479,48 @@ export async function GET(request: NextRequest) {
       },
     };
 
+    const plans = resolveAiPlans();
+    const activeSubscriptions = subscriptions.filter((subscription) =>
+      isAiSubscriptionActive(subscription?.status)
+    );
+    const activeSubscribers = activeSubscriptions.length;
+    const mrrMinor = activeSubscriptions.reduce((sum, subscription) => {
+      const planCode = normalizeAiPlanCode(subscription?.planCode);
+      if (!planCode) return sum;
+      const plan = plans[planCode];
+      if (!plan) return sum;
+      return sum + Math.max(0, Math.trunc(plan.monthlyAmountCents || 0));
+    }, 0);
+    const canceledInWindow = subscriptions.filter((subscription) => {
+      const status = normalizeString(subscription?.status).toLowerCase();
+      if (status !== "canceled" && status !== "cancelled") return false;
+      return parseDateMs(subscription?.updatedAt) >= sinceMs;
+    }).length;
+    const churnRate =
+      activeSubscribers + canceledInWindow > 0
+        ? Number(((canceledInWindow / (activeSubscribers + canceledInWindow)) * 100).toFixed(2))
+        : 0;
+    const pastDueSubscribers = subscriptions.filter(
+      (subscription) => normalizeString(subscription?.status).toLowerCase() === "past_due"
+    ).length;
+
+    const failedWebhooks = rawProcessedWebhooks.filter(
+      (row) => normalizeString(row?.status).toLowerCase() === "failed"
+    );
+    const paymentFailedWebhooks = rawProcessedWebhooks.filter(
+      (row) => normalizeString(row?.eventType).toLowerCase() === "invoice.payment_failed"
+    );
+    const recentWebhookFailures = failedWebhooks
+      .slice(0, 20)
+      .map((row) => ({
+        id: normalizeString(row?.id),
+        provider: normalizeString(row?.provider) || "stripe",
+        eventType: normalizeString(row?.eventType) || "unknown",
+        failureReason: normalizeString(row?.failureReason),
+        createdAt: normalizeString(row?.createdAt),
+        processedAt: normalizeString(row?.processedAt),
+      }));
+
     return NextResponse.json(
       {
         success: true,
@@ -458,6 +551,19 @@ export async function GET(request: NextRequest) {
         prechecks: {
           ...precheckStats,
           recent: recentPrechecks.slice(0, 20),
+        },
+        subscriptions: {
+          activeSubscribers,
+          pastDueSubscribers,
+          canceledInWindow,
+          churnRate,
+          mrrMinor,
+          mrrCurrency: adminCurrency,
+        },
+        webhooks: {
+          failed: failedWebhooks.length,
+          paymentFailed: paymentFailedWebhooks.length,
+          recentFailures: recentWebhookFailures,
         },
         funnel,
         failures: recentFailures,

@@ -6,6 +6,16 @@ import payloadConfig from "../../../../../payload.config";
 import { refundUserAiCredits } from "@/lib/aiCredits";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 import { resolveServerPaymentsMode } from "@/lib/paymentsMode";
+import { getAiPlanByPriceId, normalizeAiPlanCode } from "@/lib/aiSubscriptionConfig";
+import {
+  finalizeProcessedWebhookEvent,
+  findAiSubscriptionByStripeCustomerId,
+  findAiSubscriptionByStripeSubscriptionId,
+  normalizeRelationshipId,
+  reserveProcessedWebhookEvent,
+  toIsoFromUnixSeconds,
+  upsertAiSubscriptionRecord,
+} from "@/lib/aiSubscriptions";
 import {
   isYookassaWebhookAuthorized,
   resolveYookassaConfig,
@@ -57,27 +67,15 @@ const normalizeProvider = (value?: unknown) => {
   return String(value).trim().toLowerCase();
 };
 
-const normalizeRelationshipId = (value: unknown): string | number | null => {
-  let current: unknown = value;
-  while (typeof current === "object" && current !== null) {
-    current =
-      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
-      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
-      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
-      null;
-  }
-  if (current === null || current === undefined) return null;
-  if (typeof current === "number") return current;
-  const raw = String(current).trim();
-  if (!raw) return null;
-  if (/^\d+$/.test(raw)) return Number(raw);
-  return raw;
-};
-
 const toPositiveInt = (value: unknown, fallback = 0) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.trunc(parsed);
+};
+
+const toNonEmptyString = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  return value.trim();
 };
 
 const isWebhookAuthorized = (request: NextRequest) => {
@@ -237,6 +235,327 @@ const handleStripeTopupWebhook = async (payload: any, event: Stripe.Event) => {
       creditsAdded: credits,
       tokens,
       type: event.type,
+    },
+    { status: 200 }
+  );
+};
+
+const extractStripeCustomerId = (value: unknown) => {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && typeof (value as any).id === "string") {
+    return String((value as any).id).trim();
+  }
+  return "";
+};
+
+const extractStripeSubscriptionId = (value: unknown) => {
+  if (typeof value === "string") return value.trim();
+  if (value && typeof value === "object" && typeof (value as any).id === "string") {
+    return String((value as any).id).trim();
+  }
+  return "";
+};
+
+const extractInvoicePriceId = (invoice: Stripe.Invoice) => {
+  const lines = Array.isArray(invoice?.lines?.data) ? invoice.lines.data : [];
+  for (const line of lines) {
+    const price = (line as any)?.price;
+    const recurring = price?.recurring;
+    if (!price?.id) continue;
+    if (!recurring || recurring.interval === "month") {
+      return String(price.id).trim();
+    }
+  }
+  return "";
+};
+
+const mapStripeSubscriptionStatus = (value: unknown) => {
+  const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
+  if (raw === "active") return "active" as const;
+  if (raw === "past_due") return "past_due" as const;
+  if (raw === "canceled" || raw === "cancelled") return "canceled" as const;
+  if (raw === "incomplete") return "incomplete" as const;
+  return "incomplete" as const;
+};
+
+const resolveUserIdForStripeSubscription = async (
+  payload: any,
+  input: {
+    metadata?: Record<string, unknown> | null;
+    customerId?: string;
+    subscriptionId?: string;
+  }
+) => {
+  const metadataUser = normalizeRelationshipId(input.metadata?.userId);
+  if (metadataUser) return metadataUser;
+
+  if (input.subscriptionId) {
+    const bySubscription = await findAiSubscriptionByStripeSubscriptionId(
+      payload as any,
+      input.subscriptionId
+    );
+    const userId = normalizeRelationshipId(bySubscription?.user);
+    if (userId) return userId;
+  }
+
+  if (input.customerId) {
+    const byCustomer = await findAiSubscriptionByStripeCustomerId(payload as any, input.customerId);
+    const userId = normalizeRelationshipId(byCustomer?.user);
+    if (userId) return userId;
+  }
+
+  return null;
+};
+
+const handleStripeSubscriptionWebhook = async (payload: any, event: Stripe.Event) => {
+  const type = String(event.type || "").trim();
+  if (
+    type !== "checkout.session.completed" &&
+    type !== "invoice.paid" &&
+    type !== "invoice.payment_failed" &&
+    type !== "customer.subscription.updated" &&
+    type !== "customer.subscription.deleted"
+  ) {
+    return null;
+  }
+
+  if (type === "checkout.session.completed") {
+    const session = event.data.object as Stripe.Checkout.Session;
+    if (String(session.mode || "").trim().toLowerCase() !== "subscription") {
+      return null;
+    }
+    const metadata = (session.metadata || {}) as Record<string, string>;
+    const userId = await resolveUserIdForStripeSubscription(payload, {
+      metadata,
+      customerId: extractStripeCustomerId(session.customer),
+      subscriptionId: extractStripeSubscriptionId(session.subscription),
+    });
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: true,
+          ignored: true,
+          reason: "subscription_user_not_found",
+          type,
+        },
+        { status: 200 }
+      );
+    }
+
+    const stripeSubscriptionId = extractStripeSubscriptionId(session.subscription);
+    const stripeCustomerId = extractStripeCustomerId(session.customer);
+    const planCode = normalizeAiPlanCode(metadata.planCode);
+
+    await upsertAiSubscriptionRecord(payload as any, {
+      userId,
+      stripeCustomerId: stripeCustomerId || null,
+      stripeSubscriptionId: stripeSubscriptionId || null,
+      planCode: planCode || null,
+      status: "incomplete",
+      meta: {
+        checkoutSessionId: session.id,
+        eventId: event.id,
+        livemode: Boolean(session.livemode),
+      },
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        subscription: true,
+        type,
+      },
+      { status: 200 }
+    );
+  }
+
+  if (type === "invoice.paid") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const invoiceAny = invoice as any;
+    const stripeSubscriptionId = extractStripeSubscriptionId(invoiceAny?.subscription);
+    const stripeCustomerId = extractStripeCustomerId(invoiceAny?.customer);
+    const priceId = extractInvoicePriceId(invoice);
+    const plan = getAiPlanByPriceId(priceId);
+    if (!plan) {
+      return NextResponse.json(
+        {
+          success: true,
+          ignored: true,
+          reason: "subscription_plan_not_mapped",
+          type,
+          priceId,
+        },
+        { status: 200 }
+      );
+    }
+
+    const userId = await resolveUserIdForStripeSubscription(payload, {
+      metadata: (invoice.metadata || {}) as Record<string, string>,
+      customerId: stripeCustomerId,
+      subscriptionId: stripeSubscriptionId,
+    });
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: true,
+          ignored: true,
+          reason: "subscription_user_not_found",
+          type,
+        },
+        { status: 200 }
+      );
+    }
+
+    const monthlyTokens = Math.max(0, Math.trunc(plan.monthlyTokens));
+    const tokenIdempotencyKey = `stripe_subscription_invoice:${invoice.id}`;
+    const tokens = await refundUserAiCredits(payload as any, userId, monthlyTokens, {
+      reason: "topup",
+      source: "subscription_cycle",
+      referenceId: String(invoice.id || ""),
+      idempotencyKey: tokenIdempotencyKey,
+      meta: {
+        provider: "stripe",
+        eventId: event.id,
+        invoiceId: invoiceAny?.id,
+        stripeSubscriptionId,
+        stripeCustomerId,
+        stripePriceId: priceId,
+        planCode: plan.code,
+        billingReason: String(invoiceAny?.billing_reason || ""),
+        livemode: Boolean(invoiceAny?.livemode),
+      },
+    });
+
+    await upsertAiSubscriptionRecord(payload as any, {
+      userId,
+      stripeCustomerId: stripeCustomerId || null,
+      stripeSubscriptionId: stripeSubscriptionId || null,
+      stripePriceId: priceId || null,
+      planCode: plan.code,
+      status: "active",
+      currentPeriodStart: toIsoFromUnixSeconds(invoiceAny?.period_start),
+      currentPeriodEnd: toIsoFromUnixSeconds(invoiceAny?.period_end),
+      cancelAtPeriodEnd: false,
+      lastInvoiceId: String(invoiceAny?.id || ""),
+      meta: {
+        eventId: event.id,
+        billingReason: String(invoiceAny?.billing_reason || ""),
+      },
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        subscription: true,
+        type,
+        tokens,
+        creditsAdded: monthlyTokens,
+      },
+      { status: 200 }
+    );
+  }
+
+  if (type === "invoice.payment_failed") {
+    const invoice = event.data.object as Stripe.Invoice;
+    const invoiceAny = invoice as any;
+    const stripeSubscriptionId = extractStripeSubscriptionId(invoiceAny?.subscription);
+    const stripeCustomerId = extractStripeCustomerId(invoiceAny?.customer);
+    const userId = await resolveUserIdForStripeSubscription(payload, {
+      metadata: (invoice.metadata || {}) as Record<string, string>,
+      customerId: stripeCustomerId,
+      subscriptionId: stripeSubscriptionId,
+    });
+    if (!userId) {
+      return NextResponse.json(
+        {
+          success: true,
+          ignored: true,
+          reason: "subscription_user_not_found",
+          type,
+        },
+        { status: 200 }
+      );
+    }
+
+    await upsertAiSubscriptionRecord(payload as any, {
+      userId,
+      stripeCustomerId: stripeCustomerId || null,
+      stripeSubscriptionId: stripeSubscriptionId || null,
+      status: "past_due",
+      currentPeriodStart: toIsoFromUnixSeconds(invoiceAny?.period_start),
+      currentPeriodEnd: toIsoFromUnixSeconds(invoiceAny?.period_end),
+      lastInvoiceId: String(invoiceAny?.id || ""),
+      meta: {
+        eventId: event.id,
+        paymentFailed: true,
+      },
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        subscription: true,
+        type,
+        status: "past_due",
+      },
+      { status: 200 }
+    );
+  }
+
+  const subscription = event.data.object as Stripe.Subscription;
+  const subscriptionAny = subscription as any;
+  const stripeSubscriptionId = toNonEmptyString(subscriptionAny?.id);
+  const stripeCustomerId = extractStripeCustomerId(subscriptionAny?.customer);
+  const userId = await resolveUserIdForStripeSubscription(payload, {
+    metadata: (subscriptionAny?.metadata || {}) as Record<string, string>,
+    customerId: stripeCustomerId,
+    subscriptionId: stripeSubscriptionId,
+  });
+  if (!userId) {
+    return NextResponse.json(
+      {
+        success: true,
+        ignored: true,
+        reason: "subscription_user_not_found",
+        type,
+      },
+      { status: 200 }
+    );
+  }
+
+  const firstItem = Array.isArray(subscriptionAny?.items?.data) ? subscriptionAny.items.data[0] : null;
+  const stripePriceId = toNonEmptyString(firstItem?.price?.id);
+  const mappedPlan = getAiPlanByPriceId(stripePriceId);
+  const fallbackPlanCode = normalizeAiPlanCode((subscriptionAny?.metadata || {}).planCode);
+  const planCode = mappedPlan?.code || fallbackPlanCode || null;
+  const status =
+    type === "customer.subscription.deleted"
+      ? "canceled"
+      : mapStripeSubscriptionStatus(subscriptionAny?.status);
+
+  await upsertAiSubscriptionRecord(payload as any, {
+    userId,
+    stripeCustomerId: stripeCustomerId || null,
+    stripeSubscriptionId: stripeSubscriptionId || null,
+    stripePriceId: stripePriceId || null,
+    planCode,
+    status,
+    currentPeriodStart: toIsoFromUnixSeconds(subscriptionAny?.current_period_start),
+    currentPeriodEnd: toIsoFromUnixSeconds(subscriptionAny?.current_period_end),
+    cancelAtPeriodEnd: Boolean(subscriptionAny?.cancel_at_period_end),
+    meta: {
+      eventId: event.id,
+      canceledAt: toIsoFromUnixSeconds(subscriptionAny?.canceled_at),
+      endedAt: toIsoFromUnixSeconds(subscriptionAny?.ended_at),
+    },
+  });
+
+  return NextResponse.json(
+    {
+      success: true,
+      subscription: true,
+      type,
+      status,
     },
     { status: 200 }
   );
@@ -409,150 +728,210 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      const topupResponse = await handleStripeTopupWebhook(payload, event);
-      if (topupResponse) {
-        return topupResponse;
-      }
-
-      const nextStatus = mapStripeEventToStatus(event.type);
-      if (!nextStatus) {
-        return NextResponse.json({ success: true, ignored: true, type: event.type }, { status: 200 });
-      }
-
-      const paymentIntent =
-        event.type === "charge.refunded"
-          ? ((event.data.object as Stripe.Charge).payment_intent as string | null)
-          : ((event.data.object as Stripe.PaymentIntent).id || null);
-      const paymentIntentObject =
-        event.type === "payment_intent.succeeded" || event.type === "payment_intent.payment_failed"
-          ? (event.data.object as Stripe.PaymentIntent)
-          : null;
-      const metaOrderId =
-        event.type === "charge.refunded"
-          ? (event.data.object as Stripe.Charge).metadata?.orderId
-          : (event.data.object as Stripe.PaymentIntent).metadata?.orderId;
-      const orderIdFromMetadata = metaOrderId ? String(metaOrderId).trim() : "";
-      const orderId =
-        orderIdFromMetadata || (await resolveOrderIdFromIntent(payload, paymentIntent || ""));
-
-      if (!orderId) {
-        return NextResponse.json(
-          { success: false, error: "Order not found for webhook event." },
-          { status: 404 }
-        );
-      }
-
-      const order = await payload.findByID({
-        collection: "orders",
-        id: orderId,
-        depth: 0,
-        overrideAccess: true,
+      await ensureAiLabSchemaOnce(payload as any);
+      const reservation = await reserveProcessedWebhookEvent(payload as any, {
+        provider: "stripe",
+        eventId: String(event.id || ""),
+        eventType: String(event.type || ""),
+        meta: {
+          livemode: Boolean(event.livemode),
+          created: event.created,
+        },
       });
-      if (!order) {
+      if (reservation.duplicate) {
         return NextResponse.json(
-          { success: false, error: "Order not found." },
-          { status: 404 }
-        );
-      }
-
-      const orderStatus = normalizeOrderStatus(order?.status);
-      const currentPaymentStatus = normalizePaymentStatus(order?.paymentStatus);
-      const currentProvider = normalizeProvider(order?.paymentProvider);
-      const currentIntentId =
-        typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
-      if (
-        nextStatus === "paid" &&
-        (orderStatus === "cancelled" || orderStatus === "canceled" || orderStatus === "completed")
-      ) {
-        return NextResponse.json(
-          { success: true, ignored: true, reason: "order_terminal_status", orderId },
+          { success: true, ignored: true, reason: "duplicate_webhook_event", type: event.type },
           { status: 200 }
         );
       }
 
-      if (nextStatus === "paid" && paymentIntentObject) {
-        const expectedAmount = resolveExpectedAmountCents(order);
-        const paidAmount =
-          typeof paymentIntentObject.amount_received === "number" &&
-          paymentIntentObject.amount_received > 0
-            ? paymentIntentObject.amount_received
-            : paymentIntentObject.amount;
-        const paidCurrency = String(paymentIntentObject.currency || "").trim().toLowerCase();
-
-        if (paidCurrency && paidCurrency !== expectedCurrency) {
-          return NextResponse.json(
-            {
-              success: true,
-              ignored: true,
-              reason: "currency_mismatch",
-              orderId,
-              paidCurrency,
-              expectedCurrency,
+      const processedWebhookId = reservation.record?.id ?? null;
+      const finalizeFromResponse = async (response: NextResponse) => {
+        const body = await response.clone().json().catch(() => null);
+        const ignored = Boolean(body?.ignored);
+        await finalizeProcessedWebhookEvent(
+          payload as any,
+          processedWebhookId,
+          ignored ? "ignored" : "processed",
+          {
+            meta: {
+              type: event.type,
+              status: response.status,
+              ignored,
+              response: body,
             },
-            { status: 200 }
-          );
-        }
-
-        if (expectedAmount > 0 && paidAmount < expectedAmount) {
-          return NextResponse.json(
-            {
-              success: true,
-              ignored: true,
-              reason: "amount_mismatch",
-              orderId,
-              paidAmount,
-              expectedAmount,
-            },
-            { status: 200 }
-          );
-        }
-      }
-
-      const sameIntent = !paymentIntent || currentIntentId === paymentIntent;
-      const paidStateAlreadyApplied =
-        nextStatus !== "paid" ||
-        ((orderStatus === "paid" || orderStatus === "completed") && Boolean(order?.paidAt));
-      const isDuplicateStripeEvent =
-        currentPaymentStatus === nextStatus &&
-        currentProvider === "stripe" &&
-        sameIntent &&
-        paidStateAlreadyApplied;
-
-      if (isDuplicateStripeEvent) {
-        return NextResponse.json(
-          { success: true, ignored: true, reason: "duplicate_event", orderId, type: event.type },
-          { status: 200 }
+          }
         );
-      }
-
-      const updateData: Record<string, unknown> = {
-        paymentStatus: nextStatus,
-        paymentProvider: "stripe",
       };
-      if (paymentIntent) {
-        updateData.paymentIntentId = paymentIntent;
-      }
-      if (nextStatus === "paid") {
-        updateData.status = "paid";
-        updateData.paidAt = new Date().toISOString();
-      }
 
-      await payload.update({
-        collection: "orders",
-        id: orderId,
-        data: updateData,
-        overrideAccess: true,
-        req: {
-          headers: new Headers({
-            "x-internal-payment": "stripe",
-          }),
-        } as any,
-      });
+      try {
+        const stripeResponse = await (async () => {
+          const topupResponse = await handleStripeTopupWebhook(payload, event);
+          if (topupResponse) {
+            return topupResponse;
+          }
 
-      return NextResponse.json(
-        { success: true, orderId, paymentStatus: nextStatus, type: event.type },
-        { status: 200 }
-      );
+          const subscriptionResponse = await handleStripeSubscriptionWebhook(payload, event);
+          if (subscriptionResponse) {
+            return subscriptionResponse;
+          }
+
+          const nextStatus = mapStripeEventToStatus(event.type);
+          if (!nextStatus) {
+            return NextResponse.json(
+              { success: true, ignored: true, type: event.type },
+              { status: 200 }
+            );
+          }
+
+          const paymentIntent =
+            event.type === "charge.refunded"
+              ? ((event.data.object as Stripe.Charge).payment_intent as string | null)
+              : ((event.data.object as Stripe.PaymentIntent).id || null);
+          const paymentIntentObject =
+            event.type === "payment_intent.succeeded" ||
+            event.type === "payment_intent.payment_failed"
+              ? (event.data.object as Stripe.PaymentIntent)
+              : null;
+          const metaOrderId =
+            event.type === "charge.refunded"
+              ? (event.data.object as Stripe.Charge).metadata?.orderId
+              : (event.data.object as Stripe.PaymentIntent).metadata?.orderId;
+          const orderIdFromMetadata = metaOrderId ? String(metaOrderId).trim() : "";
+          const orderId =
+            orderIdFromMetadata || (await resolveOrderIdFromIntent(payload, paymentIntent || ""));
+
+          if (!orderId) {
+            return NextResponse.json(
+              { success: false, error: "Order not found for webhook event." },
+              { status: 404 }
+            );
+          }
+
+          const order = await payload.findByID({
+            collection: "orders",
+            id: orderId,
+            depth: 0,
+            overrideAccess: true,
+          });
+          if (!order) {
+            return NextResponse.json(
+              { success: false, error: "Order not found." },
+              { status: 404 }
+            );
+          }
+
+          const orderStatus = normalizeOrderStatus(order?.status);
+          const currentPaymentStatus = normalizePaymentStatus(order?.paymentStatus);
+          const currentProvider = normalizeProvider(order?.paymentProvider);
+          const currentIntentId =
+            typeof order?.paymentIntentId === "string" ? order.paymentIntentId.trim() : "";
+          if (
+            nextStatus === "paid" &&
+            (orderStatus === "cancelled" || orderStatus === "canceled" || orderStatus === "completed")
+          ) {
+            return NextResponse.json(
+              { success: true, ignored: true, reason: "order_terminal_status", orderId },
+              { status: 200 }
+            );
+          }
+
+          if (nextStatus === "paid" && paymentIntentObject) {
+            const expectedAmount = resolveExpectedAmountCents(order);
+            const paidAmount =
+              typeof paymentIntentObject.amount_received === "number" &&
+              paymentIntentObject.amount_received > 0
+                ? paymentIntentObject.amount_received
+                : paymentIntentObject.amount;
+            const paidCurrency = String(paymentIntentObject.currency || "").trim().toLowerCase();
+
+            if (paidCurrency && paidCurrency !== expectedCurrency) {
+              return NextResponse.json(
+                {
+                  success: true,
+                  ignored: true,
+                  reason: "currency_mismatch",
+                  orderId,
+                  paidCurrency,
+                  expectedCurrency,
+                },
+                { status: 200 }
+              );
+            }
+
+            if (expectedAmount > 0 && paidAmount < expectedAmount) {
+              return NextResponse.json(
+                {
+                  success: true,
+                  ignored: true,
+                  reason: "amount_mismatch",
+                  orderId,
+                  paidAmount,
+                  expectedAmount,
+                },
+                { status: 200 }
+              );
+            }
+          }
+
+          const sameIntent = !paymentIntent || currentIntentId === paymentIntent;
+          const paidStateAlreadyApplied =
+            nextStatus !== "paid" ||
+            ((orderStatus === "paid" || orderStatus === "completed") && Boolean(order?.paidAt));
+          const isDuplicateStripeEvent =
+            currentPaymentStatus === nextStatus &&
+            currentProvider === "stripe" &&
+            sameIntent &&
+            paidStateAlreadyApplied;
+
+          if (isDuplicateStripeEvent) {
+            return NextResponse.json(
+              { success: true, ignored: true, reason: "duplicate_event", orderId, type: event.type },
+              { status: 200 }
+            );
+          }
+
+          const updateData: Record<string, unknown> = {
+            paymentStatus: nextStatus,
+            paymentProvider: "stripe",
+          };
+          if (paymentIntent) {
+            updateData.paymentIntentId = paymentIntent;
+          }
+          if (nextStatus === "paid") {
+            updateData.status = "paid";
+            updateData.paidAt = new Date().toISOString();
+          }
+
+          await payload.update({
+            collection: "orders",
+            id: orderId,
+            data: updateData,
+            overrideAccess: true,
+            req: {
+              headers: new Headers({
+                "x-internal-payment": "stripe",
+              }),
+            } as any,
+          });
+
+          return NextResponse.json(
+            { success: true, orderId, paymentStatus: nextStatus, type: event.type },
+            { status: 200 }
+          );
+        })();
+
+        await finalizeFromResponse(stripeResponse);
+        return stripeResponse;
+      } catch (error: any) {
+        await finalizeProcessedWebhookEvent(payload as any, processedWebhookId, "failed", {
+          failureReason: error?.message || "Unhandled stripe webhook error.",
+          meta: {
+            type: event.type,
+          },
+        });
+        throw error;
+      }
     }
 
     const jsonBody = parseJsonSafe(rawBody);

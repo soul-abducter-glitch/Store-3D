@@ -27,6 +27,8 @@ type OverviewResponse = {
     spend: number;
     refund: number;
     topup: number;
+    topupSubscription: number;
+    topupOneTime: number;
     adjust: number;
     net: number;
     events: number;
@@ -38,6 +40,26 @@ type OverviewResponse = {
       adjust: number;
       net: number;
       balanceAfter: number | null;
+    }>;
+  };
+  subscriptions?: {
+    activeSubscribers: number;
+    pastDueSubscribers: number;
+    canceledInWindow: number;
+    churnRate: number;
+    mrrMinor: number;
+    mrrCurrency: string;
+  };
+  webhooks?: {
+    failed: number;
+    paymentFailed: number;
+    recentFailures: Array<{
+      id: string;
+      provider: string;
+      eventType: string;
+      failureReason: string;
+      createdAt: string;
+      processedAt: string;
     }>;
   };
   prechecks?: {
@@ -96,6 +118,20 @@ const formatNumber = (value: number | undefined) => {
   return new Intl.NumberFormat("ru-RU").format(value);
 };
 
+const formatMinorCurrency = (minor: number | undefined, currency?: string) => {
+  if (typeof minor !== "number" || !Number.isFinite(minor)) return "0";
+  const major = minor / 100;
+  try {
+    return new Intl.NumberFormat("ru-RU", {
+      style: "currency",
+      currency: (currency || "RUB").toUpperCase(),
+      maximumFractionDigits: 2,
+    }).format(major);
+  } catch {
+    return `${new Intl.NumberFormat("ru-RU").format(major)} ${String(currency || "rub").toUpperCase()}`;
+  }
+};
+
 const metricClass = "rounded-2xl border border-white/10 bg-black/30 p-4";
 
 export default function AdminToolsPage() {
@@ -140,6 +176,7 @@ export default function AdminToolsPage() {
   const failures = data?.failures || [];
   const recentPrechecks = data?.prechecks?.recent || [];
   const funnel = data?.funnel;
+  const webhookFailures = data?.webhooks?.recentFailures || [];
 
   return (
     <main className="min-h-screen bg-[#06090f] text-white">
@@ -216,6 +253,10 @@ export default function AdminToolsPage() {
               <article className={metricClass}>
                 <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Tokens topup</p>
                 <p className="text-3xl font-semibold text-emerald-300">{formatNumber(data.tokens?.topup || 0)}</p>
+                <p className="mt-1 text-xs text-white/50">
+                  subscription: {formatNumber(data.tokens?.topupSubscription || 0)} / one-time:{" "}
+                  {formatNumber(data.tokens?.topupOneTime || 0)}
+                </p>
               </article>
               <article className={metricClass}>
                 <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Jobs total</p>
@@ -236,6 +277,42 @@ export default function AdminToolsPage() {
                 <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Queue depth</p>
                 <p className="text-3xl font-semibold text-cyan-300">{formatNumber(data.jobs?.queueDepth || 0)}</p>
                 <p className="mt-1 text-xs text-white/50">active: {formatNumber(data.jobs?.activeQueueJobs || 0)}</p>
+              </article>
+              <article className={metricClass}>
+                <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">MRR</p>
+                <p className="text-3xl font-semibold text-emerald-300">
+                  {formatMinorCurrency(
+                    data.subscriptions?.mrrMinor || 0,
+                    data.subscriptions?.mrrCurrency || "rub"
+                  )}
+                </p>
+              </article>
+              <article className={metricClass}>
+                <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Active subscribers</p>
+                <p className="text-3xl font-semibold text-cyan-300">
+                  {formatNumber(data.subscriptions?.activeSubscribers || 0)}
+                </p>
+                <p className="mt-1 text-xs text-white/50">
+                  past_due: {formatNumber(data.subscriptions?.pastDueSubscribers || 0)}
+                </p>
+              </article>
+              <article className={metricClass}>
+                <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Churn</p>
+                <p className="text-3xl font-semibold text-amber-300">
+                  {typeof data.subscriptions?.churnRate === "number"
+                    ? `${data.subscriptions.churnRate}%`
+                    : "0%"}
+                </p>
+                <p className="mt-1 text-xs text-white/50">
+                  canceled in window: {formatNumber(data.subscriptions?.canceledInWindow || 0)}
+                </p>
+              </article>
+              <article className={metricClass}>
+                <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Webhook failed</p>
+                <p className="text-3xl font-semibold text-rose-300">{formatNumber(data.webhooks?.failed || 0)}</p>
+                <p className="mt-1 text-xs text-white/50">
+                  invoice.payment_failed: {formatNumber(data.webhooks?.paymentFailed || 0)}
+                </p>
               </article>
               <article className={metricClass}>
                 <p className="mb-2 text-xs uppercase tracking-[0.25em] text-white/50">Precheck risk</p>
@@ -367,6 +444,22 @@ export default function AdminToolsPage() {
                       asset: {row.assetId} · {row.status} · {formatDateTime(row.at)}
                     </p>
                     {row.summary && <p className="mt-2 text-white/75">{row.summary}</p>}
+                  </div>
+                ))}
+              </div>
+            </section>
+
+            <section className={metricClass}>
+              <h2 className="mb-4 text-lg font-semibold">Recent webhook failures</h2>
+              <div className="space-y-3 text-sm">
+                {webhookFailures.length === 0 && <p className="text-white/60">No webhook failures.</p>}
+                {webhookFailures.map((row) => (
+                  <div key={row.id} className="rounded-xl border border-white/10 bg-black/25 p-3">
+                    <p className="font-medium">
+                      {row.provider} · {row.eventType}
+                    </p>
+                    <p className="mt-1 text-xs text-white/50">{formatDateTime(row.createdAt)}</p>
+                    {row.failureReason && <p className="mt-2 text-red-200">{row.failureReason}</p>}
                   </div>
                 ))}
               </div>

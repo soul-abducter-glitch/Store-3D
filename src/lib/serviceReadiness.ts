@@ -1,5 +1,6 @@
 import { resolveProvider } from "@/lib/aiProvider";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { resolveAiPlans } from "@/lib/aiSubscriptionConfig";
 
 type PayloadLike = {
   find: (args: {
@@ -104,6 +105,26 @@ const hasOrderPaymentsConfig = () => {
   return { ok: false, message: `Unsupported PAYMENTS_MODE value: ${mode}.` };
 };
 
+const hasAiSubscriptionsConfig = () => {
+  const mode = toNonEmptyString(process.env.AI_SUBSCRIPTIONS_MODE || "off").toLowerCase();
+  if (mode !== "stripe") {
+    return { ok: true, message: "AI subscriptions are off." };
+  }
+  const stripeKey = toNonEmptyString(process.env.STRIPE_SECRET_KEY);
+  if (!stripeKey) {
+    return { ok: false, message: "AI_SUBSCRIPTIONS_MODE=stripe but STRIPE_SECRET_KEY is missing." };
+  }
+  const plans = Object.values(resolveAiPlans());
+  const configuredPlans = plans.filter((plan) => Boolean(plan.stripePriceId));
+  if (configuredPlans.length === 0) {
+    return { ok: false, message: "AI subscriptions enabled but no plan Stripe price ids are configured." };
+  }
+  return {
+    ok: true,
+    message: `AI subscriptions configured (${configuredPlans.length} plan(s)).`,
+  };
+};
+
 export const runServiceReadinessChecks = async (
   payload: PayloadLike
 ): Promise<ReadinessResult> => {
@@ -171,9 +192,10 @@ export const runServiceReadinessChecks = async (
 
   const topup = hasStripeTopupConfig();
   const orderPayments = hasOrderPaymentsConfig();
+  const subscriptions = hasAiSubscriptionsConfig();
   const payments = {
-    ok: topup.ok && orderPayments.ok,
-    message: `${topup.message} ${orderPayments.message}`.trim(),
+    ok: topup.ok && orderPayments.ok && subscriptions.ok,
+    message: `${topup.message} ${orderPayments.message} ${subscriptions.message}`.trim(),
   };
   checks.push({
     name: "payments",

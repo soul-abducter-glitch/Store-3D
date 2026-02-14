@@ -72,6 +72,14 @@ const ensureLockedDocsColumns = async (payload: PayloadLike, schema: string) => 
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_subscriptions_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "processed_webhooks_id" integer`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "support_tickets_id" integer`
   );
 };
@@ -81,6 +89,8 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   const aiJobsTable = qualifiedTable(schema, "ai_jobs");
   const aiAssetsTable = qualifiedTable(schema, "ai_assets");
   const aiTokenEventsTable = qualifiedTable(schema, "ai_token_events");
+  const aiSubscriptionsTable = qualifiedTable(schema, "ai_subscriptions");
+  const processedWebhooksTable = qualifiedTable(schema, "processed_webhooks");
   const supportTicketsTable = qualifiedTable(schema, "support_tickets");
   const usersTable = qualifiedTable(schema, "users");
   const defaultAiCredits = (() => {
@@ -404,6 +414,182 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_token_events_created_at_idx" ON ${aiTokenEventsTable} ("created_at")`
+  );
+
+  await executeRaw(
+    payload,
+    `
+      CREATE TABLE IF NOT EXISTS ${aiSubscriptionsTable} (
+        "id" serial PRIMARY KEY,
+        "user_id" integer NOT NULL,
+        "stripe_customer_id" varchar,
+        "stripe_subscription_id" varchar,
+        "stripe_price_id" varchar,
+        "plan_code" varchar NOT NULL DEFAULT 's',
+        "status" varchar NOT NULL DEFAULT 'incomplete',
+        "current_period_start" timestamptz,
+        "current_period_end" timestamptz,
+        "cancel_at_period_end" boolean NOT NULL DEFAULT false,
+        "last_invoice_id" varchar,
+        "meta" jsonb,
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+    `
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "user_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "stripe_customer_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "stripe_subscription_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "stripe_price_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "plan_code" varchar DEFAULT 's'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "status" varchar DEFAULT 'incomplete'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "current_period_start" timestamptz`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "current_period_end" timestamptz`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "cancel_at_period_end" boolean DEFAULT false`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "last_invoice_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "meta" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiSubscriptionsTable} ADD COLUMN IF NOT EXISTS "created_at" timestamptz DEFAULT now()`
+  );
+
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_subscriptions_user_idx" ON ${aiSubscriptionsTable} ("user_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_subscriptions_customer_idx" ON ${aiSubscriptionsTable} ("stripe_customer_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_subscriptions_subscription_idx" ON ${aiSubscriptionsTable} ("stripe_subscription_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_subscriptions_plan_idx" ON ${aiSubscriptionsTable} ("plan_code")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_subscriptions_status_idx" ON ${aiSubscriptionsTable} ("status")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_subscriptions_period_end_idx" ON ${aiSubscriptionsTable} ("current_period_end")`
+  );
+
+  await executeRaw(
+    payload,
+    `
+      CREATE TABLE IF NOT EXISTS ${processedWebhooksTable} (
+        "id" serial PRIMARY KEY,
+        "provider" varchar NOT NULL DEFAULT 'stripe',
+        "event_id" varchar NOT NULL,
+        "event_type" varchar NOT NULL DEFAULT 'unknown',
+        "status" varchar NOT NULL DEFAULT 'processing',
+        "processed_at" timestamptz,
+        "failure_reason" text,
+        "meta" jsonb,
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+    `
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "provider" varchar DEFAULT 'stripe'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "event_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "event_type" varchar DEFAULT 'unknown'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "status" varchar DEFAULT 'processing'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "processed_at" timestamptz`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "failure_reason" text`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "meta" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${processedWebhooksTable} ADD COLUMN IF NOT EXISTS "created_at" timestamptz DEFAULT now()`
+  );
+
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "processed_webhooks_provider_idx" ON ${processedWebhooksTable} ("provider")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "processed_webhooks_event_id_uidx" ON ${processedWebhooksTable} ("event_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "processed_webhooks_event_type_idx" ON ${processedWebhooksTable} ("event_type")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "processed_webhooks_status_idx" ON ${processedWebhooksTable} ("status")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "processed_webhooks_created_at_idx" ON ${processedWebhooksTable} ("created_at")`
   );
 
   await executeRaw(

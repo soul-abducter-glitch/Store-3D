@@ -135,9 +135,35 @@ type PaymentAudit = {
   events: PaymentAuditEvent[];
 };
 
+type AiSubscriptionPlan = {
+  code: "s" | "m" | "l";
+  label: string;
+  monthlyTokens: number;
+  monthlyAmountCents: number;
+  proAccess: boolean;
+  configured: boolean;
+};
+
+type AiSubscriptionState = {
+  id: string;
+  stripeCustomerId: string;
+  planCode: "s" | "m" | "l" | null;
+  status: string;
+  cancelAtPeriodEnd: boolean;
+  nextBillingAt: string | null;
+  monthlyTokens: number;
+  monthlyAmountCents: number;
+  planLabel: string;
+  proAccess: boolean;
+  isActive: boolean;
+};
+
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const AI_SUBSCRIPTION_ME_API_URL = "/api/ai/subscriptions/me";
+const AI_SUBSCRIPTION_CHECKOUT_API_URL = "/api/ai/subscriptions/checkout";
+const AI_SUBSCRIPTION_PORTAL_API_URL = "/api/ai/subscriptions/portal";
 const DEBUG_ERROR_EMAILS = (process.env.NEXT_PUBLIC_DEBUG_ERROR_EMAILS || "")
   .split(",")
   .map((entry) => entry.trim().toLowerCase())
@@ -148,6 +174,24 @@ const formatPrice = (value?: number) => {
     return "N/A";
   }
   return new Intl.NumberFormat("ru-RU").format(value);
+};
+
+const formatMoneyFromCents = (cents?: number) => {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) return "0";
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "RUB",
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+};
+
+const subscriptionStatusLabel = (value?: string) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "active") return "ACTIVE";
+  if (raw === "past_due") return "PAST DUE";
+  if (raw === "canceled") return "CANCELED";
+  if (raw === "incomplete") return "INCOMPLETE";
+  return raw ? raw.toUpperCase() : "NO PLAN";
 };
 
 const MEDIA_PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
@@ -379,6 +423,11 @@ export default function ProfilePage() {
   const [paymentAuditErrorsByOrderId, setPaymentAuditErrorsByOrderId] = useState<
     Record<string, string>
   >({});
+  const [subscriptionMode, setSubscriptionMode] = useState<"off" | "stripe">("off");
+  const [subscription, setSubscription] = useState<AiSubscriptionState | null>(null);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<AiSubscriptionPlan[]>([]);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionAction, setSubscriptionAction] = useState<"checkout" | "portal" | null>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
   const checkoutDraftKey = useMemo(() => getCheckoutDraftKey(user?.id ?? null), [user?.id]);
@@ -681,6 +730,96 @@ export default function ProfilePage() {
     };
   }, [user, apiBase]);
 
+  const fetchSubscription = useCallback(async () => {
+    if (!user?.id) {
+      setSubscription(null);
+      setSubscriptionPlans([]);
+      setSubscriptionMode("off");
+      setSubscriptionLoading(false);
+      return;
+    }
+
+    setSubscriptionLoading(true);
+    try {
+      const response = await fetch(AI_SUBSCRIPTION_ME_API_URL, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Не удалось загрузить данные подписки."
+        );
+      }
+
+      setSubscriptionMode(data?.mode === "stripe" ? "stripe" : "off");
+      const plans = Array.isArray(data?.plans) ? (data.plans as AiSubscriptionPlan[]) : [];
+      setSubscriptionPlans(
+        plans
+          .map((plan) => ({
+            code: plan.code,
+            label: String(plan.label || "").trim() || `Plan ${String(plan.code || "").toUpperCase()}`,
+            monthlyTokens:
+              typeof plan.monthlyTokens === "number" && Number.isFinite(plan.monthlyTokens)
+                ? Math.max(0, Math.trunc(plan.monthlyTokens))
+                : 0,
+            monthlyAmountCents:
+              typeof plan.monthlyAmountCents === "number" && Number.isFinite(plan.monthlyAmountCents)
+                ? Math.max(0, Math.trunc(plan.monthlyAmountCents))
+                : 0,
+            proAccess: Boolean(plan.proAccess),
+            configured: Boolean(plan.configured),
+          }))
+          .filter((plan) => plan.code === "s" || plan.code === "m" || plan.code === "l")
+      );
+
+      const rawSubscription =
+        data?.subscription && typeof data.subscription === "object" ? data.subscription : null;
+      if (!rawSubscription) {
+        setSubscription(null);
+      } else {
+        setSubscription({
+          id: String(rawSubscription.id || ""),
+          stripeCustomerId: String(rawSubscription.stripeCustomerId || ""),
+          planCode:
+            rawSubscription.planCode === "s" ||
+            rawSubscription.planCode === "m" ||
+            rawSubscription.planCode === "l"
+              ? rawSubscription.planCode
+              : null,
+          status: String(rawSubscription.status || ""),
+          cancelAtPeriodEnd: Boolean(rawSubscription.cancelAtPeriodEnd),
+          nextBillingAt:
+            typeof rawSubscription.nextBillingAt === "string" ? rawSubscription.nextBillingAt : null,
+          monthlyTokens:
+            typeof rawSubscription.monthlyTokens === "number" &&
+            Number.isFinite(rawSubscription.monthlyTokens)
+              ? Math.max(0, Math.trunc(rawSubscription.monthlyTokens))
+              : 0,
+          monthlyAmountCents:
+            typeof rawSubscription.monthlyAmountCents === "number" &&
+            Number.isFinite(rawSubscription.monthlyAmountCents)
+              ? Math.max(0, Math.trunc(rawSubscription.monthlyAmountCents))
+              : 0,
+          planLabel: String(rawSubscription.planLabel || "No plan"),
+          proAccess: Boolean(rawSubscription.proAccess),
+          isActive: Boolean(rawSubscription.isActive),
+        });
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось загрузить данные подписки.";
+      toast.error(message);
+    } finally {
+      setSubscriptionLoading(false);
+    }
+  }, [user?.id]);
+
   const fetchAiAssets = useCallback(async () => {
     if (!user?.id) {
       setAiAssets([]);
@@ -718,12 +857,81 @@ export default function ProfilePage() {
   }, [fetchAiAssets]);
 
   useEffect(() => {
+    void fetchSubscription();
+  }, [fetchSubscription]);
+
+  useEffect(() => {
     const handleAiAssetsUpdated = () => {
       void fetchAiAssets();
     };
     window.addEventListener("ai-assets-updated", handleAiAssetsUpdated);
     return () => window.removeEventListener("ai-assets-updated", handleAiAssetsUpdated);
   }, [fetchAiAssets]);
+
+  const handleSubscriptionCheckout = useCallback(
+    async (planCode: "s" | "m" | "l") => {
+      if (subscriptionAction) return;
+      setSubscriptionAction("checkout");
+      try {
+        const response = await fetch(AI_SUBSCRIPTION_CHECKOUT_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ planCode }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(
+            typeof data?.error === "string"
+              ? data.error
+              : "Не удалось запустить checkout подписки."
+          );
+        }
+        if (typeof data?.checkoutUrl === "string" && data.checkoutUrl) {
+          window.location.href = data.checkoutUrl;
+          return;
+        }
+        toast.success("Checkout подписки создан.");
+      } catch (error) {
+        toast.error(
+          error instanceof Error ? error.message : "Не удалось запустить checkout подписки."
+        );
+      } finally {
+        setSubscriptionAction(null);
+      }
+    },
+    [subscriptionAction]
+  );
+
+  const handleOpenSubscriptionPortal = useCallback(async () => {
+    if (subscriptionAction) return;
+    setSubscriptionAction("portal");
+    try {
+      const response = await fetch(AI_SUBSCRIPTION_PORTAL_API_URL, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Не удалось открыть управление подпиской."
+        );
+      }
+      if (typeof data?.url === "string" && data.url) {
+        window.location.href = data.url;
+        return;
+      }
+      toast.success("Портал подписки готов.");
+    } catch (error) {
+      toast.error(
+        error instanceof Error ? error.message : "Не удалось открыть управление подпиской."
+      );
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [subscriptionAction]);
 
   const aiAssetById = useMemo(() => {
     const map = new Map<string, AiAssetEntry>();
@@ -2668,7 +2876,70 @@ export default function ProfilePage() {
           )}
           {activeTab === "settings" && (
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
-              <form className="space-y-6" onSubmit={handleSettingsSubmit}>
+              <div className="space-y-6">
+                <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                        Подписка
+                      </p>
+                      <h3 className="mt-2 text-xl font-semibold text-white">
+                        {subscription?.planCode ? subscription.planLabel : "Без активного плана"}
+                      </h3>
+                      <p className="mt-1 text-sm text-white/60">
+                        Статус: {subscriptionLoading ? "..." : subscriptionStatusLabel(subscription?.status)}
+                      </p>
+                      {subscription?.nextBillingAt && (
+                        <p className="mt-1 text-xs text-white/50">
+                          Следующее списание: {formatDate(subscription.nextBillingAt)}
+                          {subscription.cancelAtPeriodEnd ? " • отмена в конце периода" : ""}
+                        </p>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenSubscriptionPortal()}
+                        disabled={subscriptionAction === "portal" || !subscription?.stripeCustomerId}
+                        className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {subscriptionAction === "portal" ? "Открываем..." : "Управлять подпиской"}
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {subscriptionPlans.map((plan) => {
+                      const selected = subscription?.planCode === plan.code;
+                      const disabled = !plan.configured || Boolean(subscriptionAction);
+                      return (
+                        <button
+                          key={plan.code}
+                          type="button"
+                          onClick={() => void handleSubscriptionCheckout(plan.code)}
+                          disabled={disabled}
+                          className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                            selected
+                              ? "border-cyan-300/60 bg-cyan-500/15"
+                              : "border-cyan-400/30 bg-cyan-500/5 hover:border-cyan-300/45"
+                          }`}
+                        >
+                          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-cyan-100">
+                            {plan.label}
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            {plan.monthlyTokens} токенов / мес
+                          </p>
+                          <p className="mt-1 text-[11px] text-white/50">
+                            {formatMoneyFromCents(plan.monthlyAmountCents)} •{" "}
+                            {plan.proAccess ? "pro + standard" : "standard"}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <form className="space-y-6" onSubmit={handleSettingsSubmit}>
                 {settingsError && (
                   <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                     {settingsError}
@@ -2766,7 +3037,8 @@ export default function ProfilePage() {
                 >
                   {settingsSaving ? "Сохраняем..." : "Сохранить изменения"}
                 </button>
-              </form>
+                </form>
+              </div>
             </div>
           )}
         </div>

@@ -9,6 +9,12 @@ import { buildAiQueueSnapshot, withAiQueueMeta } from "@/lib/aiQueue";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 import { enforceUserAndIpQuota } from "@/lib/aiQuota";
 import { resolveClientIp } from "@/lib/rateLimit";
+import {
+  canUseAiModeTier,
+  getUserAiSubscriptionRecord,
+  normalizeAiModeTier,
+  toAiSubscriptionSummary,
+} from "@/lib/aiSubscriptions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -341,6 +347,7 @@ export async function POST(
 
     const body = await request.json().catch(() => null);
     const action = toNonEmptyString(body?.action).toLowerCase() === "variation" ? "variation" : "retry";
+    const aiMode = normalizeAiModeTier(body?.aiMode);
     const spendSource = action === "variation" ? "ai_generate:variation" : "ai_generate:retry";
     refundSource =
       action === "variation" ? "ai_generate:variation_error" : "ai_generate:retry_error";
@@ -365,6 +372,18 @@ export async function POST(
             "Retry-After": String(quota.retryAfterSec),
           },
         }
+      );
+    }
+
+    const subscriptionRecord = await getUserAiSubscriptionRecord(payload as any, userId);
+    const subscription = toAiSubscriptionSummary(subscriptionRecord);
+    if (!canUseAiModeTier(aiMode, subscription?.planCode || null, subscription?.status || "incomplete")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "AI mode pro is available only for active M/L subscription.",
+        },
+        { status: 403 }
       );
     }
 
@@ -460,6 +479,7 @@ export async function POST(
       meta: {
         mode,
         action,
+        aiMode,
         providerRequested: providerResolution.requestedProvider,
       },
     });

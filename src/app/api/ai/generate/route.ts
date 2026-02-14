@@ -9,6 +9,12 @@ import { buildAiQueueSnapshot, withAiQueueMeta } from "@/lib/aiQueue";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 import { enforceUserAndIpQuota } from "@/lib/aiQuota";
 import { resolveClientIp } from "@/lib/rateLimit";
+import {
+  canUseAiModeTier,
+  getUserAiSubscriptionRecord,
+  normalizeAiModeTier,
+  toAiSubscriptionSummary,
+} from "@/lib/aiSubscriptions";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -275,6 +281,7 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => null);
     const mode = normalizeMode(body?.mode);
+    const aiMode = normalizeAiModeTier(body?.aiMode);
     const prompt = toNonEmptyString(body?.prompt).slice(0, 800);
     const sourceUrl = toNonEmptyString(body?.sourceUrl).slice(0, 2048);
     const parentJobId = normalizeRelationshipId(body?.parentJobId);
@@ -299,6 +306,18 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Prompt or reference is required." },
         { status: 400 }
+      );
+    }
+
+    const subscriptionRecord = await getUserAiSubscriptionRecord(payload as any, userId);
+    const subscription = toAiSubscriptionSummary(subscriptionRecord);
+    if (!canUseAiModeTier(aiMode, subscription?.planCode || null, subscription?.status || "incomplete")) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "AI mode pro is available only for active M/L subscription.",
+        },
+        { status: 403 }
       );
     }
 
@@ -355,6 +374,7 @@ export async function POST(request: NextRequest) {
       source: "ai_generate:create",
       meta: {
         mode,
+        aiMode,
         providerRequested: providerResolution.requestedProvider,
       },
     });

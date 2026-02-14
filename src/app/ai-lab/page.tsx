@@ -94,6 +94,29 @@ type AiTokenEvent = {
   createdAt: string;
 };
 
+type AiSubscriptionPlan = {
+  code: "s" | "m" | "l";
+  label: string;
+  monthlyTokens: number;
+  monthlyAmountCents: number;
+  proAccess: boolean;
+  configured: boolean;
+};
+
+type AiSubscriptionState = {
+  id: string;
+  stripeCustomerId: string;
+  planCode: "s" | "m" | "l" | null;
+  status: string;
+  cancelAtPeriodEnd: boolean;
+  nextBillingAt: string | null;
+  monthlyTokens: number;
+  monthlyAmountCents: number;
+  planLabel: string;
+  proAccess: boolean;
+  isActive: boolean;
+};
+
 const logLines = [
   "[OK] NEURAL_LINK_ESTABLISHED",
   "[OK] DOWNLOAD_WEIGHTS_V3...",
@@ -114,6 +137,9 @@ const AI_ASSETS_API_URL = "/api/ai/assets";
 const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
 const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
+const AI_SUBSCRIPTION_ME_API_URL = "/api/ai/subscriptions/me";
+const AI_SUBSCRIPTION_CHECKOUT_API_URL = "/api/ai/subscriptions/checkout";
+const AI_SUBSCRIPTION_PORTAL_API_URL = "/api/ai/subscriptions/portal";
 const MAX_INPUT_REFERENCES = 4;
 const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
   { id: "starter", title: "STARTER", credits: 50, note: "STRIPE TEST" },
@@ -188,11 +214,29 @@ const formatEta = (seconds?: number | null) => {
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
 
+const formatMoneyFromCents = (cents?: number) => {
+  if (typeof cents !== "number" || !Number.isFinite(cents)) return "0";
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "RUB",
+    maximumFractionDigits: 2,
+  }).format(cents / 100);
+};
+
 const tokenReasonLabel: Record<AiTokenEvent["reason"], string> = {
   spend: "Запуск",
   refund: "Возврат",
   topup: "Пополнение",
   adjust: "Коррекция",
+};
+
+const subscriptionStatusLabel = (value?: string) => {
+  const raw = String(value || "").trim().toLowerCase();
+  if (raw === "active") return "ACTIVE";
+  if (raw === "past_due") return "PAST DUE";
+  if (raw === "canceled") return "CANCELED";
+  if (raw === "incomplete") return "INCOMPLETE";
+  return raw ? raw.toUpperCase() : "NO PLAN";
 };
 
 function NeuralCore({ active }: { active: boolean }) {
@@ -410,7 +454,13 @@ function AiLabContent() {
   const [tokenEvents, setTokenEvents] = useState<AiTokenEvent[]>([]);
   const [tokenEventsLoading, setTokenEventsLoading] = useState(false);
   const [topupOpen, setTopupOpen] = useState(false);
+  const [topupTab, setTopupTab] = useState<"onetime" | "subscription">("onetime");
   const [topupLoadingPack, setTopupLoadingPack] = useState<string | null>(null);
+  const [subscriptionMode, setSubscriptionMode] = useState<"off" | "stripe">("off");
+  const [subscription, setSubscription] = useState<AiSubscriptionState | null>(null);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<AiSubscriptionPlan[]>([]);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [subscriptionAction, setSubscriptionAction] = useState<"checkout" | "portal" | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
@@ -543,6 +593,161 @@ function AiLabContent() {
     [pushUiError]
   );
 
+  const fetchSubscription = useCallback(
+    async (silent = true) => {
+      if (!silent) setSubscriptionLoading(true);
+      try {
+        const response = await fetch(AI_SUBSCRIPTION_ME_API_URL, {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          if (response.status === 401) {
+            setSubscription(null);
+            setSubscriptionPlans([]);
+            setSubscriptionMode("off");
+            return;
+          }
+          throw new Error(
+            typeof data?.error === "string" ? data.error : "Failed to fetch subscription status."
+          );
+        }
+
+        const mode = data?.mode === "stripe" ? "stripe" : "off";
+        setSubscriptionMode(mode);
+        const plans = Array.isArray(data?.plans) ? (data.plans as AiSubscriptionPlan[]) : [];
+        setSubscriptionPlans(
+          plans
+            .map((plan) => ({
+              code: plan.code,
+              label: String(plan.label || "").trim() || `Plan ${String(plan.code || "").toUpperCase()}`,
+              monthlyTokens:
+                typeof plan.monthlyTokens === "number" && Number.isFinite(plan.monthlyTokens)
+                  ? Math.max(0, Math.trunc(plan.monthlyTokens))
+                  : 0,
+              monthlyAmountCents:
+                typeof plan.monthlyAmountCents === "number" && Number.isFinite(plan.monthlyAmountCents)
+                  ? Math.max(0, Math.trunc(plan.monthlyAmountCents))
+                  : 0,
+              proAccess: Boolean(plan.proAccess),
+              configured: Boolean(plan.configured),
+            }))
+            .filter((plan) => plan.code === "s" || plan.code === "m" || plan.code === "l")
+        );
+        const rawSubscription =
+          data?.subscription && typeof data.subscription === "object" ? data.subscription : null;
+        if (!rawSubscription) {
+          setSubscription(null);
+        } else {
+          setSubscription({
+            id: String(rawSubscription.id || ""),
+            stripeCustomerId: String(rawSubscription.stripeCustomerId || ""),
+            planCode:
+              rawSubscription.planCode === "s" ||
+              rawSubscription.planCode === "m" ||
+              rawSubscription.planCode === "l"
+                ? rawSubscription.planCode
+                : null,
+            status: String(rawSubscription.status || ""),
+            cancelAtPeriodEnd: Boolean(rawSubscription.cancelAtPeriodEnd),
+            nextBillingAt:
+              typeof rawSubscription.nextBillingAt === "string"
+                ? rawSubscription.nextBillingAt
+                : null,
+            monthlyTokens:
+              typeof rawSubscription.monthlyTokens === "number" &&
+              Number.isFinite(rawSubscription.monthlyTokens)
+                ? Math.max(0, Math.trunc(rawSubscription.monthlyTokens))
+                : 0,
+            monthlyAmountCents:
+              typeof rawSubscription.monthlyAmountCents === "number" &&
+              Number.isFinite(rawSubscription.monthlyAmountCents)
+                ? Math.max(0, Math.trunc(rawSubscription.monthlyAmountCents))
+                : 0,
+            planLabel: String(rawSubscription.planLabel || "No plan"),
+            proAccess: Boolean(rawSubscription.proAccess),
+            isActive: Boolean(rawSubscription.isActive),
+          });
+        }
+      } catch (error) {
+        if (!silent) {
+          pushUiError(error instanceof Error ? error.message : "Failed to fetch subscription status.");
+        }
+      } finally {
+        if (!silent) setSubscriptionLoading(false);
+      }
+    },
+    [pushUiError]
+  );
+
+  const handleSubscriptionCheckout = useCallback(
+    async (planCode: "s" | "m" | "l") => {
+      if (subscriptionAction) return;
+      setSubscriptionAction("checkout");
+      try {
+        const response = await fetch(AI_SUBSCRIPTION_CHECKOUT_API_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ planCode }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(
+            typeof data?.error === "string"
+              ? data.error
+              : "Failed to start subscription checkout."
+          );
+        }
+        if (typeof data?.checkoutUrl === "string" && data.checkoutUrl) {
+          showSuccess("Redirecting to Stripe Subscription Checkout (test mode)...");
+          if (typeof window !== "undefined") {
+            window.location.href = data.checkoutUrl;
+          }
+          return;
+        }
+        showSuccess("Subscription checkout session created.");
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to start subscription checkout.");
+      } finally {
+        setSubscriptionAction(null);
+      }
+    },
+    [pushUiError, showSuccess, subscriptionAction]
+  );
+
+  const handleOpenSubscriptionPortal = useCallback(async () => {
+    if (subscriptionAction) return;
+    setSubscriptionAction("portal");
+    try {
+      const response = await fetch(AI_SUBSCRIPTION_PORTAL_API_URL, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(
+          typeof data?.error === "string"
+            ? data.error
+            : "Failed to open subscription portal."
+        );
+      }
+      if (typeof data?.url === "string" && data.url) {
+        if (typeof window !== "undefined") {
+          window.location.href = data.url;
+        }
+        return;
+      }
+      showSuccess("Subscription portal is ready.");
+    } catch (error) {
+      pushUiError(error instanceof Error ? error.message : "Failed to open subscription portal.");
+    } finally {
+      setSubscriptionAction(null);
+    }
+  }, [pushUiError, showSuccess, subscriptionAction]);
+
   const handleTopup = useCallback(
     async (packId: string) => {
       if (topupLoadingPack) return;
@@ -590,20 +795,33 @@ function AiLabContent() {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     const topupStatus = url.searchParams.get("topup");
-    if (!topupStatus) return;
+    const subscriptionStatus = url.searchParams.get("subscription");
+    if (!topupStatus && !subscriptionStatus) return;
 
-    if (topupStatus === "success") {
-      showSuccess("Payment received. Token balance will update after webhook confirmation.");
-      void fetchTokens(false);
-      void fetchTokenHistory(false);
-    } else if (topupStatus === "cancel") {
-      pushUiError("Top-up was cancelled.");
+    if (topupStatus) {
+      if (topupStatus === "success") {
+        showSuccess("Payment received. Token balance will update after webhook confirmation.");
+        void fetchTokens(false);
+        void fetchTokenHistory(false);
+      } else if (topupStatus === "cancel") {
+        pushUiError("Top-up was cancelled.");
+      }
+    }
+
+    if (subscriptionStatus) {
+      if (subscriptionStatus === "success") {
+        showSuccess("Subscription checkout completed. Status will refresh after webhook confirmation.");
+        void fetchSubscription(false);
+      } else if (subscriptionStatus === "cancel") {
+        pushUiError("Subscription checkout was cancelled.");
+      }
     }
 
     url.searchParams.delete("topup");
+    url.searchParams.delete("subscription");
     url.searchParams.delete("session_id");
     window.history.replaceState({}, "", url.toString());
-  }, [fetchTokenHistory, fetchTokens, pushUiError, showSuccess]);
+  }, [fetchSubscription, fetchTokenHistory, fetchTokens, pushUiError, showSuccess]);
 
   useEffect(() => {
     if (!uploadPreview) return;
@@ -638,7 +856,8 @@ function AiLabContent() {
   useEffect(() => {
     void fetchTokens(false);
     void fetchTokenHistory(false);
-  }, [fetchTokenHistory, fetchTokens]);
+    void fetchSubscription(false);
+  }, [fetchSubscription, fetchTokenHistory, fetchTokens]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1610,7 +1829,10 @@ function AiLabContent() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => setTopupOpen(true)}
+                  onClick={() => {
+                    setTopupTab("onetime");
+                    setTopupOpen(true);
+                  }}
                   className="rounded-full border border-emerald-400/50 bg-emerald-400/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-200 transition hover:border-emerald-300 hover:text-white"
                 >
                   TOP UP
@@ -1624,6 +1846,44 @@ function AiLabContent() {
               Высокоточный протокол сборки цифровых материалов. Используйте тестовый
               `.glb` через параметр `preview`.
             </p>
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
+              <span>Subscription</span>
+              <span>{subscriptionLoading ? "..." : subscriptionStatusLabel(subscription?.status)}</span>
+            </div>
+            <p className="mt-2 text-sm text-white/75">
+              {subscription?.planCode
+                ? `${subscription.planLabel} • ${subscription.monthlyTokens} токенов/мес`
+                : "Подписка не активна"}
+            </p>
+            {subscription?.nextBillingAt && (
+              <p className="mt-1 text-[11px] text-white/45">
+                Следующее списание: {formatJobDate(subscription.nextBillingAt)}
+                {subscription.cancelAtPeriodEnd ? " • отмена в конце периода" : ""}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setTopupTab("subscription");
+                  setTopupOpen(true);
+                }}
+                className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-cyan-100 transition hover:border-cyan-300 hover:text-white"
+              >
+                Сменить план
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleOpenSubscriptionPortal()}
+                disabled={subscriptionAction === "portal" || !subscription?.stripeCustomerId}
+                className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75 transition hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                {subscriptionAction === "portal" ? "..." : "Управлять"}
+              </button>
+            </div>
           </div>
 
           <div className="rounded-2xl border border-white/10 bg-black/30 p-2">
@@ -2123,44 +2383,133 @@ function AiLabContent() {
 
       {topupOpen && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-[560px] rounded-[28px] border border-emerald-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+          <div className="w-full max-w-[680px] rounded-[28px] border border-emerald-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
             <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-emerald-200">
               <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
               [ TOKEN TOP UP ]
             </div>
-            <p className="mt-4 text-sm text-white/75">
-              Выберите пакет для пополнения. Перед релизом включен Stripe Checkout в test-режиме.
-            </p>
-            <div className="mt-5 grid gap-3 sm:grid-cols-3">
-              {TOPUP_PACKS.map((pack) => {
-                const isLoading = topupLoadingPack === pack.id;
-                const disabled = Boolean(topupLoadingPack);
-                return (
-                  <button
-                    key={pack.id}
-                    type="button"
-                    onClick={() => {
-                      void handleTopup(pack.id);
-                    }}
-                    disabled={disabled}
-                    className="rounded-2xl border border-emerald-400/40 bg-emerald-500/5 px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] text-emerald-100">
-                      {pack.title}
-                    </p>
-                    <p className="mt-2 text-lg font-semibold text-white">+{pack.credits}</p>
-                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                      {isLoading ? "processing..." : pack.note}
-                    </p>
-                  </button>
-                );
-              })}
+            <p className="mt-4 text-sm text-white/75">One-time пакеты или ежемесячная подписка.</p>
+            <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2">
+              <button
+                type="button"
+                onClick={() => setTopupTab("onetime")}
+                className={`rounded-xl px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] transition ${
+                  topupTab === "onetime"
+                    ? "border border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
+                    : "border border-white/10 text-white/55 hover:text-white"
+                }`}
+              >
+                One-time
+              </button>
+              <button
+                type="button"
+                onClick={() => setTopupTab("subscription")}
+                className={`rounded-xl px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] transition ${
+                  topupTab === "subscription"
+                    ? "border border-cyan-400/60 bg-cyan-500/10 text-cyan-100"
+                    : "border border-white/10 text-white/55 hover:text-white"
+                }`}
+              >
+                Subscription
+              </button>
             </div>
+
+            {topupTab === "onetime" ? (
+              <div className="mt-5 grid gap-3 sm:grid-cols-3">
+                {TOPUP_PACKS.map((pack) => {
+                  const isLoading = topupLoadingPack === pack.id;
+                  const disabled = Boolean(topupLoadingPack) || Boolean(subscriptionAction);
+                  return (
+                    <button
+                      key={pack.id}
+                      type="button"
+                      onClick={() => {
+                        void handleTopup(pack.id);
+                      }}
+                      disabled={disabled}
+                      className="rounded-2xl border border-emerald-400/40 bg-emerald-500/5 px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] text-emerald-100">
+                        {pack.title}
+                      </p>
+                      <p className="mt-2 text-lg font-semibold text-white">+{pack.credits}</p>
+                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                        {isLoading ? "processing..." : pack.note}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="mt-5 space-y-3">
+                {subscriptionMode !== "stripe" ? (
+                  <div className="rounded-2xl border border-amber-400/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
+                    Subscription mode is disabled. Set `AI_SUBSCRIPTIONS_MODE=stripe`.
+                  </div>
+                ) : subscriptionLoading ? (
+                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
+                    Loading subscription plans...
+                  </div>
+                ) : (
+                  <>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {subscriptionPlans.map((plan) => {
+                        const selected = subscription?.planCode === plan.code;
+                        const disabled = !plan.configured || Boolean(subscriptionAction);
+                        return (
+                          <button
+                            key={plan.code}
+                            type="button"
+                            disabled={disabled}
+                            onClick={() => void handleSubscriptionCheckout(plan.code)}
+                            className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                              selected
+                                ? "border-cyan-300/60 bg-cyan-500/15"
+                                : "border-cyan-400/35 bg-cyan-500/5 hover:border-cyan-300/60"
+                            }`}
+                          >
+                            <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] text-cyan-100">
+                              {plan.label}
+                            </p>
+                            <p className="mt-2 text-lg font-semibold text-white">
+                              {plan.monthlyTokens} / мес
+                            </p>
+                            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                              {formatMoneyFromCents(plan.monthlyAmountCents)} •{" "}
+                              {plan.proAccess ? "pro+standard" : "standard"}
+                            </p>
+                            <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                              {subscriptionAction === "checkout" ? "processing..." : selected ? "current" : "switch"}
+                            </p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
+                      <p className="text-xs text-white/70">
+                        {subscription?.planCode
+                          ? `${subscription.planLabel} • ${subscriptionStatusLabel(subscription.status)}`
+                          : "No active subscription"}
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenSubscriptionPortal()}
+                        disabled={subscriptionAction === "portal" || !subscription?.stripeCustomerId}
+                        className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75 transition hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {subscriptionAction === "portal" ? "..." : "Customer portal"}
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={() => setTopupOpen(false)}
-                disabled={Boolean(topupLoadingPack)}
+                disabled={Boolean(topupLoadingPack) || Boolean(subscriptionAction)}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Close
