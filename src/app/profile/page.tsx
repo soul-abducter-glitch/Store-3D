@@ -1,9 +1,11 @@
 ﻿"use client";
 
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
+import { Canvas } from "@react-three/fiber";
+import { Environment, OrbitControls } from "@react-three/drei";
 import {
   ArrowLeft,
   Download,
@@ -25,6 +27,7 @@ import {
   User,
 } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
+import ModelView from "@/components/ModelView";
 import {
   clearCheckoutSelection,
   getCartStorageKey,
@@ -195,6 +198,43 @@ const buildCartThumbnail = (label: string) => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="160" height="120" rx="24" fill="url(#g)"/><circle cx="120" cy="24" r="28" fill="rgba(46,209,255,0.25)"/><text x="18" y="70" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">${shortLabel}</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
+
+function CompareModelStage({ modelUrl }: { modelUrl?: string | null }) {
+  const normalizedUrl = typeof modelUrl === "string" ? modelUrl.trim() : "";
+  if (!normalizedUrl) {
+    return (
+      <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.2em] text-white/35">
+        Нет 3D-файла
+      </div>
+    );
+  }
+
+  return (
+    <Canvas
+      dpr={[1, 1.5]}
+      camera={{ position: [3.6, 2.8, 4.8], fov: 42 }}
+      className="h-full w-full"
+      gl={{ alpha: true, antialias: true }}
+      onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
+    >
+      <ambientLight intensity={0.7} />
+      <directionalLight position={[4, 6, 3]} intensity={1.05} />
+      <Suspense fallback={null}>
+        <group position={[0, -0.95, 0]}>
+          <ModelView
+            rawModelUrl={normalizedUrl}
+            paintedModelUrl={null}
+            finish="Raw"
+            renderMode="final"
+            accentColor="#2ED1FF"
+          />
+        </group>
+      </Suspense>
+      <OrbitControls enablePan={false} enableZoom enableDamping />
+      <Environment preset="city" />
+    </Canvas>
+  );
+}
 
 const formatLabelForKey = (formatKey: CartItem["formatKey"]) =>
   formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
@@ -2501,42 +2541,58 @@ export default function ProfilePage() {
                           )}
                         </div>
                       </div>
-                      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
+                      <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
                         <button
                           type="button"
                           onClick={() => handleDownloadAiAsset(asset)}
                           disabled={downloadingAiAssetId === asset.id}
-                          className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                          title="Скачать модель"
+                          aria-label="Скачать модель"
+                          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2ED1FF]/20 text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <Download className="h-4 w-4" />
-                          {downloadingAiAssetId === asset.id ? "Готовим..." : "Скачать"}
+                          {downloadingAiAssetId === asset.id ? (
+                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                          ) : (
+                            <Download className="h-4 w-4" />
+                          )}
                         </button>
                         <button
                           type="button"
                           onClick={() => void handlePrintAiAsset(asset)}
                           disabled={preparingAiAssetId === asset.id}
-                          className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] sm:w-auto"
+                          title="В печать"
+                          aria-label="В печать"
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-white/5 text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <ShoppingCart className="h-4 w-4" />
-                          {preparingAiAssetId === asset.id ? "Подготовка..." : "В печать"}
+                          {preparingAiAssetId === asset.id ? (
+                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                          ) : (
+                            <ShoppingCart className="h-4 w-4" />
+                          )}
                         </button>
                         <button
                           type="button"
                           onClick={() => handleOpenCompareAiAsset(asset)}
                           disabled={!previousVersion}
-                          className="flex w-full items-center justify-center gap-2 rounded-full border border-cyan-400/25 bg-cyan-500/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-cyan-100/80 transition hover:border-cyan-300/40 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45 sm:w-auto"
+                          title={previousVersion ? "Сравнить версии" : "Нет предыдущей версии"}
+                          aria-label="Сравнить версии"
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-cyan-400/25 bg-cyan-500/5 text-cyan-100/80 transition hover:border-cyan-300/40 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
                         >
                           <Columns2 className="h-4 w-4" />
-                          Сравнить
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleDeleteAiAsset(asset)}
                           disabled={deletingAiAssetId === asset.id}
-                          className="flex w-full items-center justify-center gap-2 rounded-full border border-red-400/20 bg-transparent px-4 py-2 text-xs uppercase tracking-[0.2em] text-red-200/80 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
+                          title="Удалить модель"
+                          aria-label="Удалить модель"
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-red-400/20 bg-transparent text-red-200/80 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          <Trash2 className="h-4 w-4" />
-                          {deletingAiAssetId === asset.id ? "Удаляем..." : "Удалить"}
+                          {deletingAiAssetId === asset.id ? (
+                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                          ) : (
+                            <Trash2 className="h-4 w-4" />
+                          )}
                         </button>
                       </div>
                     </div>
@@ -2752,18 +2808,11 @@ export default function ProfilePage() {
                       v{entry.asset.version || 1} • {(entry.asset.format || "unknown").toUpperCase()}
                     </p>
                     <div className="mt-3 h-56 overflow-hidden rounded-xl border border-white/10 bg-white/5">
-                      {entry.asset.previewUrl ? (
-                        <img
-                          src={entry.asset.previewUrl}
-                          alt={entry.asset.title || "AI model"}
-                          className="h-full w-full object-cover"
-                        />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.2em] text-white/35">
-                          Нет превью
-                        </div>
-                      )}
+                      <CompareModelStage modelUrl={entry.asset.modelUrl} />
                     </div>
+                    <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
+                      Потяните мышью для вращения
+                    </p>
                   </div>
                 ))}
               </div>

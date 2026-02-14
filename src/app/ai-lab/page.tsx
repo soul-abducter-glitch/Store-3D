@@ -427,6 +427,8 @@ function AiLabContent() {
     id: string;
     type: "retry" | "variation" | "delete" | "publish";
   } | null>(null);
+  const [remixJob, setRemixJob] = useState<AiGenerationJob | null>(null);
+  const [remixPrompt, setRemixPrompt] = useState("");
   const [publishedAssetsByJobId, setPublishedAssetsByJobId] = useState<Record<string, string>>({});
   const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
@@ -1202,22 +1204,22 @@ function AiLabContent() {
   );
 
   const handleVariationHistoryJob = useCallback(
-    async (job: AiGenerationJob) => {
+    async (job: AiGenerationJob, customPrompt?: string) => {
       if (job.status !== "completed") {
         showError("Variation is available only for completed jobs.");
-        return;
+        return false;
       }
       if (serverJobLoading || isSynthRunning) {
         showError("Wait until current generation is finished.");
-        return;
+        return false;
       }
       if (tokensLoading) {
         showError("Tokens are still loading.");
-        return;
+        return false;
       }
       if (tokens < tokenCost) {
         showError(`Not enough tokens. Need ${tokenCost}.`);
-        return;
+        return false;
       }
 
       setHistoryAction({ id: job.id, type: "variation" });
@@ -1234,6 +1236,7 @@ function AiLabContent() {
           body: JSON.stringify({
             action: "variation",
             parentAssetId: publishedAssetsByJobId[job.id] || null,
+            prompt: typeof customPrompt === "string" ? customPrompt.trim().slice(0, 800) : "",
           }),
         });
         const data = await response.json().catch(() => null);
@@ -1258,11 +1261,13 @@ function AiLabContent() {
         completedServerJobRef.current = null;
         setServerJob(nextJob);
         void fetchJobHistory(true);
+        return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : "Failed to create variation.";
         const normalizedMessage = toUiErrorMessage(message);
         setServerJobError(normalizedMessage);
         pushUiError(normalizedMessage);
+        return false;
       } finally {
         setHistoryAction((prev) =>
           prev?.id === job.id && prev.type === "variation" ? null : prev
@@ -2007,7 +2012,10 @@ function AiLabContent() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleVariationHistoryJob(job)}
+                          onClick={() => {
+                            setRemixJob(job);
+                            setRemixPrompt(job.prompt || "");
+                          }}
                           disabled={historyAction?.id === job.id || job.status !== "completed"}
                           className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Создать ремикс (альтернативный вариант)"
@@ -2156,6 +2164,63 @@ function AiLabContent() {
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {remixJob && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-[620px] rounded-[28px] border border-cyan-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+            <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-cyan-100">
+              <span className="h-2 w-2 rounded-full bg-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.7)]" />
+              [ REMIX ]
+            </div>
+            <p className="mt-4 text-sm text-white/75">
+              Уточните, что нужно изменить в новой версии. Пустое поле = ремикс без изменений.
+            </p>
+            <div className="mt-4 space-y-2">
+              <label className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/55">
+                Prompt
+              </label>
+              <textarea
+                value={remixPrompt}
+                onChange={(event) => setRemixPrompt(event.target.value)}
+                maxLength={800}
+                placeholder="Например: сделать позу динамичнее, убрать лишние детали, усилить контур."
+                className="min-h-[120px] w-full resize-y rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-cyan-300/60"
+              />
+              <div className="text-right text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
+                {remixPrompt.trim().length} / 800
+              </div>
+            </div>
+            <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
+              <button
+                type="button"
+                onClick={() => setRemixJob(null)}
+                disabled={historyAction?.id === remixJob.id && historyAction.type === "variation"}
+                className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!remixJob) return;
+                  void (async () => {
+                    const ok = await handleVariationHistoryJob(remixJob, remixPrompt);
+                    if (ok) {
+                      setRemixJob(null);
+                    }
+                  })();
+                }}
+                disabled={historyAction?.id === remixJob.id && historyAction.type === "variation"}
+                className="rounded-2xl border border-cyan-300/55 bg-cyan-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition hover:border-cyan-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {historyAction?.id === remixJob.id && historyAction.type === "variation"
+                  ? "Создаем..."
+                  : "Запустить remix"}
               </button>
             </div>
           </div>
