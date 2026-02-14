@@ -297,7 +297,7 @@ export default function AdminToolsPage() {
                     <div key={row.id} className="rounded-xl border border-white/10 bg-black/25 p-3">
                       <p className="font-medium">{row.user.email || row.user.id}</p>
                       <p className="mt-1 text-xs text-white/50">
-                        {row.provider} · {row.mode} · {formatDateTime(row.updatedAt)}
+                        {row.provider} Â· {row.mode} Â· {formatDateTime(row.updatedAt)}
                       </p>
                       {row.error && <p className="mt-2 text-red-200">{row.error}</p>}
                       {row.prompt && <p className="mt-1 text-white/70">{row.prompt}</p>}
@@ -315,7 +315,7 @@ export default function AdminToolsPage() {
                   <div key={`${row.assetId}-${row.at}-${index}`} className="rounded-xl border border-white/10 bg-black/25 p-3">
                     <p className="font-medium">{row.user.email || row.user.id}</p>
                     <p className="mt-1 text-xs text-white/50">
-                      asset: {row.assetId} · {row.status} · {formatDateTime(row.at)}
+                      asset: {row.assetId} Â· {row.status} Â· {formatDateTime(row.at)}
                     </p>
                     {row.summary && <p className="mt-2 text-white/75">{row.summary}</p>}
                   </div>
