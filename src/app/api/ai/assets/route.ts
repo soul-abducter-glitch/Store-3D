@@ -103,7 +103,63 @@ const findMediaIdByModelUrl = async (payload: any, modelUrl: string) => {
   }
 };
 
-const serializeAsset = (asset: any, mediaId: string | null = null) => ({
+const resolveFamilyKey = (asset: any) => toNonEmptyString(asset?.familyId) || String(asset?.id || "");
+
+const resolveModelBytesFromAsset = (asset: any) => {
+  const fromChecks = Number(asset?.checks?.topology?.modelBytes);
+  if (Number.isFinite(fromChecks) && fromChecks > 0) return Math.trunc(fromChecks);
+  const logs = Array.isArray(asset?.precheckLogs) ? asset.precheckLogs : [];
+  const latest = logs.length > 0 ? logs[logs.length - 1] : null;
+  const fromLog = Number(latest?.modelBytes);
+  if (Number.isFinite(fromLog) && fromLog > 0) return Math.trunc(fromLog);
+  return null;
+};
+
+const buildVersionDiff = (current: any, previous: any) => {
+  if (!previous) {
+    return {
+      formatChanged: false,
+      sizeChanged: false,
+      checksChanged: false,
+      sourceChanged: false,
+      changedKeys: [] as string[],
+    };
+  }
+
+  const formatChanged = normalizeFormat(current?.format, current?.modelUrl) !== normalizeFormat(previous?.format, previous?.modelUrl);
+  const currentSize = resolveModelBytesFromAsset(current);
+  const previousSize = resolveModelBytesFromAsset(previous);
+  const sizeChanged =
+    currentSize !== null &&
+    previousSize !== null &&
+    Math.abs(currentSize - previousSize) > Math.max(1024, previousSize * 0.03);
+  const checksChanged =
+    JSON.stringify(current?.checks?.topology || null) !== JSON.stringify(previous?.checks?.topology || null);
+  const sourceChanged =
+    toNonEmptyString(current?.sourceType) !== toNonEmptyString(previous?.sourceType) ||
+    toNonEmptyString(current?.sourceUrl) !== toNonEmptyString(previous?.sourceUrl);
+
+  const changedKeys = [
+    formatChanged ? "format" : "",
+    sizeChanged ? "size" : "",
+    checksChanged ? "checks" : "",
+    sourceChanged ? "source" : "",
+  ].filter(Boolean);
+
+  return {
+    formatChanged,
+    sizeChanged,
+    checksChanged,
+    sourceChanged,
+    changedKeys,
+  };
+};
+
+const serializeAsset = (
+  asset: any,
+  mediaId: string | null = null,
+  previousAsset: any | null = null
+) => ({
   id: String(asset?.id ?? ""),
   title: typeof asset?.title === "string" ? asset.title : "",
   prompt: typeof asset?.prompt === "string" ? asset.prompt : "",
@@ -126,6 +182,17 @@ const serializeAsset = (asset: any, mediaId: string | null = null) => ({
   })(),
   familyId: toNonEmptyString(asset?.familyId),
   version: normalizeVersion(asset?.version, 1),
+  checks:
+    asset?.checks && typeof asset.checks === "object" ? asset.checks : null,
+  fixAvailable: Boolean(asset?.checks?.topology?.fixAvailable),
+  repairLogs: Array.isArray(asset?.repairLogs) ? asset.repairLogs : [],
+  lastRepairAt: (() => {
+    const logs = Array.isArray(asset?.repairLogs) ? asset.repairLogs : [];
+    const latest = logs.length > 0 ? logs[logs.length - 1] : null;
+    const at = toNonEmptyString(latest?.at);
+    return at || null;
+  })(),
+  versionDiff: buildVersionDiff(asset, previousAsset),
   createdAt: asset?.createdAt,
   updatedAt: asset?.updatedAt,
 });
@@ -141,12 +208,15 @@ export async function GET(request: NextRequest) {
     }
 
     const rawLimit = Number(request.nextUrl.searchParams.get("limit") || 20);
+    const versionsView = request.nextUrl.searchParams.get("versions") === "all" ? "all" : "latest";
     const limit = Math.max(1, Math.min(60, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 20));
+    const queryLimit =
+      versionsView === "all" ? limit : Math.min(240, Math.max(limit * 4, 120));
 
     const found = await payload.find({
       collection: "ai_assets",
       depth: 0,
-      limit,
+      limit: queryLimit,
       sort: "-createdAt",
       where: {
         user: {
@@ -157,14 +227,77 @@ export async function GET(request: NextRequest) {
     });
 
     const docs = Array.isArray(found?.docs) ? found.docs : [];
+    const docsById = new Map<string, any>();
+    docs.forEach((doc) => {
+      const id = normalizeRelationshipId(doc?.id);
+      if (id !== null) docsById.set(String(id), doc);
+    });
+
+    const familyMap = new Map<string, any[]>();
+    docs.forEach((doc) => {
+      const familyKey = resolveFamilyKey(doc);
+      if (!familyMap.has(familyKey)) familyMap.set(familyKey, []);
+      familyMap.get(familyKey)?.push(doc);
+    });
+    familyMap.forEach((items) => {
+      items.sort((a, b) => normalizeVersion(a?.version, 1) - normalizeVersion(b?.version, 1));
+    });
+
+    let selectedDocs: any[] = [];
+    if (versionsView === "all") {
+      selectedDocs = docs.slice(0, limit);
+    } else {
+      const latestByFamily = new Map<string, any>();
+      docs.forEach((doc) => {
+        const familyKey = resolveFamilyKey(doc);
+        const existing = latestByFamily.get(familyKey);
+        if (!existing) {
+          latestByFamily.set(familyKey, doc);
+          return;
+        }
+        const docVersion = normalizeVersion(doc?.version, 1);
+        const existingVersion = normalizeVersion(existing?.version, 1);
+        if (docVersion > existingVersion) {
+          latestByFamily.set(familyKey, doc);
+          return;
+        }
+        if (docVersion === existingVersion) {
+          const docTime = new Date(String(doc?.createdAt || 0)).getTime();
+          const existingTime = new Date(String(existing?.createdAt || 0)).getTime();
+          if (Number.isFinite(docTime) && Number.isFinite(existingTime) && docTime > existingTime) {
+            latestByFamily.set(familyKey, doc);
+          }
+        }
+      });
+
+      selectedDocs = Array.from(latestByFamily.values())
+        .sort((a, b) => {
+          const at = new Date(String(a?.createdAt || 0)).getTime();
+          const bt = new Date(String(b?.createdAt || 0)).getTime();
+          if (Number.isFinite(at) && Number.isFinite(bt)) return bt - at;
+          return 0;
+        })
+        .slice(0, limit);
+    }
+
     const assets = await Promise.all(
-      docs.map(async (doc) => {
+      selectedDocs.map(async (doc) => {
+        const previousAssetId = normalizeRelationshipId(doc?.previousAsset);
+        let previousAsset = previousAssetId !== null ? docsById.get(String(previousAssetId)) || null : null;
+        if (!previousAsset) {
+          const family = familyMap.get(resolveFamilyKey(doc)) || [];
+          const version = normalizeVersion(doc?.version, 1);
+          if (version > 1) {
+            previousAsset =
+              family.find((entry) => normalizeVersion(entry?.version, 1) === version - 1) || null;
+          }
+        }
         const mediaId = await findMediaIdByModelUrl(payload, toNonEmptyString(doc?.modelUrl));
-        return serializeAsset(doc, mediaId);
+        return serializeAsset(doc, mediaId, previousAsset);
       })
     );
 
-    return NextResponse.json({ success: true, assets }, { status: 200 });
+    return NextResponse.json({ success: true, assets, versionsView }, { status: 200 });
   } catch (error) {
     console.error("[ai/assets:list] failed", error);
     return NextResponse.json(

@@ -159,5 +159,19 @@ export const AiAssets: CollectionConfig = {
         description: "History of print preflight checks for this asset.",
       },
     },
+    {
+      name: "checks",
+      type: "json",
+      admin: {
+        description: "Topology checks and repair readiness flags.",
+      },
+    },
+    {
+      name: "repairLogs",
+      type: "json",
+      admin: {
+        description: "History of auto-fix/rollback operations for this asset.",
+      },
+    },
   ],
 };

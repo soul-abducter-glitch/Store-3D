@@ -248,6 +248,8 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "model_url" text NOT NULL DEFAULT '',
         "format" varchar NOT NULL DEFAULT 'unknown',
         "precheck_logs" jsonb,
+        "checks" jsonb,
+        "repair_logs" jsonb,
         "updated_at" timestamptz DEFAULT now(),
         "created_at" timestamptz DEFAULT now()
       )
@@ -304,6 +306,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "precheck_logs" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "checks" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "repair_logs" jsonb`
   );
   await executeRaw(
     payload,

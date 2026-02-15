@@ -24,6 +24,8 @@ import {
   ShoppingCart,
   Columns2,
   Trash2,
+  ShieldCheck,
+  Wrench,
   User,
 } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
@@ -109,6 +111,36 @@ type AiAssetEntry = {
   previousAssetId?: string | null;
   familyId?: string;
   version?: number;
+  sourceType?: string;
+  sourceUrl?: string;
+  checks?: {
+    topology?: {
+      nonManifold?: boolean | "unknown";
+      holes?: boolean | "unknown";
+      selfIntersections?: boolean | "unknown";
+      thinWallsRisk?: "low" | "medium" | "high";
+      watertight?: "yes" | "no" | "unknown";
+      fixAvailable?: boolean;
+      riskScore?: number;
+      modelBytes?: number | null;
+      analyzedAt?: string;
+      issues?: Array<{ code?: string; severity?: string; message?: string }>;
+    };
+    rollback?: {
+      at?: string;
+      fromAssetId?: string;
+      fromVersion?: number;
+      appliedToVersion?: number;
+    };
+  } | null;
+  fixAvailable?: boolean;
+  versionDiff?: {
+    formatChanged?: boolean;
+    sizeChanged?: boolean;
+    checksChanged?: boolean;
+    sourceChanged?: boolean;
+    changedKeys?: string[];
+  } | null;
   createdAt?: string;
   updatedAt?: string;
 };
@@ -164,6 +196,10 @@ const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const AI_SUBSCRIPTION_ME_API_URL = "/api/ai/subscriptions/me";
 const AI_SUBSCRIPTION_CHECKOUT_API_URL = "/api/ai/subscriptions/checkout";
 const AI_SUBSCRIPTION_PORTAL_API_URL = "/api/ai/subscriptions/portal";
+const AI_ASSET_REPAIR_MODE_API = (assetId: string) =>
+  `/api/ai/assets/${encodeURIComponent(assetId)}/repair`;
+const AI_ASSET_ROLLBACK_API = (assetId: string) =>
+  `/api/ai/assets/${encodeURIComponent(assetId)}/rollback`;
 const DEBUG_ERROR_EMAILS = (process.env.NEXT_PUBLIC_DEBUG_ERROR_EMAILS || "")
   .split(",")
   .map((entry) => entry.trim().toLowerCase())
@@ -192,6 +228,19 @@ const subscriptionStatusLabel = (value?: string) => {
   if (raw === "canceled") return "CANCELED";
   if (raw === "incomplete") return "INCOMPLETE";
   return raw ? raw.toUpperCase() : "NO PLAN";
+};
+
+const formatVersionDiffLabel = (value?: AiAssetEntry["versionDiff"]) => {
+  const keys = Array.isArray(value?.changedKeys) ? value.changedKeys : [];
+  if (keys.length === 0) return "Diff: нет изменений метаданных";
+  const localized = keys.map((key) => {
+    if (key === "format") return "format";
+    if (key === "size") return "size";
+    if (key === "checks") return "checks";
+    if (key === "source") return "source";
+    return key;
+  });
+  return `Diff: ${localized.join(", ")}`;
 };
 
 const MEDIA_PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
@@ -405,9 +454,13 @@ export default function ProfilePage() {
   const [aiAssets, setAiAssets] = useState<AiAssetEntry[]>([]);
   const [aiAssetsLoading, setAiAssetsLoading] = useState(false);
   const [aiAssetsError, setAiAssetsError] = useState<string | null>(null);
+  const [aiAssetsVersionsView, setAiAssetsVersionsView] = useState<"latest" | "all">("latest");
   const [deletingAiAssetId, setDeletingAiAssetId] = useState<string | null>(null);
   const [downloadingAiAssetId, setDownloadingAiAssetId] = useState<string | null>(null);
   const [preparingAiAssetId, setPreparingAiAssetId] = useState<string | null>(null);
+  const [analyzingAiAssetId, setAnalyzingAiAssetId] = useState<string | null>(null);
+  const [repairingAiAssetId, setRepairingAiAssetId] = useState<string | null>(null);
+  const [rollingBackAiAssetId, setRollingBackAiAssetId] = useState<string | null>(null);
   const [compareAssetIds, setCompareAssetIds] = useState<{
     beforeId: string;
     afterId: string;
@@ -831,11 +884,14 @@ export default function ProfilePage() {
     setAiAssetsLoading(true);
     setAiAssetsError(null);
     try {
-      const response = await fetch(`${apiBase}/api/ai/assets?limit=60`, {
-        method: "GET",
-        credentials: "include",
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `${apiBase}/api/ai/assets?limit=60&versions=${aiAssetsVersionsView === "all" ? "all" : "latest"}`,
+        {
+          method: "GET",
+          credentials: "include",
+          cache: "no-store",
+        }
+      );
       const data = await response.json().catch(() => null);
       if (!response.ok) {
         throw new Error(data?.error || "Не удалось загрузить AI-библиотеку.");
@@ -850,7 +906,7 @@ export default function ProfilePage() {
     } finally {
       setAiAssetsLoading(false);
     }
-  }, [apiBase, user?.id]);
+  }, [aiAssetsVersionsView, apiBase, user?.id]);
 
   useEffect(() => {
     void fetchAiAssets();
@@ -1904,20 +1960,171 @@ export default function ProfilePage() {
     }
   };
 
+  const handleAnalyzeAiAsset = async (asset: AiAssetEntry) => {
+    if (!asset?.id) return;
+    setAnalyzingAiAssetId(asset.id);
+    try {
+      const response = await fetch(`${apiBase}${AI_ASSET_REPAIR_MODE_API(asset.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ mode: "analyze" }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Не удалось выполнить анализ модели.");
+      }
+      const analysis = data?.analysis as
+        | {
+            riskScore?: number;
+            fixAvailable?: boolean;
+            watertightStatus?: string;
+            issues?: Array<{ message?: string }>;
+          }
+        | undefined;
+      const primaryIssue =
+        Array.isArray(analysis?.issues) && analysis.issues[0]?.message
+          ? String(analysis.issues[0].message)
+          : null;
+      const baseMessage = analysis?.fixAvailable
+        ? `Анализ завершен: найден риск (Q:${analysis?.riskScore ?? "?"}).`
+        : `Анализ завершен: критичных дефектов не найдено (Q:${analysis?.riskScore ?? "?"}).`;
+      toast.success(primaryIssue ? `${baseMessage} ${primaryIssue}` : baseMessage, {
+        className: "sonner-toast",
+      });
+      void fetchAiAssets();
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "Не удалось выполнить анализ модели.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setAnalyzingAiAssetId(null);
+    }
+  };
+
+  const handleAutoFixAiAsset = async (asset: AiAssetEntry) => {
+    if (!asset?.id) return;
+    setRepairingAiAssetId(asset.id);
+    try {
+      const response = await fetch(`${apiBase}${AI_ASSET_REPAIR_MODE_API(asset.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ mode: "repair" }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Не удалось выполнить Auto-Fix.");
+      }
+      const nextAssetId =
+        typeof data?.repairedAsset?.id === "string" ? data.repairedAsset.id : null;
+      toast.success(
+        `Auto-Fix завершен: создана версия ${
+          typeof data?.repairedAsset?.version === "number" ? `v${data.repairedAsset.version}` : "v+1"
+        }.`,
+        { className: "sonner-toast" }
+      );
+      await fetchAiAssets();
+      if (nextAssetId) {
+        setCompareAssetIds({
+          beforeId: asset.id,
+          afterId: nextAssetId,
+        });
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message ? error.message : "Не удалось выполнить Auto-Fix.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setRepairingAiAssetId(null);
+    }
+  };
+
+  const handleRollbackAiAsset = async (asset: AiAssetEntry) => {
+    if (!asset?.id) return;
+    setRollingBackAiAssetId(asset.id);
+    try {
+      const response = await fetch(`${apiBase}${AI_ASSET_ROLLBACK_API(asset.id)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({}),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Не удалось выполнить rollback версии.");
+      }
+      const nextAssetId =
+        typeof data?.rolledBackAsset?.id === "string" ? data.rolledBackAsset.id : null;
+      toast.success(
+        `Rollback создан: ${
+          typeof data?.rolledBackAsset?.version === "number"
+            ? `новая версия v${data.rolledBackAsset.version}`
+            : "создана новая версия"
+        }.`,
+        { className: "sonner-toast" }
+      );
+      await fetchAiAssets();
+      if (nextAssetId) {
+        setCompareAssetIds({
+          beforeId: asset.id,
+          afterId: nextAssetId,
+        });
+      }
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось выполнить rollback версии.";
+      toast.error(message, { className: "sonner-toast" });
+    } finally {
+      setRollingBackAiAssetId(null);
+    }
+  };
+
   const handleDeleteAiAsset = async (asset: AiAssetEntry) => {
     if (!asset?.id) return;
     setDeletingAiAssetId(asset.id);
     try {
-      const response = await fetch(`${apiBase}/api/ai/assets/${encodeURIComponent(asset.id)}`, {
-        method: "DELETE",
-        credentials: "include",
-      });
-      const data = await response.json().catch(() => null);
+      const deleteWithConfirm = async (confirmChainDelete: boolean) => {
+        const url = `${apiBase}/api/ai/assets/${encodeURIComponent(asset.id)}${
+          confirmChainDelete ? "?confirmChainDelete=1" : ""
+        }`;
+        const response = await fetch(url, {
+          method: "DELETE",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        return { response, data };
+      };
+
+      let { response, data } = await deleteWithConfirm(false);
+      if (!response.ok && data?.code === "chain_confirmation_required") {
+        const descendants =
+          typeof data?.descendants === "number" && data.descendants > 0
+            ? data.descendants
+            : null;
+        const confirmationText = descendants
+          ? `Эта версия является родителем для ${descendants} следующих версий. Удалить и перелинковать цепочку?`
+          : "Эта версия является родителем в цепочке. Удалить и перелинковать цепочку?";
+        const confirmed =
+          typeof window !== "undefined" ? window.confirm(confirmationText) : false;
+        if (!confirmed) {
+          return;
+        }
+        ({ response, data } = await deleteWithConfirm(true));
+      }
+
       if (!response.ok || !data?.success) {
         throw new Error(data?.error || "Не удалось удалить AI-модель.");
       }
       setAiAssets((prev) => prev.filter((item) => item.id !== asset.id));
-      toast.success("AI-модель удалена.", { className: "sonner-toast" });
+      toast.success(
+        typeof data?.chainRelinked === "number" && data.chainRelinked > 0
+          ? `AI-модель удалена. Перелинковано версий: ${data.chainRelinked}.`
+          : "AI-модель удалена.",
+        { className: "sonner-toast" }
+      );
     } catch (error) {
       const message =
         error instanceof Error && error.message ? error.message : "Не удалось удалить AI-модель.";
@@ -2682,6 +2889,35 @@ export default function ProfilePage() {
           )}
           {activeTab === "ai-assets" && (
             <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-3 rounded-[20px] border border-white/5 bg-white/[0.03] px-4 py-3 backdrop-blur-xl">
+                <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
+                  Версии библиотеки
+                </p>
+                <div className="inline-flex rounded-full border border-white/10 bg-black/25 p-1">
+                  <button
+                    type="button"
+                    onClick={() => setAiAssetsVersionsView("latest")}
+                    className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.22em] transition ${
+                      aiAssetsVersionsView === "latest"
+                        ? "border border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                        : "text-white/55 hover:text-white"
+                    }`}
+                  >
+                    latest only
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAiAssetsVersionsView("all")}
+                    className={`rounded-full px-3 py-1 text-[10px] uppercase tracking-[0.22em] transition ${
+                      aiAssetsVersionsView === "all"
+                        ? "border border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                        : "text-white/55 hover:text-white"
+                    }`}
+                  >
+                    all versions
+                  </button>
+                </div>
+              </div>
               {aiAssetsLoading && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
                   Загружаем AI-библиотеку...
@@ -2742,6 +2978,12 @@ export default function ProfilePage() {
                             Версия v{version} • в цепочке {family.length}
                             {previousVersion ? ` • база: v${previousVersion.version || 1}` : ""}
                           </p>
+                          <p className="mt-1 text-xs text-white/45">{formatVersionDiffLabel(asset.versionDiff)}</p>
+                          {asset.fixAvailable && (
+                            <p className="mt-1 inline-flex rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-amber-200">
+                              fix available
+                            </p>
+                          )}
                           {asset.createdAt && (
                             <p className="mt-1 text-xs text-white/45">
                               Создано: {formatDate(asset.createdAt)}
@@ -2776,6 +3018,48 @@ export default function ProfilePage() {
                             <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
                           ) : (
                             <ShoppingCart className="h-4 w-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAnalyzeAiAsset(asset)}
+                          disabled={analyzingAiAssetId === asset.id}
+                          title="Анализ топологии"
+                          aria-label="Анализ топологии"
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-100 transition hover:border-emerald-300/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {analyzingAiAssetId === asset.id ? (
+                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                          ) : (
+                            <ShieldCheck className="h-4 w-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleAutoFixAiAsset(asset)}
+                          disabled={repairingAiAssetId === asset.id}
+                          title="Auto-Fix (создать исправленную версию)"
+                          aria-label="Auto-Fix"
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10 text-amber-100 transition hover:border-amber-300/55 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {repairingAiAssetId === asset.id ? (
+                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                          ) : (
+                            <Wrench className="h-4 w-4" />
+                          )}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRollbackAiAsset(asset)}
+                          disabled={rollingBackAiAssetId === asset.id}
+                          title="Rollback к этой версии (создать v+1)"
+                          aria-label="Rollback версии"
+                          className="flex h-10 w-10 items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-500/10 text-cyan-100 transition hover:border-cyan-200/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {rollingBackAiAssetId === asset.id ? (
+                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                          ) : (
+                            <RotateCcw className="h-4 w-4" />
                           )}
                         </button>
                         <button

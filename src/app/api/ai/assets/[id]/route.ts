@@ -111,6 +111,74 @@ export async function DELETE(
     const authorized = await findAuthorizedAsset(payload, request, params);
     if (!authorized.ok) return authorized.response;
 
+    const resolvedFamilyId =
+      typeof authorized.asset?.familyId === "string" && authorized.asset.familyId.trim()
+        ? authorized.asset.familyId.trim()
+        : String(authorized.asset.id);
+    const descendantsFound = await payload.find({
+      collection: "ai_assets",
+      depth: 0,
+      limit: 200,
+      where: {
+        and: [
+          {
+            user: {
+              equals: normalizeRelationshipId(authorized.asset?.user) as any,
+            },
+          },
+          {
+            familyId: {
+              equals: resolvedFamilyId,
+            },
+          },
+        ],
+      },
+      overrideAccess: true,
+    });
+    const familyDocs = Array.isArray(descendantsFound?.docs) ? descendantsFound.docs : [];
+    const children = familyDocs.filter((doc) => {
+      const previousId = normalizeRelationshipId(doc?.previousAsset);
+      return previousId !== null && String(previousId) === String(authorized.asset.id);
+    });
+
+    const requireConfirm = children.length > 0;
+    const confirmChainDeleteRaw =
+      request.nextUrl.searchParams.get("confirmChainDelete") ||
+      request.headers.get("x-confirm-chain-delete") ||
+      "";
+    const confirmChainDelete = ["1", "true", "yes", "on"].includes(
+      String(confirmChainDeleteRaw).trim().toLowerCase()
+    );
+
+    if (requireConfirm && !confirmChainDelete) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: "chain_confirmation_required",
+          error:
+            "This asset is a parent in a version chain. Confirm deletion to relink child versions.",
+          descendants: children.length,
+        },
+        { status: 409 }
+      );
+    }
+
+    if (children.length > 0) {
+      const fallbackPrevious = normalizeRelationshipId(authorized.asset?.previousAsset);
+      await Promise.all(
+        children.map((child) =>
+          payload.update({
+            collection: "ai_assets",
+            id: child.id,
+            overrideAccess: true,
+            data: {
+              previousAsset: fallbackPrevious !== null ? (fallbackPrevious as any) : null,
+            },
+          })
+        )
+      );
+    }
+
     await payload.delete({
       collection: "ai_assets",
       id: authorized.asset.id,
@@ -121,6 +189,7 @@ export async function DELETE(
       {
         success: true,
         id: String(authorized.asset.id),
+        chainRelinked: children.length,
       },
       { status: 200 }
     );

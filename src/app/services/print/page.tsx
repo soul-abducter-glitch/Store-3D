@@ -68,6 +68,21 @@ type OrientationAdvisorItem = {
   etaMinutes: number;
 };
 
+type OrientationPresetEstimate = {
+  key: PrintOrientationKey;
+  label: string;
+  note: string;
+  reason: string;
+  fitsBed: boolean;
+  riskStatus: "ok" | "risk" | "critical";
+  riskScore: number;
+  etaMinutes: number;
+  size: { x: number; y: number; z: number };
+  volumeCm3: number;
+  materialUsageCm3: number;
+  estimatedPrice: number;
+};
+
 const BED_SIZE = 200;
 const BASE_FEE = 300;
 const DEFAULT_PRINT_HEIGHT_MM = 120;
@@ -216,6 +231,26 @@ const evaluateOrientationAdvisor = (size: { x: number; y: number; z: number }): 
     riskScore,
     etaMinutes,
   };
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const resolveMaterialUsageFactor = (
+  tech: TechMode,
+  isHollow: boolean,
+  infill: number
+) => {
+  if (tech === "sla") {
+    return isHollow ? 0.28 : 1;
+  }
+  const normalizedInfill = clamp(Number.isFinite(infill) ? infill : DEFAULT_FDM_INFILL_PERCENT, 8, 100) / 100;
+  return clamp(0.12 + normalizedInfill * 0.88, 0.12, 1);
+};
+
+const orientationRiskLabel = (status: OrientationAdvisorItem["riskStatus"]) => {
+  if (status === "critical") return "критический";
+  if (status === "risk") return "средний";
+  return "низкий";
 };
 
 const buildProxyUrlFromSource = (value: string) => {
@@ -943,7 +978,115 @@ function PrintServiceContent() {
       scaledMetrics?.volumeCm3,
     ]
   );
+  const orientationPresets = useMemo(() => {
+    if (!metrics || !orientationAdvisor) return null;
+    const printerBase = toPrinterAxes(metrics.size);
+    const materialFactor = resolveMaterialUsageFactor(
+      technology,
+      isHollowModel,
+      infillPercent
+    );
+
+    const presets: OrientationPresetEstimate[] = orientationAdvisor.items.map((item) => {
+      const base = orientPrinterDimensions(printerBase, item.key);
+      const maxScale = Math.min(
+        BED_SIZE / Math.max(base.x, 1),
+        BED_SIZE / Math.max(base.y, 1),
+        BED_SIZE / Math.max(base.z, 1)
+      );
+      const maxAllowedHeight = clamp(Math.floor(base.z * maxScale), MIN_PRINT_HEIGHT_MM, MAX_PRINT_HEIGHT_MM);
+      const targetHeight = clamp(targetHeightMm, MIN_PRINT_HEIGHT_MM, maxAllowedHeight);
+      const scale = targetHeight / Math.max(base.z, 1);
+      const size = {
+        x: base.x * scale,
+        y: base.y * scale,
+        z: base.z * scale,
+      };
+      const volumeCm3 = Math.max(0, metrics.volumeCm3 * Math.pow(scale, 3));
+      const materialUsageCm3 = Math.max(0, volumeCm3 * materialFactor);
+      const estimatedPrice = computePrintPrice({
+        technology,
+        material,
+        quality,
+        dimensions: size,
+        volumeCm3,
+        isHollow: technology === "sla" ? isHollowModel : undefined,
+        infillPercent: technology === "fdm" ? infillPercent : undefined,
+        enableSmart: SMART_PRICING_ENABLED,
+        queueMultiplier: SMART_QUEUE_MULTIPLIER,
+      }).price;
+      const etaMultiplier = quality === "pro" ? 1.2 : 1;
+      const etaMinutes = Math.max(20, Math.round(item.etaMinutes * etaMultiplier));
+      return {
+        key: item.key,
+        label: item.label,
+        note: item.note,
+        reason: "",
+        fitsBed: item.fitsBed,
+        riskStatus: item.riskStatus,
+        riskScore: item.riskScore,
+        etaMinutes,
+        size,
+        volumeCm3,
+        materialUsageCm3,
+        estimatedPrice,
+      };
+    });
+
+    const riskWeight = (status: OrientationPresetEstimate["riskStatus"]) =>
+      status === "critical" ? 3 : status === "risk" ? 2 : 1;
+
+    const sorted = [...presets].sort(
+      (a, b) =>
+        riskWeight(a.riskStatus) - riskWeight(b.riskStatus) ||
+        a.riskScore - b.riskScore ||
+        a.etaMinutes - b.etaMinutes ||
+        a.estimatedPrice - b.estimatedPrice
+    );
+    const recommended = sorted[0] || presets[0];
+
+    const withReason = presets.map((preset) => {
+      if (!recommended) return preset;
+      if (preset.key === recommended.key) {
+        return {
+          ...preset,
+          reason: `Лучший баланс: риск ${orientationRiskLabel(preset.riskStatus)}, ETA ~${preset.etaMinutes}м, цена ~${formatPrice(
+            preset.estimatedPrice
+          )} ₽.`,
+        };
+      }
+      const faster = preset.etaMinutes < recommended.etaMinutes;
+      const cheaper = preset.estimatedPrice < recommended.estimatedPrice;
+      const reason = faster
+        ? "Выбирайте, если приоритет - время печати."
+        : cheaper
+          ? "Выбирайте, если приоритет - бюджет."
+          : "Альтернатива для другой геометрии опор.";
+      return {
+        ...preset,
+        reason,
+      };
+    });
+
+    return {
+      items: withReason,
+      recommendedKey: recommended?.key || "upright",
+    };
+  }, [
+    infillPercent,
+    isHollowModel,
+    material,
+    metrics,
+    orientationAdvisor,
+    quality,
+    targetHeightMm,
+    technology,
+  ]);
   const price = pricing.price;
+  const selectedOrientationPreset = useMemo(
+    () => orientationPresets?.items.find((item) => item.key === printOrientation) || null,
+    [orientationPresets, printOrientation]
+  );
 
   const materialHint = useMemo(() => {
     const hints: Record<string, string> = {
@@ -1921,6 +2064,18 @@ function PrintServiceContent() {
       volumeCm3: scaledMetrics?.volumeCm3,
       preflightStatus: preflight.status,
       preflightIssues: preflight.issues.map((issue) => issue.message),
+      orientationPreset: selectedOrientationPreset
+        ? {
+            key: selectedOrientationPreset.key,
+            label: selectedOrientationPreset.label,
+            reason: selectedOrientationPreset.reason,
+            riskStatus: selectedOrientationPreset.riskStatus,
+            riskScore: selectedOrientationPreset.riskScore,
+            etaMinutes: selectedOrientationPreset.etaMinutes,
+            materialUsageCm3: Number(selectedOrientationPreset.materialUsageCm3.toFixed(2)),
+            estimatedPrice: Math.round(selectedOrientationPreset.estimatedPrice),
+          }
+        : undefined,
     },
   });
 
@@ -2336,14 +2491,14 @@ function PrintServiceContent() {
                   className="mt-3 w-full accent-[#2ED1FF]"
                 />
               </div>
-              {orientationAdvisor && (
+              {orientationPresets && (
                 <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
                   {(() => {
                     const recommendedOrientation =
-                      orientationAdvisor.items.find(
-                        (item) => item.key === orientationAdvisor.recommendedKey
-                      ) || orientationAdvisor.items[0];
-                    const allCritical = orientationAdvisor.items.every(
+                      orientationPresets.items.find(
+                        (item) => item.key === orientationPresets.recommendedKey
+                      ) || orientationPresets.items[0];
+                    const allCritical = orientationPresets.items.every(
                       (item) => item.riskStatus === "critical"
                     );
 
@@ -2351,7 +2506,7 @@ function PrintServiceContent() {
                       <>
                         <div className="mb-2 flex items-center justify-between gap-2">
                           <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/55">
-                            Рекомендация по ориентации
+                            Orientation advisor 2.0
                           </p>
                           <button
                             type="button"
@@ -2364,8 +2519,8 @@ function PrintServiceContent() {
 
                         {recommendedOrientation && (
                           <p className="mb-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100/90">
-                            Рекомендуем: <span className="font-semibold">{recommendedOrientation.label}</span>.{" "}
-                            Срок печати около {recommendedOrientation.etaMinutes} мин.
+                            Рекомендуем пресет: <span className="font-semibold">{recommendedOrientation.label}</span>.{" "}
+                            {recommendedOrientation.reason}
                           </p>
                         )}
 
@@ -2376,9 +2531,9 @@ function PrintServiceContent() {
                         )}
 
                         <div className="grid gap-2">
-                          {orientationAdvisor.items.map((item) => {
+                          {orientationPresets.items.map((item) => {
                             const selected = item.key === printOrientation;
-                            const recommended = item.key === orientationAdvisor.recommendedKey;
+                            const recommended = item.key === orientationPresets.recommendedKey;
                             const statusTone =
                               item.riskStatus === "critical"
                                 ? "text-red-200"
@@ -2414,16 +2569,34 @@ function PrintServiceContent() {
                                     {statusLabel}
                                   </p>
                                 </div>
-                                <p className="mt-1 text-[11px] text-white/60">
-                                  {item.note}. Примерный срок: {item.etaMinutes} мин.
-                                </p>
+                                <p className="mt-1 text-[11px] text-white/60">{item.note}. {item.reason}</p>
+                                <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] uppercase tracking-[0.14em] text-white/50">
+                                  <span>ETA ~{item.etaMinutes}м</span>
+                                  <span className={statusTone}>Risk: {item.riskScore}</span>
+                                  <span>Расход ~{formatNumber(item.materialUsageCm3)} см3</span>
+                                  <span>Цена ~{formatPrice(item.estimatedPrice)} ₽</span>
+                                </div>
                                 {showOrientationDetails && (
                                   <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-white/45">
                                     {`${formatNumber(item.size.x)} x ${formatNumber(item.size.y)} x ${formatNumber(
                                       item.size.z
-                                    )} мм • risk score ${item.riskScore}`}
+                                    )} мм • V:${formatNumber(item.volumeCm3)} см3`}
                                   </p>
                                 )}
+                                <div className="mt-2 flex justify-end">
+                                  <button
+                                    type="button"
+                                    onClick={(event) => {
+                                      event.stopPropagation();
+                                      setOrientationTouched(true);
+                                      setPrintOrientation(item.key);
+                                      setTargetHeightMm(Math.round(item.size.z));
+                                    }}
+                                    className="rounded-full border border-cyan-300/35 bg-cyan-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-200/55 hover:text-white"
+                                  >
+                                    Применить пресет
+                                  </button>
+                                </div>
                               </button>
                             );
                           })}

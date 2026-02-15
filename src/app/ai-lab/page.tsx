@@ -81,6 +81,15 @@ type AiAssetRecord = {
   previewUrl: string;
   format: string;
   status: string;
+  fixAvailable?: boolean;
+  checks?: {
+    topology?: {
+      fixAvailable?: boolean;
+      riskScore?: number;
+      watertight?: "yes" | "no" | "unknown";
+      issues?: Array<{ message?: string }>;
+    };
+  } | null;
 };
 
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
@@ -134,6 +143,8 @@ const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
+const AI_ASSET_REPAIR_API = (assetId: string) =>
+  `/api/ai/assets/${encodeURIComponent(assetId)}/repair`;
 const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
 const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
@@ -477,9 +488,14 @@ function AiLabContent() {
     id: string;
     type: "retry" | "variation" | "delete" | "publish";
   } | null>(null);
+  const [assetAction, setAssetAction] = useState<{
+    assetId: string;
+    type: "analyze" | "repair";
+  } | null>(null);
   const [remixJob, setRemixJob] = useState<AiGenerationJob | null>(null);
   const [remixPrompt, setRemixPrompt] = useState("");
   const [publishedAssetsByJobId, setPublishedAssetsByJobId] = useState<Record<string, string>>({});
+  const [publishedAssetsById, setPublishedAssetsById] = useState<Record<string, AiAssetRecord>>({});
   const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
@@ -1055,6 +1071,7 @@ function AiLabContent() {
         if (response.status === 401) {
           if (!silent) {
             setPublishedAssetsByJobId({});
+            setPublishedAssetsById({});
           }
           return;
         }
@@ -1067,12 +1084,17 @@ function AiLabContent() {
         }
         const assets = Array.isArray(data?.assets) ? (data.assets as AiAssetRecord[]) : [];
         const next: Record<string, string> = {};
+        const byId: Record<string, AiAssetRecord> = {};
         assets.forEach((asset) => {
+          if (asset?.id) {
+            byId[String(asset.id)] = asset;
+          }
           if (asset?.jobId && !next[String(asset.jobId)]) {
             next[String(asset.jobId)] = String(asset.id);
           }
         });
         setPublishedAssetsByJobId(next);
+        setPublishedAssetsById(byId);
       } catch (error) {
         if (!silent) {
           pushUiError(error instanceof Error ? error.message : "Failed to fetch AI assets.");
@@ -1587,6 +1609,92 @@ function AiLabContent() {
       }
     },
     [fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
+  );
+
+  const handleAnalyzePublishedAsset = useCallback(
+    async (job: AiGenerationJob) => {
+      const assetId = publishedAssetsByJobId[job.id];
+      if (!assetId) {
+        showError("Сначала сохраните результат в библиотеку профиля.");
+        return;
+      }
+      if (assetAction) return;
+      setAssetAction({ assetId, type: "analyze" });
+      try {
+        const response = await fetch(AI_ASSET_REPAIR_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ mode: "analyze" }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Analyze failed.");
+        }
+        const analysis = data?.analysis as
+          | {
+              riskScore?: number;
+              fixAvailable?: boolean;
+              issues?: Array<{ message?: string }>;
+            }
+          | undefined;
+        const issue =
+          Array.isArray(analysis?.issues) && analysis.issues[0]?.message
+            ? String(analysis.issues[0].message)
+            : "";
+        showSuccess(
+          analysis?.fixAvailable
+            ? `Analyze: найден риск (Q:${analysis?.riskScore ?? "?"}). ${issue}`.trim()
+            : `Analyze: критичных дефектов не найдено (Q:${analysis?.riskScore ?? "?"}).`
+        );
+        void fetchPublishedAssets(true);
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Analyze failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [assetAction, fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
+  );
+
+  const handleRepairPublishedAsset = useCallback(
+    async (job: AiGenerationJob) => {
+      const assetId = publishedAssetsByJobId[job.id];
+      if (!assetId) {
+        showError("Сначала сохраните результат в библиотеку профиля.");
+        return;
+      }
+      if (assetAction) return;
+      setAssetAction({ assetId, type: "repair" });
+      try {
+        const response = await fetch(AI_ASSET_REPAIR_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ mode: "repair" }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Auto-Fix failed.");
+        }
+        showSuccess(
+          `Auto-Fix: создана версия ${
+            typeof data?.repairedAsset?.version === "number"
+              ? `v${data.repairedAsset.version}`
+              : "v+1"
+          }.`
+        );
+        void fetchPublishedAssets(true);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ai-assets-updated"));
+        }
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Auto-Fix failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [assetAction, fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
   );
 
   const filteredJobHistory = useMemo(() => {
@@ -2219,7 +2327,13 @@ function AiLabContent() {
                   NO JOBS FOR FILTER
                 </div>
               ) : (
-                filteredJobHistory.map((job) => (
+                filteredJobHistory.map((job) => {
+                  const linkedAssetId = publishedAssetsByJobId[job.id];
+                  const linkedAsset = linkedAssetId ? publishedAssetsById[linkedAssetId] : null;
+                  const fixAvailable = Boolean(
+                    linkedAsset?.fixAvailable || linkedAsset?.checks?.topology?.fixAvailable
+                  );
+                  return (
                   <div
                     key={job.id}
                     className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
@@ -2242,15 +2356,16 @@ function AiLabContent() {
                       </p>
                     </div>
                     <div className="mt-2 flex items-center justify-between gap-2">
-                      <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                        {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
-                        {(job.status === "queued" || job.status === "processing") &&
-                          ` • ETA ${formatEta(job.etaSeconds ?? null)}`}
-                        {job.status === "queued" &&
-                          typeof job.queuePosition === "number" &&
-                          job.queuePosition > 0 &&
-                          ` • Q#${job.queuePosition}`}
-                      </p>
+                        <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                          {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
+                          {(job.status === "queued" || job.status === "processing") &&
+                            ` • ETA ${formatEta(job.etaSeconds ?? null)}`}
+                          {job.status === "queued" &&
+                            typeof job.queuePosition === "number" &&
+                            job.queuePosition > 0 &&
+                            ` • Q#${job.queuePosition}`}
+                          {fixAvailable ? " • fix available" : ""}
+                        </p>
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
@@ -2300,6 +2415,28 @@ function AiLabContent() {
                         </button>
                         <button
                           type="button"
+                          onClick={() => void handleAnalyzePublishedAsset(job)}
+                          disabled={!linkedAssetId || Boolean(assetAction)}
+                          className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={linkedAssetId ? "Проверить топологию ассета" : "Сначала сохраните ассет"}
+                        >
+                          {assetAction?.assetId === linkedAssetId && assetAction.type === "analyze"
+                            ? "..."
+                            : "ANALYZE"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleRepairPublishedAsset(job)}
+                          disabled={!linkedAssetId || Boolean(assetAction)}
+                          className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          title={linkedAssetId ? "Создать исправленную версию" : "Сначала сохраните ассет"}
+                        >
+                          {assetAction?.assetId === linkedAssetId && assetAction.type === "repair"
+                            ? "..."
+                            : "AUTO-FIX"}
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => void handleDeleteHistoryJob(job)}
                           disabled={historyAction?.id === job.id}
                           className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2309,7 +2446,8 @@ function AiLabContent() {
                       </div>
                     </div>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
           </div>

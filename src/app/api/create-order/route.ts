@@ -62,6 +62,16 @@ const normalizePrintSpecs = (value: any) => {
     volumeCm3?: number;
     isHollow?: boolean;
     infillPercent?: number;
+    orientationPreset?: {
+      key?: string;
+      label?: string;
+      reason?: string;
+      riskStatus?: string;
+      riskScore?: number;
+      etaMinutes?: number;
+      materialUsageCm3?: number;
+      estimatedPrice?: number;
+    };
   } = {
     technology: typeof value.technology === "string" ? value.technology : undefined,
     material: typeof value.material === "string" ? value.material : undefined,
@@ -72,6 +82,47 @@ const normalizePrintSpecs = (value: any) => {
     infillPercent:
       typeof value.infillPercent === "number" && Number.isFinite(value.infillPercent)
         ? value.infillPercent
+        : undefined,
+    orientationPreset:
+      value.orientationPreset && typeof value.orientationPreset === "object"
+        ? {
+            key:
+              typeof value.orientationPreset.key === "string"
+                ? value.orientationPreset.key.slice(0, 24)
+                : undefined,
+            label:
+              typeof value.orientationPreset.label === "string"
+                ? value.orientationPreset.label.slice(0, 80)
+                : undefined,
+            reason:
+              typeof value.orientationPreset.reason === "string"
+                ? value.orientationPreset.reason.slice(0, 240)
+                : undefined,
+            riskStatus:
+              typeof value.orientationPreset.riskStatus === "string"
+                ? value.orientationPreset.riskStatus.slice(0, 16)
+                : undefined,
+            riskScore:
+              typeof value.orientationPreset.riskScore === "number" &&
+              Number.isFinite(value.orientationPreset.riskScore)
+                ? value.orientationPreset.riskScore
+                : undefined,
+            etaMinutes:
+              typeof value.orientationPreset.etaMinutes === "number" &&
+              Number.isFinite(value.orientationPreset.etaMinutes)
+                ? value.orientationPreset.etaMinutes
+                : undefined,
+            materialUsageCm3:
+              typeof value.orientationPreset.materialUsageCm3 === "number" &&
+              Number.isFinite(value.orientationPreset.materialUsageCm3)
+                ? value.orientationPreset.materialUsageCm3
+                : undefined,
+            estimatedPrice:
+              typeof value.orientationPreset.estimatedPrice === "number" &&
+              Number.isFinite(value.orientationPreset.estimatedPrice)
+                ? value.orientationPreset.estimatedPrice
+                : undefined,
+          }
         : undefined,
   };
 
@@ -395,6 +446,7 @@ export async function POST(request: NextRequest) {
             volumeCm3: firstPrintItem.printSpecs.volumeCm3,
             isHollow: firstPrintItem.printSpecs.isHollow,
             infillPercent: firstPrintItem.printSpecs.infillPercent,
+            orientationPreset: (firstPrintItem.printSpecs as any).orientationPreset,
           };
         }
       }
