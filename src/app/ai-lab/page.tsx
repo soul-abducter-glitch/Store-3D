@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
-import type { DragEvent } from "react";
+import type { ChangeEvent, DragEvent } from "react";
 import { useRouter } from "next/navigation";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
@@ -251,6 +251,160 @@ const formatMoneyFromCents = (cents?: number) => {
   }).format(cents / 100);
 };
 
+const loadImageFromDataUrl = (dataUrl: string) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => resolve(image);
+    image.onerror = () => reject(new Error("Failed to decode image."));
+    image.src = dataUrl;
+  });
+
+const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
+  if (!dataUrl.startsWith("data:image/")) return dataUrl;
+  const image = await loadImageFromDataUrl(dataUrl);
+  const naturalWidth = image.naturalWidth || image.width;
+  const naturalHeight = image.naturalHeight || image.height;
+  if (naturalWidth <= 0 || naturalHeight <= 0) return dataUrl;
+
+  const maxSide = 1600;
+  const scale = Math.min(1, maxSide / Math.max(naturalWidth, naturalHeight));
+  const width = Math.max(1, Math.round(naturalWidth * scale));
+  const height = Math.max(1, Math.round(naturalHeight * scale));
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) throw new Error("Canvas context is unavailable.");
+  context.drawImage(image, 0, 0, width, height);
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const pixelCount = width * height;
+  const cornerSize = Math.max(2, Math.min(12, Math.floor(Math.min(width, height) / 20)));
+
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let sumSqR = 0;
+  let sumSqG = 0;
+  let sumSqB = 0;
+  let sampleCount = 0;
+
+  const sampleCorner = (startX: number, startY: number) => {
+    for (let y = startY; y < startY + cornerSize; y += 1) {
+      for (let x = startX; x < startX + cornerSize; x += 1) {
+        const idx = (y * width + x) * 4;
+        const alpha = data[idx + 3];
+        if (alpha < 8) continue;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        sumR += r;
+        sumG += g;
+        sumB += b;
+        sumSqR += r * r;
+        sumSqG += g * g;
+        sumSqB += b * b;
+        sampleCount += 1;
+      }
+    }
+  };
+
+  sampleCorner(0, 0);
+  sampleCorner(Math.max(0, width - cornerSize), 0);
+  sampleCorner(0, Math.max(0, height - cornerSize));
+  sampleCorner(Math.max(0, width - cornerSize), Math.max(0, height - cornerSize));
+  if (sampleCount <= 0) return dataUrl;
+
+  const bgR = sumR / sampleCount;
+  const bgG = sumG / sampleCount;
+  const bgB = sumB / sampleCount;
+  const variance =
+    (sumSqR / sampleCount - bgR * bgR + (sumSqG / sampleCount - bgG * bgG) + (sumSqB / sampleCount - bgB * bgB)) /
+    3;
+  const std = Math.sqrt(Math.max(0, variance));
+  const threshold = Math.max(20, Math.min(68, Math.round(24 + std * 1.8)));
+
+  const isBackgroundCandidate = (pixelIndex: number) => {
+    const idx = pixelIndex * 4;
+    const alpha = data[idx + 3];
+    if (alpha < 8) return true;
+    const dr = Math.abs(data[idx] - bgR);
+    const dg = Math.abs(data[idx + 1] - bgG);
+    const db = Math.abs(data[idx + 2] - bgB);
+    return Math.max(dr, dg, db) <= threshold && dr + dg + db <= threshold * 3;
+  };
+
+  const visited = new Uint8Array(pixelCount);
+  const queue = new Int32Array(pixelCount);
+  let queueStart = 0;
+  let queueEnd = 0;
+
+  const pushCandidate = (pixelIndex: number) => {
+    if (pixelIndex < 0 || pixelIndex >= pixelCount) return;
+    if (visited[pixelIndex]) return;
+    if (!isBackgroundCandidate(pixelIndex)) return;
+    visited[pixelIndex] = 1;
+    queue[queueEnd] = pixelIndex;
+    queueEnd += 1;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    pushCandidate(x);
+    pushCandidate((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    pushCandidate(y * width);
+    pushCandidate(y * width + (width - 1));
+  }
+
+  while (queueStart < queueEnd) {
+    const current = queue[queueStart];
+    queueStart += 1;
+    const x = current % width;
+    const y = Math.floor(current / width);
+    if (x > 0) pushCandidate(current - 1);
+    if (x < width - 1) pushCandidate(current + 1);
+    if (y > 0) pushCandidate(current - width);
+    if (y < height - 1) pushCandidate(current + width);
+  }
+
+  let removedPixels = 0;
+  for (let i = 0; i < pixelCount; i += 1) {
+    if (!visited[i]) continue;
+    const idx = i * 4;
+    data[idx + 3] = 0;
+    removedPixels += 1;
+  }
+
+  const removedRatio = removedPixels / pixelCount;
+  if (removedRatio < 0.02 || removedRatio > 0.98) {
+    return dataUrl;
+  }
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixelIndex = y * width + x;
+      if (visited[pixelIndex]) continue;
+      const idx = pixelIndex * 4;
+      const alpha = data[idx + 3];
+      if (alpha <= 0) continue;
+      const nearRemoved =
+        visited[pixelIndex - 1] ||
+        visited[pixelIndex + 1] ||
+        visited[pixelIndex - width] ||
+        visited[pixelIndex + width];
+      if (nearRemoved) {
+        data[idx + 3] = Math.min(alpha, 110);
+      }
+    }
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+};
+
 const tokenReasonLabel: Record<AiTokenEvent["reason"], string> = {
   spend: "Запуск",
   refund: "Возврат",
@@ -495,6 +649,7 @@ function AiLabContent() {
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
   const [dragActive, setDragActive] = useState(false);
+  const [removingReferenceBgId, setRemovingReferenceBgId] = useState<string | null>(null);
   const [serverJob, setServerJob] = useState<AiGenerationJob | null>(null);
   const [serverJobLoading, setServerJobLoading] = useState(false);
   const [serverJobError, setServerJobError] = useState<string | null>(null);
@@ -511,10 +666,15 @@ function AiLabContent() {
   } | null>(null);
   const [remixJob, setRemixJob] = useState<AiGenerationJob | null>(null);
   const [remixPrompt, setRemixPrompt] = useState("");
+  const [remixLocalEdit, setRemixLocalEdit] = useState(false);
+  const [remixTargetZone, setRemixTargetZone] = useState("ноги");
+  const [remixIssueReference, setRemixIssueReference] = useState<AiReferenceItem | null>(null);
+  const [remixIssueLoading, setRemixIssueLoading] = useState(false);
   const [publishedAssetsByJobId, setPublishedAssetsByJobId] = useState<Record<string, string>>({});
   const [publishedAssetsById, setPublishedAssetsById] = useState<Record<string, AiAssetRecord>>({});
   const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
+  const remixIssueInputRef = useRef<HTMLInputElement>(null);
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const jobHistoryRequestInFlightRef = useRef(false);
@@ -1018,6 +1178,92 @@ function AiLabContent() {
     setUploadPreview(null);
   }, []);
 
+  const handleRemoveReferenceBackground = useCallback(
+    async (refId: string) => {
+      if (removingReferenceBgId) return;
+      const targetRef = validInputReferences.find((ref) => ref.id === refId);
+      if (!targetRef) return;
+      const sourceDataUrl = targetRef.previewUrl || targetRef.url;
+      if (!sourceDataUrl.startsWith("data:image/")) {
+        showError("Удаление фона доступно только для локально загруженных изображений.");
+        return;
+      }
+
+      setRemovingReferenceBgId(refId);
+      try {
+        const cleaned = await removeBackgroundFromImageDataUrl(sourceDataUrl);
+        if (cleaned === sourceDataUrl) {
+          showError("Не удалось надежно выделить фон. Попробуйте другое изображение.");
+          return;
+        }
+
+        setInputReferences((prev) => {
+          const normalized = prev.filter(isAiReferenceItem);
+          const next = normalized.map((item) =>
+            item.id === refId
+              ? {
+                  ...item,
+                  url: cleaned,
+                  previewUrl: cleaned,
+                  type: "image/png",
+                }
+              : item
+          );
+          setUploadPreview(next[0]?.previewUrl ?? null);
+          return next;
+        });
+        showSuccess("Фон удален. Обновленный референс готов.");
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to remove image background.");
+      } finally {
+        setRemovingReferenceBgId(null);
+      }
+    },
+    [pushUiError, removingReferenceBgId, showError, showSuccess, validInputReferences]
+  );
+
+  const handleRemixIssueFileChange = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.currentTarget.value = "";
+      if (!file) return;
+
+      const isImageType =
+        file.type.startsWith("image/") || /\.(png|jpe?g|webp|bmp|gif)$/i.test(file.name.toLowerCase());
+      if (!isImageType) {
+        showError("Добавьте изображение (PNG/JPG/WebP).");
+        return;
+      }
+
+      setRemixIssueLoading(true);
+      try {
+        const dataUrl = await fileToDataUrl(file);
+        setRemixIssueReference({
+          id: createId(),
+          url: dataUrl,
+          name: file.name.slice(0, 80) || "issue-reference",
+          type: file.type || "image/*",
+          previewUrl: dataUrl,
+        });
+        showSuccess("Скрин проблемы добавлен в remix.");
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to attach issue screenshot.");
+      } finally {
+        setRemixIssueLoading(false);
+      }
+    },
+    [pushUiError, showError, showSuccess]
+  );
+
+  const closeRemixDialog = useCallback(() => {
+    setRemixJob(null);
+    setRemixPrompt("");
+    setRemixLocalEdit(false);
+    setRemixTargetZone("ноги");
+    setRemixIssueReference(null);
+    setRemixIssueLoading(false);
+  }, []);
+
   const handleDrop = (event: DragEvent<HTMLDivElement>) => {
     event.preventDefault();
     setDragActive(false);
@@ -1470,7 +1716,15 @@ function AiLabContent() {
   );
 
   const handleVariationHistoryJob = useCallback(
-    async (job: AiGenerationJob, customPrompt?: string) => {
+    async (
+      job: AiGenerationJob,
+      customPrompt?: string,
+      options?: {
+        localEdit?: boolean;
+        targetZone?: string;
+        issueReference?: AiReferenceItem | null;
+      }
+    ) => {
       if (job.status !== "completed") {
         showError("Variation is available only for completed jobs.");
         return false;
@@ -1495,6 +1749,28 @@ function AiLabContent() {
       setLatestCompletedJob(null);
 
       try {
+        const basePrompt = typeof customPrompt === "string" ? customPrompt.trim().slice(0, 800) : "";
+        const targetZone = typeof options?.targetZone === "string" ? options.targetZone.trim().slice(0, 120) : "";
+        const effectivePrompt = options?.localEdit
+          ? [
+              basePrompt || "Исправь дефект в указанной зоне.",
+              `Целевая зона: ${targetZone || "проблемная часть модели"}.`,
+              "Измени только эту зону.",
+              "Остальную геометрию, позу, пропорции, стиль и материалы не меняй.",
+              "Сохрани масштаб и общую композицию модели.",
+            ]
+              .join(" ")
+              .slice(0, 800)
+          : basePrompt;
+
+        const issueReference = isAiReferenceItem(options?.issueReference)
+          ? {
+              url: options.issueReference.url,
+              name: options.issueReference.name,
+              type: options.issueReference.type,
+            }
+          : null;
+
         const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1502,7 +1778,8 @@ function AiLabContent() {
           body: JSON.stringify({
             action: "variation",
             parentAssetId: publishedAssetsByJobId[job.id] || null,
-            prompt: typeof customPrompt === "string" ? customPrompt.trim().slice(0, 800) : "",
+            prompt: effectivePrompt,
+            ...(issueReference ? { sourceRefs: [issueReference] } : {}),
           }),
         });
         const data = await response.json().catch(() => null);
@@ -2169,6 +2446,18 @@ function AiLabContent() {
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
+                        void handleRemoveReferenceBackground(ref.id);
+                      }}
+                      disabled={removingReferenceBgId === ref.id}
+                      className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Удалить фон у референса"
+                    >
+                      {removingReferenceBgId === ref.id ? "..." : "RM BG"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
                         handleRemoveInputReference(ref.id);
                       }}
                       className="rounded-full border border-rose-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300"
@@ -2415,6 +2704,9 @@ function AiLabContent() {
                           onClick={() => {
                             setRemixJob(job);
                             setRemixPrompt(job.prompt || "");
+                            setRemixLocalEdit(false);
+                            setRemixTargetZone("ноги");
+                            setRemixIssueReference(null);
                           }}
                           disabled={historyAction?.id === job.id || job.status !== "completed"}
                           className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
@@ -2707,10 +2999,92 @@ function AiLabContent() {
                 {remixPrompt.trim().length} / 800
               </div>
             </div>
+
+            <div className="mt-3 rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.04] p-3">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-100">
+                    Локальная правка
+                  </p>
+                  <p className="mt-1 text-xs text-white/60">
+                    Правим только выбранную зону, остальное стараемся не менять.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setRemixLocalEdit((prev) => !prev)}
+                  className={`rounded-full border px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
+                    remixLocalEdit
+                      ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                      : "border-white/15 bg-white/5 text-white/60 hover:border-white/35"
+                  }`}
+                >
+                  {remixLocalEdit ? "ON" : "OFF"}
+                </button>
+              </div>
+
+              {remixLocalEdit && (
+                <div className="mt-3 space-y-3">
+                  <div className="space-y-1">
+                    <label className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
+                      Зона правки
+                    </label>
+                    <input
+                      value={remixTargetZone}
+                      onChange={(event) => setRemixTargetZone(event.target.value.slice(0, 120))}
+                      placeholder="Например: ноги, кисти, лицо"
+                      className="w-full rounded-xl border border-white/15 bg-white/5 px-3 py-2 text-sm text-white outline-none transition focus:border-cyan-300/60"
+                    />
+                  </div>
+
+                  <input
+                    ref={remixIssueInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={handleRemixIssueFileChange}
+                    className="hidden"
+                  />
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => remixIssueInputRef.current?.click()}
+                      disabled={remixIssueLoading}
+                      className="rounded-full border border-cyan-300/50 bg-cyan-500/10 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {remixIssueLoading ? "Загрузка..." : "Добавить скрин проблемы"}
+                    </button>
+                    {remixIssueReference && (
+                      <button
+                        type="button"
+                        onClick={() => setRemixIssueReference(null)}
+                        className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/35 hover:text-white"
+                      >
+                        Убрать скрин
+                      </button>
+                    )}
+                  </div>
+
+                  {remixIssueReference?.previewUrl && (
+                    <div className="flex items-center gap-2 rounded-xl border border-white/10 bg-black/25 p-2">
+                      <img
+                        src={remixIssueReference.previewUrl}
+                        alt={remixIssueReference.name}
+                        className="h-12 w-12 rounded-md border border-white/10 object-cover"
+                      />
+                      <p className="min-w-0 truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/60">
+                        {remixIssueReference.name}
+                      </p>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
             <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:justify-end">
               <button
                 type="button"
-                onClick={() => setRemixJob(null)}
+                onClick={closeRemixDialog}
                 disabled={historyAction?.id === remixJob.id && historyAction?.type === "variation"}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
@@ -2721,9 +3095,13 @@ function AiLabContent() {
                 onClick={() => {
                   if (!remixJob) return;
                   void (async () => {
-                    const ok = await handleVariationHistoryJob(remixJob, remixPrompt);
+                    const ok = await handleVariationHistoryJob(remixJob, remixPrompt, {
+                      localEdit: remixLocalEdit,
+                      targetZone: remixTargetZone,
+                      issueReference: remixIssueReference,
+                    });
                     if (ok) {
-                      setRemixJob(null);
+                      closeRemixDialog();
                     }
                   })();
                 }}
