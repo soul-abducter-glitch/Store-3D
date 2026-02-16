@@ -27,6 +27,7 @@ type AiReferenceItem = {
   name: string;
   type: string;
   previewUrl: string | null;
+  originalUrl?: string | null;
 };
 
 type GeneratedAsset = {
@@ -1220,6 +1221,7 @@ function AiLabContent() {
   const maskImageNameRef = useRef<string>("reference");
   const maskSourcePixelsRef = useRef<Uint8ClampedArray | null>(null);
   const maskSourceAlphaRef = useRef<Uint8Array | null>(null);
+  const maskInitialAlphaRef = useRef<Uint8Array | null>(null);
   const maskAlphaRef = useRef<Uint8Array | null>(null);
   const maskWidthRef = useRef(0);
   const maskHeightRef = useRef(0);
@@ -1694,6 +1696,7 @@ function AiLabContent() {
               name: file.name.slice(0, 80) || "reference-image",
               type: file.type || "image/*",
               previewUrl: url,
+              originalUrl: url,
             } as AiReferenceItem;
           })
         );
@@ -1762,6 +1765,7 @@ function AiLabContent() {
                   url: cleaned,
                   previewUrl: cleaned,
                   type: "image/png",
+                  originalUrl: item.originalUrl ?? item.url,
                 }
               : item
           );
@@ -1821,6 +1825,7 @@ function AiLabContent() {
                   url: cleaned,
                   previewUrl: cleaned,
                   type: "image/png",
+                  originalUrl: item.originalUrl ?? item.url,
                 }
               : item
           );
@@ -1887,17 +1892,17 @@ function AiLabContent() {
         let b = sourcePixels[idx + 2];
 
         if (overlayEnabled && alpha < 250) {
-          const strength = clampNumber((250 - alpha) / 250, 0, 1);
-          const tint = 0.52 * strength;
-          r = Math.round(r * (1 - tint) + 234 * tint);
-          g = Math.round(g * (1 - tint) + 56 * tint);
-          b = Math.round(b * (1 - tint) + 76 * tint);
+          const strength = clampNumber((255 - alpha) / 255, 0, 1);
+          const tint = 0.72 * strength;
+          r = Math.round(r * (1 - tint) + 255 * tint);
+          g = Math.round(g * (1 - tint) + 54 * tint);
+          b = Math.round(b * (1 - tint) + 86 * tint);
         }
 
         output[idx] = r;
         output[idx + 1] = g;
         output[idx + 2] = b;
-        output[idx + 3] = alpha;
+        output[idx + 3] = overlayEnabled ? 255 : alpha;
       }
 
       context.putImageData(new ImageData(output, width, height), 0, 0);
@@ -2019,9 +2024,9 @@ function AiLabContent() {
   }, [maskShowOverlay, renderMaskEditorCanvas]);
 
   const handleMaskReset = useCallback(() => {
-    const sourceAlpha = maskSourceAlphaRef.current;
-    if (!sourceAlpha) return;
-    maskAlphaRef.current = sourceAlpha.slice();
+    const initialAlpha = maskInitialAlphaRef.current;
+    if (!initialAlpha) return;
+    maskAlphaRef.current = initialAlpha.slice();
     maskUndoStackRef.current = [];
     maskRedoStackRef.current = [];
     setMaskHistoryRevision((value) => value + 1);
@@ -2046,6 +2051,7 @@ function AiLabContent() {
     setMaskEditorRefId(null);
     maskSourcePixelsRef.current = null;
     maskSourceAlphaRef.current = null;
+    maskInitialAlphaRef.current = null;
     maskAlphaRef.current = null;
     maskWidthRef.current = 0;
     maskHeightRef.current = 0;
@@ -2067,12 +2073,20 @@ function AiLabContent() {
 
       setMaskEditorLoading(true);
       try {
-        const image = await loadImageFromDataUrl(sourceDataUrl);
-        const width = image.naturalWidth || image.width;
-        const height = image.naturalHeight || image.height;
+        const editableImage = await loadImageFromDataUrl(sourceDataUrl);
+        const width = editableImage.naturalWidth || editableImage.width;
+        const height = editableImage.naturalHeight || editableImage.height;
         if (width <= 0 || height <= 0) {
           throw new Error("Invalid image dimensions.");
         }
+        const originalDataUrl =
+          typeof targetRef.originalUrl === "string" && targetRef.originalUrl.startsWith("data:image/")
+            ? targetRef.originalUrl
+            : sourceDataUrl;
+        const restoreImage =
+          originalDataUrl === sourceDataUrl
+            ? editableImage
+            : await loadImageFromDataUrl(originalDataUrl);
 
         const canvas = document.createElement("canvas");
         canvas.width = width;
@@ -2081,17 +2095,29 @@ function AiLabContent() {
         if (!context) {
           throw new Error("Canvas context is unavailable.");
         }
-        context.drawImage(image, 0, 0, width, height);
-        const sourceImageData = context.getImageData(0, 0, width, height);
-        const sourcePixels = sourceImageData.data.slice();
-        const sourceAlpha = new Uint8Array(width * height);
-        for (let i = 0; i < sourceAlpha.length; i += 1) {
-          sourceAlpha[i] = sourcePixels[i * 4 + 3];
+
+        context.clearRect(0, 0, width, height);
+        context.drawImage(restoreImage, 0, 0, width, height);
+        const restoreImageData = context.getImageData(0, 0, width, height);
+        const restorePixels = restoreImageData.data.slice();
+        const restoreAlpha = new Uint8Array(width * height);
+        for (let i = 0; i < restoreAlpha.length; i += 1) {
+          restoreAlpha[i] = restorePixels[i * 4 + 3];
         }
 
-        maskSourcePixelsRef.current = sourcePixels;
-        maskSourceAlphaRef.current = sourceAlpha;
-        maskAlphaRef.current = sourceAlpha.slice();
+        context.clearRect(0, 0, width, height);
+        context.drawImage(editableImage, 0, 0, width, height);
+        const editableImageData = context.getImageData(0, 0, width, height);
+        const editablePixels = editableImageData.data;
+        const initialAlpha = new Uint8Array(width * height);
+        for (let i = 0; i < initialAlpha.length; i += 1) {
+          initialAlpha[i] = editablePixels[i * 4 + 3];
+        }
+
+        maskSourcePixelsRef.current = restorePixels;
+        maskSourceAlphaRef.current = restoreAlpha;
+        maskInitialAlphaRef.current = initialAlpha;
+        maskAlphaRef.current = initialAlpha.slice();
         maskWidthRef.current = width;
         maskHeightRef.current = height;
         maskUndoStackRef.current = [];
@@ -2162,6 +2188,7 @@ function AiLabContent() {
                 url: outputDataUrl,
                 previewUrl: outputDataUrl,
                 type: "image/png",
+                originalUrl: item.originalUrl ?? item.url,
               }
             : item
         );
@@ -2199,6 +2226,7 @@ function AiLabContent() {
           name: file.name.slice(0, 80) || "issue-reference",
           type: file.type || "image/*",
           previewUrl: dataUrl,
+          originalUrl: dataUrl,
         });
         showSuccess("Скрин проблемы добавлен в remix.");
       } catch (error) {
@@ -2589,6 +2617,7 @@ function AiLabContent() {
                   ? ref.type.trim().slice(0, 80)
                   : "image/*",
               previewUrl,
+              originalUrl: previewUrl,
             } as AiReferenceItem;
           })
           .filter(Boolean) as AiReferenceItem[]
