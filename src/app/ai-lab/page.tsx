@@ -259,7 +259,50 @@ const loadImageFromDataUrl = (dataUrl: string) =>
     image.src = dataUrl;
   });
 
-const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
+const blobToDataUrl = (blob: Blob) =>
+  new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = typeof reader.result === "string" ? reader.result : "";
+      if (!result) {
+        reject(new Error("Failed to convert blob to data URL."));
+        return;
+      }
+      resolve(result);
+    };
+    reader.onerror = () => reject(new Error("Failed to read blob."));
+    reader.readAsDataURL(blob);
+  });
+
+const dataUrlToBlob = async (dataUrl: string) => {
+  const response = await fetch(dataUrl);
+  if (!response.ok) {
+    throw new Error("Failed to read input image.");
+  }
+  return response.blob();
+};
+
+type ImglyRemoveBackground = (
+  image: ImageData | ArrayBuffer | Uint8Array | Blob | URL | string,
+  config?: Record<string, unknown>
+) => Promise<Blob>;
+
+let imglyRemoveBackgroundPromise: Promise<ImglyRemoveBackground> | null = null;
+
+const loadImglyRemoveBackground = () => {
+  if (!imglyRemoveBackgroundPromise) {
+    imglyRemoveBackgroundPromise = import("@imgly/background-removal").then((module) => {
+      const fn = module.default as unknown;
+      if (typeof fn !== "function") {
+        throw new Error("Background removal module is unavailable.");
+      }
+      return fn as ImglyRemoveBackground;
+    });
+  }
+  return imglyRemoveBackgroundPromise;
+};
+
+const removeBackgroundByHeuristic = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
   const image = await loadImageFromDataUrl(dataUrl);
   const naturalWidth = image.naturalWidth || image.width;
@@ -403,6 +446,33 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
 
   context.putImageData(imageData, 0, 0);
   return canvas.toDataURL("image/png");
+};
+
+const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
+  if (!dataUrl.startsWith("data:image/")) return dataUrl;
+
+  try {
+    const removeBackground = await loadImglyRemoveBackground();
+    const inputBlob = await dataUrlToBlob(dataUrl);
+
+    const resultBlob = await removeBackground(inputBlob, {
+      model: "isnet_fp16",
+      output: {
+        format: "image/png",
+        quality: 1,
+        type: "foreground",
+      },
+    });
+
+    const resultDataUrl = await blobToDataUrl(resultBlob);
+    if (resultDataUrl.startsWith("data:image/") && resultDataUrl.length > 64) {
+      return resultDataUrl;
+    }
+  } catch {
+    // fall back to heuristic remover below
+  }
+
+  return removeBackgroundByHeuristic(dataUrl);
 };
 
 const tokenReasonLabel: Record<AiTokenEvent["reason"], string> = {
