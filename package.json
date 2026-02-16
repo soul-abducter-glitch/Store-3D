@@ -18,7 +18,6 @@
   },
   "dependencies": {
     "@imgly/background-removal": "^1.7.0",
-    "@imgly/background-removal-node": "^1.4.5",
     "@payloadcms/db-postgres": "^3.69.0",
     "@payloadcms/next": "^3.69.0",
     "@payloadcms/plugin-cloud-storage": "^3.69.0",

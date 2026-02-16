@@ -24,7 +24,6 @@ const securityHeaders = [
 const baseConfig = {
   reactStrictMode: true,
   distDir: isAdminMode ? ".next-admin" : ".next-frontend",
-  serverExternalPackages: ["@imgly/background-removal-node", "sharp"],
   experimental: {
     serverActions: {
       bodySizeLimit: "200mb",
