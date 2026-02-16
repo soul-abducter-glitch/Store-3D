@@ -143,6 +143,7 @@ const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
+const AI_BACKGROUND_REMOVE_API_URL = "/api/ai/background-remove";
 const AI_ASSET_REPAIR_API = (assetId: string) =>
   `/api/ai/assets/${encodeURIComponent(assetId)}/repair`;
 const AI_TOKENS_API_URL = "/api/ai/tokens";
@@ -152,6 +153,10 @@ const AI_SUBSCRIPTION_ME_API_URL = "/api/ai/subscriptions/me";
 const AI_SUBSCRIPTION_CHECKOUT_API_URL = "/api/ai/subscriptions/checkout";
 const AI_SUBSCRIPTION_PORTAL_API_URL = "/api/ai/subscriptions/portal";
 const MAX_INPUT_REFERENCES = 4;
+const AI_BG_REMOVE_MODE = (process.env.NEXT_PUBLIC_AI_BG_REMOVE_MODE || "client")
+  .trim()
+  .toLowerCase();
+const AI_BG_REMOVE_SERVER_ENABLED = AI_BG_REMOVE_MODE === "rembg";
 const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
   { id: "starter", title: "STARTER", credits: 50, note: "STRIPE TEST" },
   { id: "pro", title: "PRO", credits: 200, note: "STRIPE TEST" },
@@ -662,6 +667,29 @@ const removeBackgroundByHeuristic = async (dataUrl: string) => {
 
 const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
+
+  if (AI_BG_REMOVE_SERVER_ENABLED) {
+    try {
+      const inputBlob = await dataUrlToBlob(dataUrl);
+      const payload = new FormData();
+      payload.append("image", inputBlob, "reference-input.png");
+      const response = await fetch(AI_BACKGROUND_REMOVE_API_URL, {
+        method: "POST",
+        body: payload,
+      });
+      if (response.ok) {
+        const cleanedBlob = await response.blob();
+        if (cleanedBlob.size > 0) {
+          const cleanedDataUrl = await blobToDataUrl(cleanedBlob);
+          if (cleanedDataUrl.startsWith("data:image/")) {
+            return cleanedDataUrl;
+          }
+        }
+      }
+    } catch {
+      // fall back to local remover below
+    }
+  }
 
   try {
     const removeBackground = await loadImglyRemoveBackground();
