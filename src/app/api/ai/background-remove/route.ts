@@ -7,8 +7,34 @@ export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_SOURCE_SIZE_BYTES = 12 * 1024 * 1024;
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
+
+const parseBooleanEnv = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+};
+
+const parsePositiveIntEnv = (value: string | undefined, fallback: number) => {
+  const parsed = Number.parseInt(value || "", 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
+  return Math.trunc(parsed);
+};
+
+const BG_REMOVE_ALPHA_MATTING = parseBooleanEnv(process.env.AI_BG_REMOVE_ALPHA_MATTING, true);
+const BG_REMOVE_POST_PROCESS_MASK = parseBooleanEnv(process.env.AI_BG_REMOVE_POST_PROCESS_MASK, true);
+const BG_REMOVE_FG_THRESHOLD = parsePositiveIntEnv(process.env.AI_BG_REMOVE_FG_THRESHOLD, 240);
+const BG_REMOVE_BG_THRESHOLD = parsePositiveIntEnv(process.env.AI_BG_REMOVE_BG_THRESHOLD, 14);
+const BG_REMOVE_ERODE_SIZE = parsePositiveIntEnv(process.env.AI_BG_REMOVE_ERODE_SIZE, 8);
+const BG_REMOVE_TIMEOUT_MS = parsePositiveIntEnv(
+  process.env.AI_BG_REMOVE_TIMEOUT_MS,
+  DEFAULT_REQUEST_TIMEOUT_MS
+);
+const BG_REMOVE_MODEL = String(process.env.AI_BG_REMOVE_MODEL || "").trim();
 
 const normalizeServiceUrl = () => {
   const raw = String(process.env.AI_BG_REMOVE_REMBG_URL || "")
@@ -79,12 +105,29 @@ export async function POST(request: NextRequest) {
 
     const upstreamForm = new FormData();
     upstreamForm.append("file", imageEntry, "reference-input.png");
+    upstreamForm.append("alpha_matting", BG_REMOVE_ALPHA_MATTING ? "true" : "false");
+    upstreamForm.append("post_process_mask", BG_REMOVE_POST_PROCESS_MASK ? "true" : "false");
+    upstreamForm.append("alpha_matting_foreground_threshold", String(BG_REMOVE_FG_THRESHOLD));
+    upstreamForm.append("alpha_matting_background_threshold", String(BG_REMOVE_BG_THRESHOLD));
+    upstreamForm.append("alpha_matting_erode_size", String(BG_REMOVE_ERODE_SIZE));
+    if (BG_REMOVE_MODEL) {
+      upstreamForm.append("model", BG_REMOVE_MODEL);
+    }
 
-    const upstreamResponse = await fetch(rembgUrl, {
-      method: "POST",
-      body: upstreamForm,
-      cache: "no-store",
-    });
+    const abortController = new AbortController();
+    const timeout = setTimeout(() => abortController.abort(), BG_REMOVE_TIMEOUT_MS);
+
+    let upstreamResponse: Response;
+    try {
+      upstreamResponse = await fetch(rembgUrl, {
+        method: "POST",
+        body: upstreamForm,
+        cache: "no-store",
+        signal: abortController.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
 
     if (!upstreamResponse.ok) {
       const upstreamText = (await upstreamResponse.text()).slice(0, 220);

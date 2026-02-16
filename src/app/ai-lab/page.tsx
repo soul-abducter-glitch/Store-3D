@@ -256,6 +256,16 @@ const formatMoneyFromCents = (cents?: number) => {
   }).format(cents / 100);
 };
 
+const sanitizeFilenameBase = (raw: string, fallback = "reference") => {
+  const normalized = String(raw || "")
+    .trim()
+    .replace(/\.[a-z0-9]{1,5}$/i, "")
+    .replace(/[^a-zA-Z0-9_-]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-|-$/g, "");
+  return normalized || fallback;
+};
+
 const loadImageFromDataUrl = (dataUrl: string) =>
   new Promise<HTMLImageElement>((resolve, reject) => {
     const image = new Image();
@@ -665,6 +675,156 @@ const removeBackgroundByHeuristic = async (dataUrl: string) => {
   return canvas.toDataURL("image/png");
 };
 
+const trimResidualBackground = async (dataUrl: string) => {
+  if (!dataUrl.startsWith("data:image/")) return dataUrl;
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (width <= 0 || height <= 0) return dataUrl;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return dataUrl;
+  context.drawImage(image, 0, 0, width, height);
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const pixelCount = width * height;
+  const cornerSize = Math.max(2, Math.min(20, Math.floor(Math.min(width, height) / 18)));
+
+  let sumR = 0;
+  let sumG = 0;
+  let sumB = 0;
+  let sumSqR = 0;
+  let sumSqG = 0;
+  let sumSqB = 0;
+  let sampleCount = 0;
+
+  const sampleCorner = (startX: number, startY: number) => {
+    for (let y = startY; y < startY + cornerSize; y += 1) {
+      for (let x = startX; x < startX + cornerSize; x += 1) {
+        const idx = (y * width + x) * 4;
+        const alpha = data[idx + 3];
+        if (alpha < 8) continue;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        sumR += r;
+        sumG += g;
+        sumB += b;
+        sumSqR += r * r;
+        sumSqG += g * g;
+        sumSqB += b * b;
+        sampleCount += 1;
+      }
+    }
+  };
+
+  sampleCorner(0, 0);
+  sampleCorner(Math.max(0, width - cornerSize), 0);
+  sampleCorner(0, Math.max(0, height - cornerSize));
+  sampleCorner(Math.max(0, width - cornerSize), Math.max(0, height - cornerSize));
+  if (sampleCount <= 0) return dataUrl;
+
+  const bgR = sumR / sampleCount;
+  const bgG = sumG / sampleCount;
+  const bgB = sumB / sampleCount;
+  const variance =
+    (sumSqR / sampleCount - bgR * bgR + (sumSqG / sampleCount - bgG * bgG) + (sumSqB / sampleCount - bgB * bgB)) /
+    3;
+  const std = Math.sqrt(Math.max(0, variance));
+  const threshold = Math.max(20, Math.min(80, Math.round(24 + std * 1.9)));
+
+  const isBackgroundCandidate = (pixelIndex: number) => {
+    const idx = pixelIndex * 4;
+    const alpha = data[idx + 3];
+    if (alpha <= 12) return true;
+    const dr = Math.abs(data[idx] - bgR);
+    const dg = Math.abs(data[idx + 1] - bgG);
+    const db = Math.abs(data[idx + 2] - bgB);
+    const similar = Math.max(dr, dg, db) <= threshold && dr + dg + db <= threshold * 2.9;
+    if (!similar) return false;
+    if (alpha < 248) return true;
+    const x = pixelIndex % width;
+    const y = Math.floor(pixelIndex / width);
+    return x === 0 || y === 0 || x === width - 1 || y === height - 1;
+  };
+
+  const visited = new Uint8Array(pixelCount);
+  const queue = new Int32Array(pixelCount);
+  let queueStart = 0;
+  let queueEnd = 0;
+
+  const pushCandidate = (pixelIndex: number) => {
+    if (pixelIndex < 0 || pixelIndex >= pixelCount) return;
+    if (visited[pixelIndex]) return;
+    if (!isBackgroundCandidate(pixelIndex)) return;
+    visited[pixelIndex] = 1;
+    queue[queueEnd] = pixelIndex;
+    queueEnd += 1;
+  };
+
+  for (let x = 0; x < width; x += 1) {
+    pushCandidate(x);
+    pushCandidate((height - 1) * width + x);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    pushCandidate(y * width);
+    pushCandidate(y * width + (width - 1));
+  }
+
+  while (queueStart < queueEnd) {
+    const current = queue[queueStart];
+    queueStart += 1;
+    const x = current % width;
+    const y = Math.floor(current / width);
+    if (x > 0) pushCandidate(current - 1);
+    if (x < width - 1) pushCandidate(current + 1);
+    if (y > 0) pushCandidate(current - width);
+    if (y < height - 1) pushCandidate(current + width);
+  }
+
+  const centerIndex = Math.floor(height / 2) * width + Math.floor(width / 2);
+  if (visited[centerIndex]) return dataUrl;
+
+  let removedPixels = 0;
+  for (let i = 0; i < pixelCount; i += 1) {
+    if (!visited[i]) continue;
+    const idx = i * 4;
+    data[idx] = 0;
+    data[idx + 1] = 0;
+    data[idx + 2] = 0;
+    data[idx + 3] = 0;
+    removedPixels += 1;
+  }
+
+  const removedRatio = removedPixels / pixelCount;
+  if (removedRatio < 0.015 || removedRatio > 0.96) return dataUrl;
+
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      const pixelIndex = y * width + x;
+      if (visited[pixelIndex]) continue;
+      const idx = pixelIndex * 4;
+      const alpha = data[idx + 3];
+      if (alpha <= 0) continue;
+      const nearRemoved =
+        visited[pixelIndex - 1] ||
+        visited[pixelIndex + 1] ||
+        visited[pixelIndex - width] ||
+        visited[pixelIndex + width];
+      if (nearRemoved) {
+        data[idx + 3] = Math.max(0, Math.min(alpha, 170));
+      }
+    }
+  }
+
+  context.putImageData(imageData, 0, 0);
+  return canvas.toDataURL("image/png");
+};
+
 const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
 
@@ -682,7 +842,7 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
         if (cleanedBlob.size > 0) {
           const cleanedDataUrl = await blobToDataUrl(cleanedBlob);
           if (cleanedDataUrl.startsWith("data:image/")) {
-            return cleanedDataUrl;
+            return trimResidualBackground(cleanedDataUrl);
           }
         }
       }
@@ -707,13 +867,17 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
     const maskDataUrl = await blobToDataUrl(maskBlob);
     const composedDataUrl = await composeForegroundWithMask(dataUrl, maskDataUrl);
     if (composedDataUrl.startsWith("data:image/") && composedDataUrl.length > 64) {
-      return composedDataUrl;
+      return trimResidualBackground(composedDataUrl);
     }
   } catch {
     // fall back to heuristic remover below
   }
 
-  return removeBackgroundByHeuristic(dataUrl);
+  const heuristicDataUrl = await removeBackgroundByHeuristic(dataUrl);
+  if (heuristicDataUrl !== dataUrl) {
+    return trimResidualBackground(heuristicDataUrl);
+  }
+  return heuristicDataUrl;
 };
 
 const tokenReasonLabel: Record<AiTokenEvent["reason"], string> = {
@@ -961,6 +1125,7 @@ function AiLabContent() {
   const [showResult, setShowResult] = useState(false);
   const [dragActive, setDragActive] = useState(false);
   const [removingReferenceBgId, setRemovingReferenceBgId] = useState<string | null>(null);
+  const [smartMaskingReferenceId, setSmartMaskingReferenceId] = useState<string | null>(null);
   const [serverJob, setServerJob] = useState<AiGenerationJob | null>(null);
   const [serverJobLoading, setServerJobLoading] = useState(false);
   const [serverJobError, setServerJobError] = useState<string | null>(null);
@@ -1491,7 +1656,7 @@ function AiLabContent() {
 
   const handleRemoveReferenceBackground = useCallback(
     async (refId: string) => {
-      if (removingReferenceBgId) return;
+      if (removingReferenceBgId || smartMaskingReferenceId) return;
       const targetRef = validInputReferences.find((ref) => ref.id === refId);
       if (!targetRef) return;
       const sourceDataUrl = targetRef.previewUrl || targetRef.url;
@@ -1530,7 +1695,84 @@ function AiLabContent() {
         setRemovingReferenceBgId(null);
       }
     },
-    [pushUiError, removingReferenceBgId, showError, showSuccess, validInputReferences]
+    [
+      pushUiError,
+      removingReferenceBgId,
+      showError,
+      showSuccess,
+      smartMaskingReferenceId,
+      validInputReferences,
+    ]
+  );
+
+  const handleSmartMaskReference = useCallback(
+    async (refId: string) => {
+      if (removingReferenceBgId || smartMaskingReferenceId) return;
+      const targetRef = validInputReferences.find((ref) => ref.id === refId);
+      if (!targetRef) return;
+      const sourceDataUrl = targetRef.previewUrl || targetRef.url;
+      if (!sourceDataUrl.startsWith("data:image/")) {
+        showError("Умная маска доступна только для локально загруженных изображений.");
+        return;
+      }
+
+      setSmartMaskingReferenceId(refId);
+      try {
+        const cleaned = await trimResidualBackground(sourceDataUrl);
+        if (cleaned === sourceDataUrl) {
+          showError("Умная маска не нашла, что доработать на этом референсе.");
+          return;
+        }
+
+        setInputReferences((prev) => {
+          const normalized = prev.filter(isAiReferenceItem);
+          const next = normalized.map((item) =>
+            item.id === refId
+              ? {
+                  ...item,
+                  url: cleaned,
+                  previewUrl: cleaned,
+                  type: "image/png",
+                }
+              : item
+          );
+          setUploadPreview(next[0]?.previewUrl ?? null);
+          return next;
+        });
+        showSuccess("Умная маска применена.");
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to apply smart mask.");
+      } finally {
+        setSmartMaskingReferenceId(null);
+      }
+    },
+    [
+      pushUiError,
+      removingReferenceBgId,
+      showError,
+      showSuccess,
+      smartMaskingReferenceId,
+      validInputReferences,
+    ]
+  );
+
+  const handleDownloadReference = useCallback(
+    (ref: AiReferenceItem) => {
+      if (typeof window === "undefined") return;
+      const sourceDataUrl = ref.previewUrl || ref.url;
+      if (!sourceDataUrl.startsWith("data:image/")) {
+        showError("Скачать можно только локальный PNG/JPG/WebP референс.");
+        return;
+      }
+      const link = document.createElement("a");
+      link.href = sourceDataUrl;
+      const base = sanitizeFilenameBase(ref.name, "reference");
+      link.download = `${base}-cutout.png`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    },
+    [showError]
   );
 
   const handleRemixIssueFileChange = useCallback(
@@ -2759,11 +3001,38 @@ function AiLabContent() {
                         event.stopPropagation();
                         void handleRemoveReferenceBackground(ref.id);
                       }}
-                      disabled={removingReferenceBgId === ref.id}
+                      disabled={
+                        removingReferenceBgId === ref.id || smartMaskingReferenceId === ref.id
+                      }
                       className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                       title="Удалить фон у референса"
                     >
                       {removingReferenceBgId === ref.id ? "..." : "RM BG"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void handleSmartMaskReference(ref.id);
+                      }}
+                      disabled={
+                        smartMaskingReferenceId === ref.id || removingReferenceBgId === ref.id
+                      }
+                      className="rounded-full border border-amber-300/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      title="Умная доочистка маски и ореолов"
+                    >
+                      {smartMaskingReferenceId === ref.id ? "..." : "MASK+"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        handleDownloadReference(ref);
+                      }}
+                      className="rounded-full border border-emerald-300/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-emerald-100 transition hover:border-emerald-200"
+                      title="Скачать текущий референс как PNG"
+                    >
+                      SAVE
                     </button>
                     <button
                       type="button"
