@@ -182,6 +182,12 @@ const isAiReferenceItem = (value: unknown): value is AiReferenceItem => {
   );
 };
 
+const isAiGenerationJobLike = (value: unknown): value is AiGenerationJob => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AiGenerationJob>;
+  return typeof candidate.id === "string" && candidate.id.trim().length > 0;
+};
+
 const normalizePreview = (value: string | null) => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -1067,7 +1073,7 @@ function AiLabContent() {
           throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch AI jobs.");
         }
         const jobs = Array.isArray(data?.jobs) ? (data.jobs as AiGenerationJob[]) : [];
-        setJobHistory(jobs.filter((job) => job && typeof job === "object"));
+        setJobHistory(jobs.filter(isAiGenerationJobLike));
       } catch (error) {
         if (!silent) {
           pushUiError(error instanceof Error ? error.message : "Failed to fetch AI jobs.");
@@ -1445,7 +1451,7 @@ function AiLabContent() {
         pushUiError(normalizedMessage);
       } finally {
         setHistoryAction((prev) =>
-          prev?.id === job.id && prev.type === "retry" ? null : prev
+          prev?.id === job.id && prev?.type === "retry" ? null : prev
         );
       }
     },
@@ -1530,7 +1536,7 @@ function AiLabContent() {
         return false;
       } finally {
         setHistoryAction((prev) =>
-          prev?.id === job.id && prev.type === "variation" ? null : prev
+          prev?.id === job.id && prev?.type === "variation" ? null : prev
         );
       }
     },
@@ -1571,7 +1577,7 @@ function AiLabContent() {
         pushUiError(message);
       } finally {
         setHistoryAction((prev) =>
-          prev?.id === job.id && prev.type === "delete" ? null : prev
+          prev?.id === job.id && prev?.type === "delete" ? null : prev
         );
       }
     },
@@ -1623,7 +1629,7 @@ function AiLabContent() {
         pushUiError(error instanceof Error ? error.message : "Failed to save asset.");
       } finally {
         setHistoryAction((prev) =>
-          prev?.id === job.id && prev.type === "publish" ? null : prev
+          prev?.id === job.id && prev?.type === "publish" ? null : prev
         );
       }
     },
@@ -2402,7 +2408,7 @@ function AiLabContent() {
                           }
                           className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {historyAction?.id === job.id && historyAction.type === "retry" ? "..." : "RETRY"}
+                          {historyAction?.id === job.id && historyAction?.type === "retry" ? "..." : "RETRY"}
                         </button>
                         <button
                           type="button"
@@ -2414,7 +2420,7 @@ function AiLabContent() {
                           className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Создать ремикс (альтернативный вариант)"
                         >
-                          {historyAction?.id === job.id && historyAction.type === "variation" ? "..." : "REMIX"}
+                          {historyAction?.id === job.id && historyAction?.type === "variation" ? "..." : "REMIX"}
                         </button>
                         <button
                           type="button"
@@ -2428,7 +2434,7 @@ function AiLabContent() {
                         >
                           {publishedAssetsByJobId[job.id]
                             ? "SAVED"
-                            : historyAction?.id === job.id && historyAction.type === "publish"
+                            : historyAction?.id === job.id && historyAction?.type === "publish"
                               ? "..."
                               : "PUBLISH"}
                         </button>
@@ -2439,7 +2445,7 @@ function AiLabContent() {
                           className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title={linkedAssetId ? "Проверить топологию ассета" : "Сначала сохраните ассет"}
                         >
-                          {assetAction?.assetId === linkedAssetId && assetAction.type === "analyze"
+                          {assetAction?.assetId === linkedAssetId && assetAction?.type === "analyze"
                             ? "..."
                             : "ANALYZE"}
                         </button>
@@ -2450,7 +2456,7 @@ function AiLabContent() {
                           className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title={linkedAssetId ? "Создать исправленную версию" : "Сначала сохраните ассет"}
                         >
-                          {assetAction?.assetId === linkedAssetId && assetAction.type === "repair"
+                          {assetAction?.assetId === linkedAssetId && assetAction?.type === "repair"
                             ? "..."
                             : "AUTO-FIX"}
                         </button>
@@ -2460,7 +2466,7 @@ function AiLabContent() {
                           disabled={historyAction?.id === job.id}
                           className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
                         >
-                          {historyAction?.id === job.id && historyAction.type === "delete" ? "..." : "DELETE"}
+                          {historyAction?.id === job.id && historyAction?.type === "delete" ? "..." : "DELETE"}
                         </button>
                       </div>
                     </div>
@@ -2705,7 +2711,7 @@ function AiLabContent() {
               <button
                 type="button"
                 onClick={() => setRemixJob(null)}
-                disabled={historyAction?.id === remixJob.id && historyAction.type === "variation"}
+                disabled={historyAction?.id === remixJob.id && historyAction?.type === "variation"}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Отмена
@@ -2721,10 +2727,10 @@ function AiLabContent() {
                     }
                   })();
                 }}
-                disabled={historyAction?.id === remixJob.id && historyAction.type === "variation"}
+                disabled={historyAction?.id === remixJob.id && historyAction?.type === "variation"}
                 className="rounded-2xl border border-cyan-300/55 bg-cyan-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-cyan-100 transition hover:border-cyan-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                {historyAction?.id === remixJob.id && historyAction.type === "variation"
+                {historyAction?.id === remixJob.id && historyAction?.type === "variation"
                   ? "Создаем..."
                   : "Запустить remix"}
               </button>
