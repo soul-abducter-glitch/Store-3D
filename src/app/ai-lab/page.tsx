@@ -302,6 +302,218 @@ const loadImglyRemoveBackground = () => {
   return imglyRemoveBackgroundPromise;
 };
 
+const findForegroundSeedIndex = (alpha: Uint8Array, width: number, height: number) => {
+  const centerX = Math.floor(width / 2);
+  const centerY = Math.floor(height / 2);
+  const centerIndex = centerY * width + centerX;
+  if (alpha[centerIndex] >= 20) return centerIndex;
+
+  let bestIndex = -1;
+  let bestScore = -Infinity;
+  const stride = Math.max(1, Math.floor(Math.min(width, height) / 180));
+  for (let y = 0; y < height; y += stride) {
+    for (let x = 0; x < width; x += stride) {
+      const idx = y * width + x;
+      const a = alpha[idx];
+      if (a < 10) continue;
+      const dx = x - centerX;
+      const dy = y - centerY;
+      const distancePenalty = Math.sqrt(dx * dx + dy * dy) * 0.18;
+      const score = a - distancePenalty;
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = idx;
+      }
+    }
+  }
+  return bestIndex >= 0 ? bestIndex : centerIndex;
+};
+
+const extractConnectedComponent = (binary: Uint8Array, width: number, height: number, seedIndex: number) => {
+  const pixelCount = width * height;
+  if (seedIndex < 0 || seedIndex >= pixelCount || binary[seedIndex] === 0) {
+    return new Uint8Array(pixelCount);
+  }
+
+  const visited = new Uint8Array(pixelCount);
+  const queue = new Int32Array(pixelCount);
+  let read = 0;
+  let write = 0;
+
+  const component = new Uint8Array(pixelCount);
+  visited[seedIndex] = 1;
+  queue[write++] = seedIndex;
+  component[seedIndex] = 1;
+
+  while (read < write) {
+    const current = queue[read++];
+    const x = current % width;
+    const y = Math.floor(current / width);
+
+    if (x > 0) {
+      const left = current - 1;
+      if (!visited[left] && binary[left]) {
+        visited[left] = 1;
+        queue[write++] = left;
+        component[left] = 1;
+      }
+    }
+    if (x < width - 1) {
+      const right = current + 1;
+      if (!visited[right] && binary[right]) {
+        visited[right] = 1;
+        queue[write++] = right;
+        component[right] = 1;
+      }
+    }
+    if (y > 0) {
+      const up = current - width;
+      if (!visited[up] && binary[up]) {
+        visited[up] = 1;
+        queue[write++] = up;
+        component[up] = 1;
+      }
+    }
+    if (y < height - 1) {
+      const down = current + width;
+      if (!visited[down] && binary[down]) {
+        visited[down] = 1;
+        queue[write++] = down;
+        component[down] = 1;
+      }
+    }
+  }
+
+  return component;
+};
+
+const dilateBinaryMask = (mask: Uint8Array, width: number, height: number, radius = 1) => {
+  const result = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let hit = 0;
+      for (let dy = -radius; dy <= radius && !hit; dy += 1) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) continue;
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= width) continue;
+          if (mask[ny * width + nx]) {
+            hit = 1;
+            break;
+          }
+        }
+      }
+      result[y * width + x] = hit;
+    }
+  }
+  return result;
+};
+
+const erodeBinaryMask = (mask: Uint8Array, width: number, height: number, radius = 1) => {
+  const result = new Uint8Array(mask.length);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      let keep = 1;
+      for (let dy = -radius; dy <= radius && keep; dy += 1) {
+        const ny = y + dy;
+        if (ny < 0 || ny >= height) {
+          keep = 0;
+          break;
+        }
+        for (let dx = -radius; dx <= radius; dx += 1) {
+          const nx = x + dx;
+          if (nx < 0 || nx >= width || !mask[ny * width + nx]) {
+            keep = 0;
+            break;
+          }
+        }
+      }
+      result[y * width + x] = keep;
+    }
+  }
+  return result;
+};
+
+const composeForegroundWithMask = async (sourceDataUrl: string, maskDataUrl: string) => {
+  const sourceImage = await loadImageFromDataUrl(sourceDataUrl);
+  const maskImage = await loadImageFromDataUrl(maskDataUrl);
+  const width = sourceImage.naturalWidth || sourceImage.width;
+  const height = sourceImage.naturalHeight || sourceImage.height;
+  if (width <= 0 || height <= 0) return sourceDataUrl;
+
+  const sourceCanvas = document.createElement("canvas");
+  sourceCanvas.width = width;
+  sourceCanvas.height = height;
+  const sourceCtx = sourceCanvas.getContext("2d", { willReadFrequently: true });
+  if (!sourceCtx) return sourceDataUrl;
+  sourceCtx.drawImage(sourceImage, 0, 0, width, height);
+  const sourceImageData = sourceCtx.getImageData(0, 0, width, height);
+  const sourcePixels = sourceImageData.data;
+
+  const maskCanvas = document.createElement("canvas");
+  maskCanvas.width = width;
+  maskCanvas.height = height;
+  const maskCtx = maskCanvas.getContext("2d", { willReadFrequently: true });
+  if (!maskCtx) return sourceDataUrl;
+  maskCtx.drawImage(maskImage, 0, 0, width, height);
+  const maskImageData = maskCtx.getImageData(0, 0, width, height);
+  const maskPixels = maskImageData.data;
+
+  const pixelCount = width * height;
+  const alpha = new Uint8Array(pixelCount);
+  for (let i = 0; i < pixelCount; i += 1) {
+    const idx = i * 4;
+    alpha[i] = Math.max(maskPixels[idx], maskPixels[idx + 1], maskPixels[idx + 2], maskPixels[idx + 3]);
+  }
+
+  const seedIndex = findForegroundSeedIndex(alpha, width, height);
+  let threshold = 28;
+  let binary = new Uint8Array(pixelCount);
+  for (let i = 0; i < pixelCount; i += 1) {
+    binary[i] = alpha[i] >= threshold ? 1 : 0;
+  }
+  let component = extractConnectedComponent(binary, width, height, seedIndex);
+  let area = component.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  if (area < pixelCount * 0.1) {
+    threshold = 16;
+    for (let i = 0; i < pixelCount; i += 1) {
+      binary[i] = alpha[i] >= threshold ? 1 : 0;
+    }
+    component = extractConnectedComponent(binary, width, height, seedIndex);
+    area = component.reduce((sum, value) => sum + (value ? 1 : 0), 0);
+  }
+  if (area < pixelCount * 0.03) return sourceDataUrl;
+
+  const closed = erodeBinaryMask(dilateBinaryMask(component, width, height, 2), width, height, 1);
+  const refined = extractConnectedComponent(closed, width, height, seedIndex);
+
+  for (let i = 0; i < pixelCount; i += 1) {
+    const idx = i * 4;
+    if (!refined[i]) {
+      sourcePixels[idx + 3] = 0;
+      continue;
+    }
+    const rawAlpha = alpha[i];
+    let boosted = Math.min(255, Math.round(rawAlpha * 1.35 + 16));
+    if (boosted < 90) {
+      const x = i % width;
+      const y = Math.floor(i / width);
+      const left = x > 0 ? refined[i - 1] : 0;
+      const right = x < width - 1 ? refined[i + 1] : 0;
+      const up = y > 0 ? refined[i - width] : 0;
+      const down = y < height - 1 ? refined[i + width] : 0;
+      if (left && right && up && down) {
+        boosted = 125;
+      }
+    }
+    sourcePixels[idx + 3] = Math.max(0, Math.min(255, boosted));
+  }
+
+  sourceCtx.putImageData(sourceImageData, 0, 0);
+  return sourceCanvas.toDataURL("image/png");
+};
+
 const removeBackgroundByHeuristic = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
   const image = await loadImageFromDataUrl(dataUrl);
@@ -455,18 +667,19 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
     const removeBackground = await loadImglyRemoveBackground();
     const inputBlob = await dataUrlToBlob(dataUrl);
 
-    const resultBlob = await removeBackground(inputBlob, {
-      model: "isnet_fp16",
+    const maskBlob = await removeBackground(inputBlob, {
+      model: "isnet",
       output: {
         format: "image/png",
         quality: 1,
-        type: "foreground",
+        type: "mask",
       },
     });
 
-    const resultDataUrl = await blobToDataUrl(resultBlob);
-    if (resultDataUrl.startsWith("data:image/") && resultDataUrl.length > 64) {
-      return resultDataUrl;
+    const maskDataUrl = await blobToDataUrl(maskBlob);
+    const composedDataUrl = await composeForegroundWithMask(dataUrl, maskDataUrl);
+    if (composedDataUrl.startsWith("data:image/") && composedDataUrl.length > 64) {
+      return composedDataUrl;
     }
   } catch {
     // fall back to heuristic remover below
