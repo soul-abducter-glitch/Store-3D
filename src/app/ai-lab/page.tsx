@@ -171,6 +171,17 @@ const createId = () => {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 };
 
+const isAiReferenceItem = (value: unknown): value is AiReferenceItem => {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<AiReferenceItem>;
+  return (
+    typeof candidate.id === "string" &&
+    typeof candidate.url === "string" &&
+    typeof candidate.name === "string" &&
+    typeof candidate.type === "string"
+  );
+};
+
 const normalizePreview = (value: string | null) => {
   if (!value) return null;
   const trimmed = value.trim();
@@ -501,6 +512,10 @@ function AiLabContent() {
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const jobHistoryRequestInFlightRef = useRef(false);
+  const validInputReferences = useMemo(
+    () => inputReferences.filter(isAiReferenceItem),
+    [inputReferences]
+  );
   const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
 
   const { toasts, showError, showSuccess, removeToast } = useToast();
@@ -636,6 +651,7 @@ function AiLabContent() {
         const plans = Array.isArray(data?.plans) ? (data.plans as AiSubscriptionPlan[]) : [];
         setSubscriptionPlans(
           plans
+            .filter((plan) => plan && typeof plan === "object")
             .map((plan) => ({
               code: plan.code,
               label: String(plan.label || "").trim() || `Plan ${String(plan.code || "").toUpperCase()}`,
@@ -941,7 +957,7 @@ function AiLabContent() {
       }
 
       if (imageFiles.length > 0) {
-        const slotsLeft = Math.max(0, MAX_INPUT_REFERENCES - inputReferences.length);
+        const slotsLeft = Math.max(0, MAX_INPUT_REFERENCES - validInputReferences.length);
         if (slotsLeft <= 0) {
           pushUiError(`Можно добавить максимум ${MAX_INPUT_REFERENCES} референса.`);
           return;
@@ -960,7 +976,10 @@ function AiLabContent() {
           })
         );
         setInputReferences((prev) => {
-          const next = [...prev, ...loadedReferences].slice(0, MAX_INPUT_REFERENCES);
+          const next = [...prev.filter(isAiReferenceItem), ...loadedReferences].slice(
+            0,
+            MAX_INPUT_REFERENCES
+          );
           setUploadPreview(next[0]?.previewUrl ?? null);
           return next;
         });
@@ -977,12 +996,12 @@ function AiLabContent() {
         pushUiError("Неподдерживаемый формат. Разрешены изображения и .glb/.gltf.");
       }
     },
-    [inputReferences.length, pushUiError]
+    [pushUiError, validInputReferences.length]
   );
 
   const handleRemoveInputReference = useCallback((refId: string) => {
     setInputReferences((prev) => {
-      const next = prev.filter((item) => item.id !== refId);
+      const next = prev.filter((item) => isAiReferenceItem(item) && item.id !== refId);
       setUploadPreview(next[0]?.previewUrl ?? null);
       return next;
     });
@@ -1048,7 +1067,7 @@ function AiLabContent() {
           throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch AI jobs.");
         }
         const jobs = Array.isArray(data?.jobs) ? (data.jobs as AiGenerationJob[]) : [];
-        setJobHistory(jobs);
+        setJobHistory(jobs.filter((job) => job && typeof job === "object"));
       } catch (error) {
         if (!silent) {
           pushUiError(error instanceof Error ? error.message : "Failed to fetch AI jobs.");
@@ -1122,7 +1141,7 @@ function AiLabContent() {
       showError(`Not enough tokens. Need ${tokenCost}.`);
       return;
     }
-    if (!prompt.trim() && inputReferences.length === 0 && !localPreviewModel && !previewModel) {
+    if (!prompt.trim() && validInputReferences.length === 0 && !localPreviewModel && !previewModel) {
       showError("Add a prompt or reference before generation.");
       return;
     }
@@ -1134,7 +1153,7 @@ function AiLabContent() {
     setLatestCompletedJob(null);
 
     try {
-      const sourceRefsPayload = inputReferences
+      const sourceRefsPayload = validInputReferences
         .map((ref) => ({
           url: ref.url,
           name: ref.name,
@@ -1157,7 +1176,7 @@ function AiLabContent() {
           prompt: prompt.trim(),
           sourceUrl: previewModel || "",
           sourceRefs: sourceRefsPayload.slice(0, MAX_INPUT_REFERENCES),
-          hasImageReference: Boolean(inputReferences.length > 0 || localPreviewModel || previewModel),
+          hasImageReference: Boolean(validInputReferences.length > 0 || localPreviewModel || previewModel),
         }),
       });
       const data = await response.json().catch(() => null);
@@ -1196,7 +1215,6 @@ function AiLabContent() {
     fetchJobHistory,
     fetchTokenHistory,
     fetchTokens,
-    inputReferences,
     localPreviewModel,
     mode,
     isSynthRunning,
@@ -1208,6 +1226,7 @@ function AiLabContent() {
     tokenCost,
     tokens,
     tokensLoading,
+    validInputReferences,
   ]);
 
   useEffect(() => {
@@ -1256,7 +1275,7 @@ function AiLabContent() {
           registerGeneratedAsset({
             name: nextJob.prompt || "AI Model",
             modelUrl: nextJob.result.modelUrl,
-            previewImage: nextJob.result.previewUrl || inputReferences[0]?.previewUrl || null,
+            previewImage: nextJob.result.previewUrl || validInputReferences[0]?.previewUrl || null,
             format: nextJob.result.format,
             localOnly: false,
           });
@@ -1294,11 +1313,11 @@ function AiLabContent() {
   }, [
     clearInputReferences,
     fetchJobHistory,
-    inputReferences,
     pushUiError,
     registerGeneratedAsset,
     serverJob?.id,
     serverJob?.status,
+    validInputReferences,
   ]);
 
   const handleSelectAsset = (asset: GeneratedAsset) => {
@@ -2068,7 +2087,7 @@ function AiLabContent() {
                 <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60" />
                 <div className="absolute bottom-3 left-3 flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-emerald-200">
                   <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.7)]" />
-                  {`REFS: ${inputReferences.length} / ${MAX_INPUT_REFERENCES}`}
+                  {`REFS: ${validInputReferences.length} / ${MAX_INPUT_REFERENCES}`}
                 </div>
                 <div className="absolute bottom-3 right-3 rounded-full border border-white/20 bg-black/50 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75">
                   Add more
@@ -2101,7 +2120,7 @@ function AiLabContent() {
               <span>References</span>
               <div className="flex items-center gap-2">
                 <span>
-                  {inputReferences.length} / {MAX_INPUT_REFERENCES}
+                  {validInputReferences.length} / {MAX_INPUT_REFERENCES}
                 </span>
                 <button
                   type="button"
@@ -2109,20 +2128,20 @@ function AiLabContent() {
                     event.stopPropagation();
                     clearInputReferences();
                   }}
-                  disabled={inputReferences.length === 0}
+                  disabled={validInputReferences.length === 0}
                   className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/65 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Clear
                 </button>
               </div>
             </div>
-            {inputReferences.length === 0 ? (
+            {validInputReferences.length === 0 ? (
               <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
                 Нет загруженных референсов
               </p>
             ) : (
               <div className="mt-2 grid grid-cols-2 gap-2">
-                {inputReferences.map((ref) => (
+                {validInputReferences.map((ref) => (
                   <div
                     key={ref.id}
                     className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] p-2"
