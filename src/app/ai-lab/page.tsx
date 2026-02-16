@@ -143,6 +143,7 @@ const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
+const AI_BACKGROUND_REMOVE_API_URL = "/api/ai/background-remove";
 const AI_ASSET_REPAIR_API = (assetId: string) =>
   `/api/ai/assets/${encodeURIComponent(assetId)}/repair`;
 const AI_TOKENS_API_URL = "/api/ai/tokens";
@@ -662,6 +663,38 @@ const removeBackgroundByHeuristic = async (dataUrl: string) => {
 
 const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
+
+  try {
+    const inputBlob = await dataUrlToBlob(dataUrl);
+    const payload = new FormData();
+    payload.append("image", inputBlob, "reference-input.png");
+    const response = await fetch(AI_BACKGROUND_REMOVE_API_URL, {
+      method: "POST",
+      body: payload,
+    });
+    if (response.ok) {
+      const cleanedBlob = await response.blob();
+      if (cleanedBlob.size > 0) {
+        const cleanedDataUrl = await blobToDataUrl(cleanedBlob);
+        if (cleanedDataUrl.startsWith("data:image/")) {
+          return cleanedDataUrl;
+        }
+      }
+    } else {
+      let message = "Background removal request failed.";
+      try {
+        const body = (await response.json()) as { error?: unknown };
+        if (typeof body?.error === "string" && body.error.trim()) {
+          message = body.error.trim();
+        }
+      } catch {
+        // keep default message
+      }
+      throw new Error(message);
+    }
+  } catch {
+    // Server path unavailable or failed - continue with local fallback.
+  }
 
   try {
     const removeBackground = await loadImglyRemoveBackground();
