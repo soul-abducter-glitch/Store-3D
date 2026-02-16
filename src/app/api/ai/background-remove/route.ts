@@ -27,9 +27,9 @@ const parsePositiveIntEnv = (value: string | undefined, fallback: number) => {
 
 const BG_REMOVE_ALPHA_MATTING = parseBooleanEnv(process.env.AI_BG_REMOVE_ALPHA_MATTING, true);
 const BG_REMOVE_POST_PROCESS_MASK = parseBooleanEnv(process.env.AI_BG_REMOVE_POST_PROCESS_MASK, true);
-const BG_REMOVE_FG_THRESHOLD = parsePositiveIntEnv(process.env.AI_BG_REMOVE_FG_THRESHOLD, 240);
-const BG_REMOVE_BG_THRESHOLD = parsePositiveIntEnv(process.env.AI_BG_REMOVE_BG_THRESHOLD, 14);
-const BG_REMOVE_ERODE_SIZE = parsePositiveIntEnv(process.env.AI_BG_REMOVE_ERODE_SIZE, 8);
+const BG_REMOVE_FG_THRESHOLD = parsePositiveIntEnv(process.env.AI_BG_REMOVE_FG_THRESHOLD, 250);
+const BG_REMOVE_BG_THRESHOLD = parsePositiveIntEnv(process.env.AI_BG_REMOVE_BG_THRESHOLD, 10);
+const BG_REMOVE_ERODE_SIZE = parsePositiveIntEnv(process.env.AI_BG_REMOVE_ERODE_SIZE, 3);
 const BG_REMOVE_TIMEOUT_MS = parsePositiveIntEnv(
   process.env.AI_BG_REMOVE_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS

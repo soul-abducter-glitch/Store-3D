@@ -678,102 +678,119 @@ const removeBackgroundByHeuristic = async (dataUrl: string) => {
 type TrimResidualOptions = {
   aggressive?: boolean;
   allowSmallChange?: boolean;
+  alphaOnly?: boolean;
 };
 
-type BorderColorCluster = {
-  r: number;
-  g: number;
-  b: number;
-  count: number;
+const imageHasAlphaCutout = async (dataUrl: string) => {
+  if (!dataUrl.startsWith("data:image/")) return false;
+  const image = await loadImageFromDataUrl(dataUrl);
+  const width = image.naturalWidth || image.width;
+  const height = image.naturalHeight || image.height;
+  if (width <= 0 || height <= 0) return false;
+
+  const canvas = document.createElement("canvas");
+  canvas.width = width;
+  canvas.height = height;
+  const context = canvas.getContext("2d", { willReadFrequently: true });
+  if (!context) return false;
+  context.drawImage(image, 0, 0, width, height);
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] < 250) return true;
+  }
+  return false;
 };
 
-const colorMaxDiff = (
-  r1: number,
-  g1: number,
-  b1: number,
-  r2: number,
-  g2: number,
-  b2: number
-) => Math.max(Math.abs(r1 - r2), Math.abs(g1 - g2), Math.abs(b1 - b2));
-
-const colorManhattanDiff = (
-  r1: number,
-  g1: number,
-  b1: number,
-  r2: number,
-  g2: number,
-  b2: number
-) => Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
-
-const collectBorderColorClusters = (
+const floodFillBorderByAlpha = (
   data: Uint8ClampedArray,
   width: number,
   height: number,
-  aggressive: boolean
+  alphaThreshold: number
 ) => {
-  const clusters: BorderColorCluster[] = [];
-  const step = Math.max(1, Math.floor(Math.min(width, height) / (aggressive ? 260 : 220)));
-  const minAlpha = aggressive ? 4 : 8;
-  const mergeThreshold = aggressive ? 34 : 26;
+  const pixelCount = width * height;
+  const visited = new Uint8Array(pixelCount);
+  const queue = new Int32Array(pixelCount);
+  let read = 0;
+  let write = 0;
 
-  const addSample = (x: number, y: number) => {
-    const idx = (y * width + x) * 4;
-    const alpha = data[idx + 3];
-    if (alpha < minAlpha) return;
-    const r = data[idx];
-    const g = data[idx + 1];
-    const b = data[idx + 2];
-
-    for (const cluster of clusters) {
-      const maxDiff = colorMaxDiff(r, g, b, cluster.r, cluster.g, cluster.b);
-      const manhattan = colorManhattanDiff(r, g, b, cluster.r, cluster.g, cluster.b);
-      if (maxDiff <= mergeThreshold || manhattan <= mergeThreshold * 2.4) {
-        const nextCount = cluster.count + 1;
-        cluster.r = Math.round((cluster.r * cluster.count + r) / nextCount);
-        cluster.g = Math.round((cluster.g * cluster.count + g) / nextCount);
-        cluster.b = Math.round((cluster.b * cluster.count + b) / nextCount);
-        cluster.count = nextCount;
-        return;
-      }
-    }
-
-    clusters.push({ r, g, b, count: 1 });
+  const push = (pixelIndex: number) => {
+    if (pixelIndex < 0 || pixelIndex >= pixelCount) return;
+    if (visited[pixelIndex]) return;
+    const alpha = data[pixelIndex * 4 + 3];
+    if (alpha > alphaThreshold) return;
+    visited[pixelIndex] = 1;
+    queue[write] = pixelIndex;
+    write += 1;
   };
 
-  for (let x = 0; x < width; x += step) {
-    addSample(x, 0);
-    addSample(x, height - 1);
+  for (let x = 0; x < width; x += 1) {
+    push(x);
+    push((height - 1) * width + x);
   }
-  for (let y = 0; y < height; y += step) {
-    addSample(0, y);
-    addSample(width - 1, y);
+  for (let y = 1; y < height - 1; y += 1) {
+    push(y * width);
+    push(y * width + (width - 1));
   }
 
-  clusters.sort((a, b) => b.count - a.count);
-  return clusters.slice(0, aggressive ? 10 : 8);
+  while (read < write) {
+    const current = queue[read];
+    read += 1;
+    const x = current % width;
+    const y = Math.floor(current / width);
+
+    if (x > 0) push(current - 1);
+    if (x < width - 1) push(current + 1);
+    if (y > 0) push(current - width);
+    if (y < height - 1) push(current + width);
+  }
+
+  return visited;
 };
 
-const isNearAnyBorderCluster = (
-  r: number,
-  g: number,
-  b: number,
-  clusters: BorderColorCluster[],
-  threshold: number
+const expandBackgroundMaskByAlpha = (
+  backgroundMask: Uint8Array,
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  maxAlpha: number,
+  steps: number
 ) => {
-  for (const cluster of clusters) {
-    const maxDiff = colorMaxDiff(r, g, b, cluster.r, cluster.g, cluster.b);
-    const manhattan = colorManhattanDiff(r, g, b, cluster.r, cluster.g, cluster.b);
-    if (maxDiff <= threshold || manhattan <= threshold * 2.6) {
-      return true;
+  let current = backgroundMask.slice();
+  const pixelCount = width * height;
+
+  for (let step = 0; step < steps; step += 1) {
+    const next = current.slice();
+    for (let i = 0; i < pixelCount; i += 1) {
+      if (!current[i]) continue;
+      const x = i % width;
+      const y = Math.floor(i / width);
+      const neighbors = [
+        x > 0 ? i - 1 : -1,
+        x < width - 1 ? i + 1 : -1,
+        y > 0 ? i - width : -1,
+        y < height - 1 ? i + width : -1,
+      ];
+      for (const n of neighbors) {
+        if (n < 0 || n >= pixelCount || next[n]) continue;
+        const alpha = data[n * 4 + 3];
+        if (alpha <= maxAlpha) {
+          next[n] = 1;
+        }
+      }
     }
+    current = next;
   }
-  return false;
+
+  return current;
 };
 
 const trimResidualBackground = async (dataUrl: string, options: TrimResidualOptions = {}) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
   const aggressive = options.aggressive === true;
   const allowSmallChange = options.allowSmallChange === true;
+  const alphaOnly = options.alphaOnly !== false;
 
   const image = await loadImageFromDataUrl(dataUrl);
   const width = image.naturalWidth || image.width;
@@ -790,137 +807,72 @@ const trimResidualBackground = async (dataUrl: string, options: TrimResidualOpti
   const imageData = context.getImageData(0, 0, width, height);
   const data = imageData.data;
   const pixelCount = width * height;
-  const borderClusters = collectBorderColorClusters(data, width, height, aggressive);
-  if (borderClusters.length === 0) return dataUrl;
-
-  const clearAlphaCutoff = aggressive ? 20 : 14;
-  const solidMatchThreshold = aggressive ? 64 : 52;
-  const softMatchThreshold = aggressive ? 78 : 66;
-  const softAlphaThreshold = aggressive ? 252 : 248;
-
-  const isBackgroundCandidate = (pixelIndex: number, fromBorder: boolean) => {
-    const idx = pixelIndex * 4;
-    const alpha = data[idx + 3];
-    if (alpha <= clearAlphaCutoff) return true;
-
-    const r = data[idx];
-    const g = data[idx + 1];
-    const b = data[idx + 2];
-    const nearSolid = isNearAnyBorderCluster(r, g, b, borderClusters, solidMatchThreshold);
-    if (nearSolid) return true;
-
-    const nearSoft = isNearAnyBorderCluster(r, g, b, borderClusters, softMatchThreshold);
-    if (!nearSoft) return false;
-    if (alpha < softAlphaThreshold) return true;
-    return fromBorder;
-  };
-
-  const visited = new Uint8Array(pixelCount);
-  const queue = new Int32Array(pixelCount);
-  let queueStart = 0;
-  let queueEnd = 0;
-
-  const pushCandidate = (pixelIndex: number, fromBorder: boolean) => {
-    if (pixelIndex < 0 || pixelIndex >= pixelCount) return;
-    if (visited[pixelIndex]) return;
-    if (!isBackgroundCandidate(pixelIndex, fromBorder)) return;
-    visited[pixelIndex] = 1;
-    queue[queueEnd] = pixelIndex;
-    queueEnd += 1;
-  };
-
-  for (let x = 0; x < width; x += 1) {
-    pushCandidate(x, true);
-    pushCandidate((height - 1) * width + x, true);
-  }
-  for (let y = 1; y < height - 1; y += 1) {
-    pushCandidate(y * width, true);
-    pushCandidate(y * width + (width - 1), true);
+  if (alphaOnly) {
+    let hasTransparentPixels = false;
+    for (let i = 0; i < pixelCount; i += 1) {
+      if (data[i * 4 + 3] < 250) {
+        hasTransparentPixels = true;
+        break;
+      }
+    }
+    if (!hasTransparentPixels) return dataUrl;
   }
 
-  while (queueStart < queueEnd) {
-    const current = queue[queueStart];
-    queueStart += 1;
-    const x = current % width;
-    const y = Math.floor(current / width);
-    if (x > 0) pushCandidate(current - 1, false);
-    if (x < width - 1) pushCandidate(current + 1, false);
-    if (y > 0) pushCandidate(current - width, false);
-    if (y < height - 1) pushCandidate(current + width, false);
-  }
+  const baseAlphaThreshold = aggressive ? 244 : 230;
+  let backgroundMask = floodFillBorderByAlpha(data, width, height, baseAlphaThreshold);
+  backgroundMask = expandBackgroundMaskByAlpha(
+    backgroundMask,
+    data,
+    width,
+    height,
+    aggressive ? 158 : 126,
+    aggressive ? 2 : 1
+  );
 
   let removedPixels = 0;
   for (let i = 0; i < pixelCount; i += 1) {
-    if (!visited[i]) continue;
+    if (!backgroundMask[i]) continue;
     const idx = i * 4;
-    data[idx] = 0;
-    data[idx + 1] = 0;
-    data[idx + 2] = 0;
     data[idx + 3] = 0;
     removedPixels += 1;
   }
 
   const removedRatio = removedPixels / pixelCount;
-  if (removedRatio > 0.985) return dataUrl;
-  if (!allowSmallChange && removedRatio < (aggressive ? 0.0015 : 0.004)) return dataUrl;
+  if (removedRatio > 0.98) return dataUrl;
+  if (!allowSmallChange && removedRatio < (aggressive ? 0.001 : 0.0035)) return dataUrl;
 
-  const edgeAlphaCap = aggressive ? 132 : 170;
-  const haloMatchThreshold = aggressive ? 92 : 80;
+  const edgeAlphaCap = aggressive ? 120 : 148;
+  const lowAlphaKillThreshold = aggressive ? 82 : 62;
 
   for (let y = 1; y < height - 1; y += 1) {
     for (let x = 1; x < width - 1; x += 1) {
       const pixelIndex = y * width + x;
-      if (visited[pixelIndex]) continue;
+      if (backgroundMask[pixelIndex]) continue;
       const idx = pixelIndex * 4;
       const alpha = data[idx + 3];
       if (alpha <= 0) continue;
       const nearRemoved =
-        visited[pixelIndex - 1] ||
-        visited[pixelIndex + 1] ||
-        visited[pixelIndex - width] ||
-        visited[pixelIndex + width];
+        backgroundMask[pixelIndex - 1] ||
+        backgroundMask[pixelIndex + 1] ||
+        backgroundMask[pixelIndex - width] ||
+        backgroundMask[pixelIndex + width];
       if (nearRemoved) {
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        if (isNearAnyBorderCluster(r, g, b, borderClusters, haloMatchThreshold)) {
-          data[idx + 3] = Math.max(0, Math.min(alpha, edgeAlphaCap));
-        }
-      }
-    }
-  }
-
-  if (aggressive) {
-    for (let y = 1; y < height - 1; y += 1) {
-      for (let x = 1; x < width - 1; x += 1) {
-        const pixelIndex = y * width + x;
-        if (visited[pixelIndex]) continue;
-        const idx = pixelIndex * 4;
-        const alpha = data[idx + 3];
-        if (alpha <= 0 || alpha > 96) continue;
-        const nearRemoved =
-          visited[pixelIndex - 1] ||
-          visited[pixelIndex + 1] ||
-          visited[pixelIndex - width] ||
-          visited[pixelIndex + width];
-        if (!nearRemoved) continue;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        if (isNearAnyBorderCluster(r, g, b, borderClusters, 98)) {
+        if (alpha <= lowAlphaKillThreshold) {
           data[idx + 3] = 0;
+        } else if (alpha < 220) {
+          data[idx + 3] = Math.min(alpha, edgeAlphaCap);
         }
       }
     }
   }
 
-  let remainingOpaque = 0;
+  let remainingForeground = 0;
   for (let i = 0; i < pixelCount; i += 1) {
-    if (visited[i]) continue;
+    if (backgroundMask[i]) continue;
     const alpha = data[i * 4 + 3];
-    if (alpha > 28) remainingOpaque += 1;
+    if (alpha > 30) remainingForeground += 1;
   }
-  if (remainingOpaque < pixelCount * 0.006) return dataUrl;
+  if (remainingForeground < pixelCount * 0.01) return dataUrl;
 
   context.putImageData(imageData, 0, 0);
   return canvas.toDataURL("image/png");
@@ -943,14 +895,7 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
         if (cleanedBlob.size > 0) {
           const cleanedDataUrl = await blobToDataUrl(cleanedBlob);
           if (cleanedDataUrl.startsWith("data:image/")) {
-            const trimmedDataUrl = await trimResidualBackground(cleanedDataUrl);
-            if (trimmedDataUrl !== cleanedDataUrl) {
-              return trimmedDataUrl;
-            }
-            return trimResidualBackground(cleanedDataUrl, {
-              aggressive: true,
-              allowSmallChange: true,
-            });
+            return trimResidualBackground(cleanedDataUrl);
           }
         }
       }
@@ -975,14 +920,7 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
     const maskDataUrl = await blobToDataUrl(maskBlob);
     const composedDataUrl = await composeForegroundWithMask(dataUrl, maskDataUrl);
     if (composedDataUrl.startsWith("data:image/") && composedDataUrl.length > 64) {
-      const trimmedDataUrl = await trimResidualBackground(composedDataUrl);
-      if (trimmedDataUrl !== composedDataUrl) {
-        return trimmedDataUrl;
-      }
-      return trimResidualBackground(composedDataUrl, {
-        aggressive: true,
-        allowSmallChange: true,
-      });
+      return trimResidualBackground(composedDataUrl);
     }
   } catch {
     // fall back to heuristic remover below
@@ -990,14 +928,7 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
 
   const heuristicDataUrl = await removeBackgroundByHeuristic(dataUrl);
   if (heuristicDataUrl !== dataUrl) {
-    const trimmedDataUrl = await trimResidualBackground(heuristicDataUrl);
-    if (trimmedDataUrl !== heuristicDataUrl) {
-      return trimmedDataUrl;
-    }
-    return trimResidualBackground(heuristicDataUrl, {
-      aggressive: true,
-      allowSmallChange: true,
-    });
+    return trimResidualBackground(heuristicDataUrl);
   }
   return heuristicDataUrl;
 };
@@ -1835,6 +1766,11 @@ function AiLabContent() {
       const sourceDataUrl = targetRef.previewUrl || targetRef.url;
       if (!sourceDataUrl.startsWith("data:image/")) {
         showError("Умная маска доступна только для локально загруженных изображений.");
+        return;
+      }
+      const hasAlphaCutout = await imageHasAlphaCutout(sourceDataUrl);
+      if (!hasAlphaCutout) {
+        showError("MASK+ работает после RM BG. Сначала удалите фон.");
         return;
       }
 
