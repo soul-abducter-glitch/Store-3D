@@ -675,8 +675,106 @@ const removeBackgroundByHeuristic = async (dataUrl: string) => {
   return canvas.toDataURL("image/png");
 };
 
-const trimResidualBackground = async (dataUrl: string) => {
+type TrimResidualOptions = {
+  aggressive?: boolean;
+  allowSmallChange?: boolean;
+};
+
+type BorderColorCluster = {
+  r: number;
+  g: number;
+  b: number;
+  count: number;
+};
+
+const colorMaxDiff = (
+  r1: number,
+  g1: number,
+  b1: number,
+  r2: number,
+  g2: number,
+  b2: number
+) => Math.max(Math.abs(r1 - r2), Math.abs(g1 - g2), Math.abs(b1 - b2));
+
+const colorManhattanDiff = (
+  r1: number,
+  g1: number,
+  b1: number,
+  r2: number,
+  g2: number,
+  b2: number
+) => Math.abs(r1 - r2) + Math.abs(g1 - g2) + Math.abs(b1 - b2);
+
+const collectBorderColorClusters = (
+  data: Uint8ClampedArray,
+  width: number,
+  height: number,
+  aggressive: boolean
+) => {
+  const clusters: BorderColorCluster[] = [];
+  const step = Math.max(1, Math.floor(Math.min(width, height) / (aggressive ? 260 : 220)));
+  const minAlpha = aggressive ? 4 : 8;
+  const mergeThreshold = aggressive ? 34 : 26;
+
+  const addSample = (x: number, y: number) => {
+    const idx = (y * width + x) * 4;
+    const alpha = data[idx + 3];
+    if (alpha < minAlpha) return;
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+
+    for (const cluster of clusters) {
+      const maxDiff = colorMaxDiff(r, g, b, cluster.r, cluster.g, cluster.b);
+      const manhattan = colorManhattanDiff(r, g, b, cluster.r, cluster.g, cluster.b);
+      if (maxDiff <= mergeThreshold || manhattan <= mergeThreshold * 2.4) {
+        const nextCount = cluster.count + 1;
+        cluster.r = Math.round((cluster.r * cluster.count + r) / nextCount);
+        cluster.g = Math.round((cluster.g * cluster.count + g) / nextCount);
+        cluster.b = Math.round((cluster.b * cluster.count + b) / nextCount);
+        cluster.count = nextCount;
+        return;
+      }
+    }
+
+    clusters.push({ r, g, b, count: 1 });
+  };
+
+  for (let x = 0; x < width; x += step) {
+    addSample(x, 0);
+    addSample(x, height - 1);
+  }
+  for (let y = 0; y < height; y += step) {
+    addSample(0, y);
+    addSample(width - 1, y);
+  }
+
+  clusters.sort((a, b) => b.count - a.count);
+  return clusters.slice(0, aggressive ? 10 : 8);
+};
+
+const isNearAnyBorderCluster = (
+  r: number,
+  g: number,
+  b: number,
+  clusters: BorderColorCluster[],
+  threshold: number
+) => {
+  for (const cluster of clusters) {
+    const maxDiff = colorMaxDiff(r, g, b, cluster.r, cluster.g, cluster.b);
+    const manhattan = colorManhattanDiff(r, g, b, cluster.r, cluster.g, cluster.b);
+    if (maxDiff <= threshold || manhattan <= threshold * 2.6) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const trimResidualBackground = async (dataUrl: string, options: TrimResidualOptions = {}) => {
   if (!dataUrl.startsWith("data:image/")) return dataUrl;
+  const aggressive = options.aggressive === true;
+  const allowSmallChange = options.allowSmallChange === true;
+
   const image = await loadImageFromDataUrl(dataUrl);
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
@@ -692,64 +790,29 @@ const trimResidualBackground = async (dataUrl: string) => {
   const imageData = context.getImageData(0, 0, width, height);
   const data = imageData.data;
   const pixelCount = width * height;
-  const cornerSize = Math.max(2, Math.min(20, Math.floor(Math.min(width, height) / 18)));
+  const borderClusters = collectBorderColorClusters(data, width, height, aggressive);
+  if (borderClusters.length === 0) return dataUrl;
 
-  let sumR = 0;
-  let sumG = 0;
-  let sumB = 0;
-  let sumSqR = 0;
-  let sumSqG = 0;
-  let sumSqB = 0;
-  let sampleCount = 0;
+  const clearAlphaCutoff = aggressive ? 20 : 14;
+  const solidMatchThreshold = aggressive ? 64 : 52;
+  const softMatchThreshold = aggressive ? 78 : 66;
+  const softAlphaThreshold = aggressive ? 252 : 248;
 
-  const sampleCorner = (startX: number, startY: number) => {
-    for (let y = startY; y < startY + cornerSize; y += 1) {
-      for (let x = startX; x < startX + cornerSize; x += 1) {
-        const idx = (y * width + x) * 4;
-        const alpha = data[idx + 3];
-        if (alpha < 8) continue;
-        const r = data[idx];
-        const g = data[idx + 1];
-        const b = data[idx + 2];
-        sumR += r;
-        sumG += g;
-        sumB += b;
-        sumSqR += r * r;
-        sumSqG += g * g;
-        sumSqB += b * b;
-        sampleCount += 1;
-      }
-    }
-  };
-
-  sampleCorner(0, 0);
-  sampleCorner(Math.max(0, width - cornerSize), 0);
-  sampleCorner(0, Math.max(0, height - cornerSize));
-  sampleCorner(Math.max(0, width - cornerSize), Math.max(0, height - cornerSize));
-  if (sampleCount <= 0) return dataUrl;
-
-  const bgR = sumR / sampleCount;
-  const bgG = sumG / sampleCount;
-  const bgB = sumB / sampleCount;
-  const variance =
-    (sumSqR / sampleCount - bgR * bgR + (sumSqG / sampleCount - bgG * bgG) + (sumSqB / sampleCount - bgB * bgB)) /
-    3;
-  const std = Math.sqrt(Math.max(0, variance));
-  const threshold = Math.max(20, Math.min(80, Math.round(24 + std * 1.9)));
-
-  const isBackgroundCandidate = (pixelIndex: number) => {
+  const isBackgroundCandidate = (pixelIndex: number, fromBorder: boolean) => {
     const idx = pixelIndex * 4;
     const alpha = data[idx + 3];
-    if (alpha <= 12) return true;
-    const dr = Math.abs(data[idx] - bgR);
-    const dg = Math.abs(data[idx + 1] - bgG);
-    const db = Math.abs(data[idx + 2] - bgB);
-    const similar = Math.max(dr, dg, db) <= threshold && dr + dg + db <= threshold * 2.9;
-    if (!similar) return false;
-    if (alpha < 248) return true;
-    const x = pixelIndex % width;
-    const y = Math.floor(pixelIndex / width);
-    return x === 0 || y === 0 || x === width - 1 || y === height - 1;
+    if (alpha <= clearAlphaCutoff) return true;
+
+    const r = data[idx];
+    const g = data[idx + 1];
+    const b = data[idx + 2];
+    const nearSolid = isNearAnyBorderCluster(r, g, b, borderClusters, solidMatchThreshold);
+    if (nearSolid) return true;
+
+    const nearSoft = isNearAnyBorderCluster(r, g, b, borderClusters, softMatchThreshold);
+    if (!nearSoft) return false;
+    if (alpha < softAlphaThreshold) return true;
+    return fromBorder;
   };
 
   const visited = new Uint8Array(pixelCount);
@@ -757,22 +820,22 @@ const trimResidualBackground = async (dataUrl: string) => {
   let queueStart = 0;
   let queueEnd = 0;
 
-  const pushCandidate = (pixelIndex: number) => {
+  const pushCandidate = (pixelIndex: number, fromBorder: boolean) => {
     if (pixelIndex < 0 || pixelIndex >= pixelCount) return;
     if (visited[pixelIndex]) return;
-    if (!isBackgroundCandidate(pixelIndex)) return;
+    if (!isBackgroundCandidate(pixelIndex, fromBorder)) return;
     visited[pixelIndex] = 1;
     queue[queueEnd] = pixelIndex;
     queueEnd += 1;
   };
 
   for (let x = 0; x < width; x += 1) {
-    pushCandidate(x);
-    pushCandidate((height - 1) * width + x);
+    pushCandidate(x, true);
+    pushCandidate((height - 1) * width + x, true);
   }
   for (let y = 1; y < height - 1; y += 1) {
-    pushCandidate(y * width);
-    pushCandidate(y * width + (width - 1));
+    pushCandidate(y * width, true);
+    pushCandidate(y * width + (width - 1), true);
   }
 
   while (queueStart < queueEnd) {
@@ -780,14 +843,11 @@ const trimResidualBackground = async (dataUrl: string) => {
     queueStart += 1;
     const x = current % width;
     const y = Math.floor(current / width);
-    if (x > 0) pushCandidate(current - 1);
-    if (x < width - 1) pushCandidate(current + 1);
-    if (y > 0) pushCandidate(current - width);
-    if (y < height - 1) pushCandidate(current + width);
+    if (x > 0) pushCandidate(current - 1, false);
+    if (x < width - 1) pushCandidate(current + 1, false);
+    if (y > 0) pushCandidate(current - width, false);
+    if (y < height - 1) pushCandidate(current + width, false);
   }
-
-  const centerIndex = Math.floor(height / 2) * width + Math.floor(width / 2);
-  if (visited[centerIndex]) return dataUrl;
 
   let removedPixels = 0;
   for (let i = 0; i < pixelCount; i += 1) {
@@ -801,7 +861,11 @@ const trimResidualBackground = async (dataUrl: string) => {
   }
 
   const removedRatio = removedPixels / pixelCount;
-  if (removedRatio < 0.015 || removedRatio > 0.96) return dataUrl;
+  if (removedRatio > 0.985) return dataUrl;
+  if (!allowSmallChange && removedRatio < (aggressive ? 0.0015 : 0.004)) return dataUrl;
+
+  const edgeAlphaCap = aggressive ? 132 : 170;
+  const haloMatchThreshold = aggressive ? 92 : 80;
 
   for (let y = 1; y < height - 1; y += 1) {
     for (let x = 1; x < width - 1; x += 1) {
@@ -816,10 +880,47 @@ const trimResidualBackground = async (dataUrl: string) => {
         visited[pixelIndex - width] ||
         visited[pixelIndex + width];
       if (nearRemoved) {
-        data[idx + 3] = Math.max(0, Math.min(alpha, 170));
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        if (isNearAnyBorderCluster(r, g, b, borderClusters, haloMatchThreshold)) {
+          data[idx + 3] = Math.max(0, Math.min(alpha, edgeAlphaCap));
+        }
       }
     }
   }
+
+  if (aggressive) {
+    for (let y = 1; y < height - 1; y += 1) {
+      for (let x = 1; x < width - 1; x += 1) {
+        const pixelIndex = y * width + x;
+        if (visited[pixelIndex]) continue;
+        const idx = pixelIndex * 4;
+        const alpha = data[idx + 3];
+        if (alpha <= 0 || alpha > 96) continue;
+        const nearRemoved =
+          visited[pixelIndex - 1] ||
+          visited[pixelIndex + 1] ||
+          visited[pixelIndex - width] ||
+          visited[pixelIndex + width];
+        if (!nearRemoved) continue;
+        const r = data[idx];
+        const g = data[idx + 1];
+        const b = data[idx + 2];
+        if (isNearAnyBorderCluster(r, g, b, borderClusters, 98)) {
+          data[idx + 3] = 0;
+        }
+      }
+    }
+  }
+
+  let remainingOpaque = 0;
+  for (let i = 0; i < pixelCount; i += 1) {
+    if (visited[i]) continue;
+    const alpha = data[i * 4 + 3];
+    if (alpha > 28) remainingOpaque += 1;
+  }
+  if (remainingOpaque < pixelCount * 0.006) return dataUrl;
 
   context.putImageData(imageData, 0, 0);
   return canvas.toDataURL("image/png");
@@ -842,7 +943,14 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
         if (cleanedBlob.size > 0) {
           const cleanedDataUrl = await blobToDataUrl(cleanedBlob);
           if (cleanedDataUrl.startsWith("data:image/")) {
-            return trimResidualBackground(cleanedDataUrl);
+            const trimmedDataUrl = await trimResidualBackground(cleanedDataUrl);
+            if (trimmedDataUrl !== cleanedDataUrl) {
+              return trimmedDataUrl;
+            }
+            return trimResidualBackground(cleanedDataUrl, {
+              aggressive: true,
+              allowSmallChange: true,
+            });
           }
         }
       }
@@ -867,7 +975,14 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
     const maskDataUrl = await blobToDataUrl(maskBlob);
     const composedDataUrl = await composeForegroundWithMask(dataUrl, maskDataUrl);
     if (composedDataUrl.startsWith("data:image/") && composedDataUrl.length > 64) {
-      return trimResidualBackground(composedDataUrl);
+      const trimmedDataUrl = await trimResidualBackground(composedDataUrl);
+      if (trimmedDataUrl !== composedDataUrl) {
+        return trimmedDataUrl;
+      }
+      return trimResidualBackground(composedDataUrl, {
+        aggressive: true,
+        allowSmallChange: true,
+      });
     }
   } catch {
     // fall back to heuristic remover below
@@ -875,7 +990,14 @@ const removeBackgroundFromImageDataUrl = async (dataUrl: string) => {
 
   const heuristicDataUrl = await removeBackgroundByHeuristic(dataUrl);
   if (heuristicDataUrl !== dataUrl) {
-    return trimResidualBackground(heuristicDataUrl);
+    const trimmedDataUrl = await trimResidualBackground(heuristicDataUrl);
+    if (trimmedDataUrl !== heuristicDataUrl) {
+      return trimmedDataUrl;
+    }
+    return trimResidualBackground(heuristicDataUrl, {
+      aggressive: true,
+      allowSmallChange: true,
+    });
   }
   return heuristicDataUrl;
 };
@@ -1718,7 +1840,10 @@ function AiLabContent() {
 
       setSmartMaskingReferenceId(refId);
       try {
-        const cleaned = await trimResidualBackground(sourceDataUrl);
+        const cleaned = await trimResidualBackground(sourceDataUrl, {
+          aggressive: true,
+          allowSmallChange: true,
+        });
         if (cleaned === sourceDataUrl) {
           showError("Умная маска не нашла, что доработать на этом референсе.");
           return;

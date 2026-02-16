@@ -34,7 +34,7 @@ const BG_REMOVE_TIMEOUT_MS = parsePositiveIntEnv(
   process.env.AI_BG_REMOVE_TIMEOUT_MS,
   DEFAULT_REQUEST_TIMEOUT_MS
 );
-const BG_REMOVE_MODEL = String(process.env.AI_BG_REMOVE_MODEL || "").trim();
+const BG_REMOVE_MODEL = String(process.env.AI_BG_REMOVE_MODEL || "isnet-general-use").trim();
 
 const normalizeServiceUrl = () => {
   const raw = String(process.env.AI_BG_REMOVE_REMBG_URL || "")
