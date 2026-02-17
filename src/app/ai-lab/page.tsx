@@ -1132,7 +1132,7 @@ function FloorPulse({ active }: { active: boolean }) {
 }
 
 function AiLabContent() {
-  type ManualMaskMode = "erase" | "restore";
+  type ManualMaskMode = "erase" | "restore" | "wand";
 
   const router = useRouter();
   const [previewParam, setPreviewParam] = useState<string | null>(null);
@@ -1189,8 +1189,10 @@ function AiLabContent() {
   const [maskEditorRefId, setMaskEditorRefId] = useState<string | null>(null);
   const [maskBrushSize, setMaskBrushSize] = useState(28);
   const [maskMode, setMaskMode] = useState<ManualMaskMode>("erase");
+  const [maskWandTolerance, setMaskWandTolerance] = useState(34);
   const [maskShowOverlay, setMaskShowOverlay] = useState(true);
   const [maskApplying, setMaskApplying] = useState(false);
+  const [maskAntsPhase, setMaskAntsPhase] = useState(0);
   const [, setMaskHistoryRevision] = useState(0);
   const [serverJob, setServerJob] = useState<AiGenerationJob | null>(null);
   const [serverJobLoading, setServerJobLoading] = useState(false);
@@ -1906,14 +1908,39 @@ function AiLabContent() {
       }
 
       context.putImageData(new ImageData(output, width, height), 0, 0);
+
+      if (overlayEnabled) {
+        const antsThreshold = 180;
+        const phase = maskAntsPhase % 12;
+        for (let y = 0; y < height - 1; y += 1) {
+          for (let x = 0; x < width - 1; x += 1) {
+            const index = y * width + x;
+            const here = alphaMask[index] >= antsThreshold;
+            const right = alphaMask[index + 1] >= antsThreshold;
+            const down = alphaMask[index + width] >= antsThreshold;
+            if (here === right && here === down) continue;
+            const tick = (x + y + phase) % 10;
+            context.fillStyle = tick < 5 ? "rgba(255,255,255,0.88)" : "rgba(8,12,16,0.9)";
+            context.fillRect(x, y, 1, 1);
+          }
+        }
+      }
     },
-    [maskShowOverlay]
+    [maskAntsPhase, maskShowOverlay]
   );
 
   useEffect(() => {
     if (!maskEditorOpen) return;
     renderMaskEditorCanvas(maskShowOverlay);
-  }, [maskEditorOpen, maskShowOverlay, renderMaskEditorCanvas]);
+  }, [maskEditorOpen, maskShowOverlay, maskAntsPhase, renderMaskEditorCanvas]);
+
+  useEffect(() => {
+    if (!maskEditorOpen || !maskShowOverlay) return;
+    const timer = window.setInterval(() => {
+      setMaskAntsPhase((value) => (value + 1) % 1200);
+    }, 120);
+    return () => window.clearInterval(timer);
+  }, [maskEditorOpen, maskShowOverlay]);
 
   const pushMaskUndoSnapshot = useCallback(() => {
     const alphaMask = maskAlphaRef.current;
@@ -1970,17 +1997,122 @@ function AiLabContent() {
     [maskBrushSize, maskMode, maskShowOverlay, renderMaskEditorCanvas]
   );
 
+  const applyWandAt = useCallback(
+    (clientX: number, clientY: number, restore = false) => {
+      const canvas = maskCanvasRef.current;
+      const alphaMask = maskAlphaRef.current;
+      const sourceAlpha = maskSourceAlphaRef.current;
+      const sourcePixels = maskSourcePixelsRef.current;
+      if (!canvas || !alphaMask || !sourceAlpha || !sourcePixels) return;
+
+      const width = maskWidthRef.current;
+      const height = maskHeightRef.current;
+      if (width <= 0 || height <= 0) return;
+      const rect = canvas.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+
+      const px = clampNumber(Math.floor(((clientX - rect.left) * width) / rect.width), 0, width - 1);
+      const py = clampNumber(Math.floor(((clientY - rect.top) * height) / rect.height), 0, height - 1);
+      const seedIndex = py * width + px;
+      const seedOffset = seedIndex * 4;
+      const seedR = sourcePixels[seedOffset];
+      const seedG = sourcePixels[seedOffset + 1];
+      const seedB = sourcePixels[seedOffset + 2];
+      const seedA = sourcePixels[seedOffset + 3];
+      const seedLuma = 0.2126 * seedR + 0.7152 * seedG + 0.0722 * seedB;
+
+      const tolerance = clampNumber(maskWandTolerance, 1, 100) / 100;
+      const maxDeltaRgbSq = Math.pow(24 + tolerance * 160, 2);
+      const maxDeltaAlpha = 10 + tolerance * 120;
+      const maxLumaDelta = 12 + tolerance * 100;
+
+      const visited = new Uint8Array(width * height);
+      const queue = new Int32Array(width * height);
+      let read = 0;
+      let write = 0;
+      let changed = false;
+
+      queue[write++] = seedIndex;
+      visited[seedIndex] = 1;
+
+      while (read < write) {
+        const index = queue[read++];
+        const offset = index * 4;
+        const r = sourcePixels[offset];
+        const g = sourcePixels[offset + 1];
+        const b = sourcePixels[offset + 2];
+        const a = sourcePixels[offset + 3];
+        const dr = r - seedR;
+        const dg = g - seedG;
+        const db = b - seedB;
+        const rgbSq = dr * dr + dg * dg + db * db;
+        if (rgbSq > maxDeltaRgbSq) continue;
+        if (Math.abs(a - seedA) > maxDeltaAlpha) continue;
+        const luma = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+        if (Math.abs(luma - seedLuma) > maxLumaDelta) continue;
+
+        const targetAlpha = restore ? sourceAlpha[index] : 0;
+        if (alphaMask[index] !== targetAlpha) {
+          alphaMask[index] = targetAlpha;
+          changed = true;
+        }
+
+        const x = index % width;
+        const y = Math.floor(index / width);
+        if (x > 0) {
+          const left = index - 1;
+          if (!visited[left]) {
+            visited[left] = 1;
+            queue[write++] = left;
+          }
+        }
+        if (x < width - 1) {
+          const right = index + 1;
+          if (!visited[right]) {
+            visited[right] = 1;
+            queue[write++] = right;
+          }
+        }
+        if (y > 0) {
+          const up = index - width;
+          if (!visited[up]) {
+            visited[up] = 1;
+            queue[write++] = up;
+          }
+        }
+        if (y < height - 1) {
+          const down = index + width;
+          if (!visited[down]) {
+            visited[down] = 1;
+            queue[write++] = down;
+          }
+        }
+      }
+
+      if (changed) {
+        renderMaskEditorCanvas(maskShowOverlay);
+      }
+    },
+    [maskShowOverlay, maskWandTolerance, renderMaskEditorCanvas]
+  );
+
   const handleMaskCanvasPointerDown = useCallback(
     (event: React.PointerEvent<HTMLCanvasElement>) => {
       if (maskApplying) return;
       event.preventDefault();
       if (!maskAlphaRef.current) return;
+      if (maskMode === "wand") {
+        pushMaskUndoSnapshot();
+        const restore = event.altKey || event.button === 2;
+        applyWandAt(event.clientX, event.clientY, restore);
+        return;
+      }
       pushMaskUndoSnapshot();
       maskDrawingRef.current = true;
       event.currentTarget.setPointerCapture(event.pointerId);
       paintMaskAt(event.clientX, event.clientY);
     },
-    [maskApplying, paintMaskAt, pushMaskUndoSnapshot]
+    [applyWandAt, maskApplying, maskMode, paintMaskAt, pushMaskUndoSnapshot]
   );
 
   const handleMaskCanvasPointerMove = useCallback(
@@ -4039,6 +4171,18 @@ function AiLabContent() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => setMaskMode("wand")}
+                  className={`rounded-full border px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
+                    maskMode === "wand"
+                      ? "border-cyan-300/70 bg-cyan-500/18 text-cyan-100"
+                      : "border-white/20 bg-white/5 text-white/70 hover:border-white/35"
+                  }`}
+                  title="Клик по области: вырезать. Alt+клик: вернуть область."
+                >
+                  Wand
+                </button>
+                <button
+                  type="button"
                   onClick={() => setMaskShowOverlay((value) => !value)}
                   className={`rounded-full border px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
                     maskShowOverlay
@@ -4053,19 +4197,31 @@ function AiLabContent() {
 
             <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2">
               <label className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
-                Brush
+                {maskMode === "wand" ? "Tolerance" : "Brush"}
               </label>
               <input
                 type="range"
-                min={6}
-                max={120}
-                value={maskBrushSize}
-                onChange={(event) => setMaskBrushSize(Number(event.target.value))}
+                min={maskMode === "wand" ? 1 : 6}
+                max={maskMode === "wand" ? 100 : 120}
+                value={maskMode === "wand" ? maskWandTolerance : maskBrushSize}
+                onChange={(event) => {
+                  const nextValue = Number(event.target.value);
+                  if (maskMode === "wand") {
+                    setMaskWandTolerance(nextValue);
+                  } else {
+                    setMaskBrushSize(nextValue);
+                  }
+                }}
                 className="w-44 accent-cyan-300"
               />
               <span className="min-w-[44px] text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65">
-                {maskBrushSize}px
+                {maskMode === "wand" ? `${maskWandTolerance}%` : `${maskBrushSize}px`}
               </span>
+              {maskMode === "wand" ? (
+                <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/45">
+                  click = erase, alt+click = restore
+                </span>
+              ) : null}
               <button
                 type="button"
                 onClick={handleMaskUndo}
@@ -4106,7 +4262,9 @@ function AiLabContent() {
                 onPointerUp={handleMaskCanvasPointerUp}
                 onPointerLeave={handleMaskCanvasPointerUp}
                 onContextMenu={(event) => event.preventDefault()}
-                className="mx-auto max-h-[62vh] w-auto max-w-full touch-none cursor-crosshair rounded-xl border border-white/10 bg-black/60"
+                className={`mx-auto max-h-[62vh] w-auto max-w-full touch-none rounded-xl border border-white/10 bg-black/60 ${
+                  maskMode === "wand" ? "cursor-cell" : "cursor-crosshair"
+                }`}
               />
             </div>
 
