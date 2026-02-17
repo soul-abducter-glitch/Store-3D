@@ -6,7 +6,22 @@ import { useRouter } from "next/navigation";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { motion } from "framer-motion";
-import { Cpu, ShieldCheck, UploadCloud } from "lucide-react";
+import {
+  Box,
+  ChevronDown,
+  Cpu,
+  FlaskConical,
+  History,
+  ImageIcon,
+  ListTodo,
+  Scissors,
+  Settings2,
+  ShieldCheck,
+  Sparkles as SparklesIcon,
+  UploadCloud,
+  UserRound,
+  Wand2,
+} from "lucide-react";
 import {
   AdditiveBlending,
   Color,
@@ -94,7 +109,8 @@ type AiAssetRecord = {
 };
 
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
-type LabPanelTab = "compose" | "history" | "assets" | "billing";
+type LabPanelTab = "assets" | "history" | "jobs";
+type GenerationSettingSection = "quality" | "style" | "advanced";
 
 type AiTokenEvent = {
   id: string;
@@ -1240,6 +1256,22 @@ function AiLabContent() {
   const [subscriptionAction, setSubscriptionAction] = useState<"checkout" | "portal" | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [generationSettingsOpen, setGenerationSettingsOpen] = useState<
+    Record<GenerationSettingSection, boolean>
+  >({
+    quality: true,
+    style: false,
+    advanced: false,
+  });
+  const [qualityPreset, setQualityPreset] = useState<"draft" | "standard" | "pro">("standard");
+  const [stylePreset, setStylePreset] = useState<"realistic" | "stylized" | "anime">("stylized");
+  const [advancedPreset, setAdvancedPreset] = useState<"balanced" | "detail" | "speed">("balanced");
+  const [viewportShowGrid, setViewportShowGrid] = useState(true);
+  const [viewportRenderMode, setViewportRenderMode] = useState<"final" | "wireframe">("final");
+  const [viewportEnablePan, setViewportEnablePan] = useState(false);
+  const [viewportEnableZoom, setViewportEnableZoom] = useState(true);
+  const [viewportAutoRotate, setViewportAutoRotate] = useState(false);
+  const [viewportViewPreset, setViewportViewPreset] = useState<"orbit" | "front" | "top">("orbit");
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -1270,7 +1302,7 @@ function AiLabContent() {
     id: string;
     type: "retry" | "variation" | "delete" | "publish";
   } | null>(null);
-  const [labPanelTab, setLabPanelTab] = useState<LabPanelTab>("compose");
+  const [labPanelTab, setLabPanelTab] = useState<LabPanelTab>("history");
   const [assetAction, setAssetAction] = useState<{
     assetId: string;
     type: "analyze" | "repair";
@@ -3286,7 +3318,50 @@ function AiLabContent() {
     setModelScale(nextScale);
   }, []);
   const isDesktopPanelHidden = focusMode || panelCollapsed;
-  const isComposeWorkspaceLayout = !isDesktopPanelHidden && labPanelTab === "compose";
+  const viewportCameraPosition = useMemo<[number, number, number]>(() => {
+    if (viewportViewPreset === "front") return [0, 1.35, 4.8];
+    if (viewportViewPreset === "top") return [0, 5.2, 0.001];
+    return [3.6, 2.6, 4.6];
+  }, [viewportViewPreset]);
+  const viewportCameraFov = viewportViewPreset === "top" ? 30 : 40;
+  const toggleGenerationSetting = useCallback((section: GenerationSettingSection) => {
+    setGenerationSettingsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
+  }, []);
+  const handleViewportCapture = useCallback(() => {
+    if (typeof document === "undefined") return;
+    const canvas = document.querySelector<HTMLCanvasElement>("#ai-lab-viewport canvas");
+    if (!canvas) {
+      showError("Viewport не готов к capture.");
+      return;
+    }
+    const href = canvas.toDataURL("image/png");
+    const link = document.createElement("a");
+    link.href = href;
+    link.download = `ai-lab-capture-${Date.now()}.png`;
+    link.click();
+    showSuccess("Capture сохранен.");
+  }, [showError, showSuccess]);
+  const handleCancelSynthesis = useCallback(() => {
+    if (!isSynthRunning) return;
+    setServerJob((prev) =>
+      prev
+        ? {
+            ...prev,
+            status: "failed",
+            stage: "USER_CANCELLED",
+            errorMessage: "Generation cancelled by user.",
+            updatedAt: new Date().toISOString(),
+          }
+        : prev
+    );
+    setServerJobError("Generation cancelled by user.");
+    showSuccess("Генерация остановлена в интерфейсе.");
+  }, [isSynthRunning, showSuccess]);
+  const handleStopMonitoring = useCallback(() => {
+    setServerJob(null);
+    setServerJobError(null);
+    showSuccess("Мониторинг задачи остановлен.");
+  }, [showSuccess]);
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[#030304] text-white">
@@ -3298,31 +3373,88 @@ function AiLabContent() {
       <div className="pointer-events-none fixed inset-0 z-20 cad-grid-pattern opacity-[0.22]" />
       <div className="pointer-events-none fixed inset-0 z-20 bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.08),_transparent_50%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.07),_transparent_45%)]" />
 
-      <header className="relative z-30 border-b border-white/10 bg-obsidian/70 backdrop-blur-xl">
-        <div className="mx-auto flex w-full max-w-[1400px] items-center justify-between gap-4 px-4 py-4 sm:px-6">
-          <div className="flex items-center gap-4">
-            <a href="/store" className="text-xl font-bold tracking-[0.25em] text-white">
-              3D-STORE
-            </a>
-            <div className="hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/50 md:flex">
-              <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_12px_rgba(16,185,129,0.6)]" />
-              LAB_STATUS: READY
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl">
+        <div className="mx-auto w-full max-w-[1760px] px-4 sm:px-6">
+          <div className="flex h-14 items-center justify-between gap-3">
+            <div className="flex min-w-0 items-center gap-4 lg:gap-6">
+              <a href="/store" className="shrink-0 text-lg font-bold tracking-[0.2em] text-white">
+                3D-STORE
+              </a>
+              <nav className="hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/70 lg:flex">
+                <button
+                  type="button"
+                  className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 transition hover:border-white/35 hover:text-white"
+                >
+                  Project
+                  <ChevronDown className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLabPanelTab("assets")}
+                  className={`rounded-full border px-3 py-1.5 transition ${
+                    labPanelTab === "assets"
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                      : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
+                  }`}
+                >
+                  Assets
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLabPanelTab("history")}
+                  className={`rounded-full border px-3 py-1.5 transition ${
+                    labPanelTab === "history"
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                      : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
+                  }`}
+                >
+                  History
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setLabPanelTab("jobs")}
+                  className={`rounded-full border px-3 py-1.5 transition ${
+                    labPanelTab === "jobs"
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                      : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
+                  }`}
+                >
+                  Jobs
+                </button>
+              </nav>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF]">
+                TOKENS: {tokensLoading ? "..." : tokens}
+              </div>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
+                aria-label="Settings"
+              >
+                <Settings2 className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
+                aria-label="User"
+              >
+                <UserRound className="h-4 w-4" />
+              </button>
             </div>
           </div>
-          <nav className="flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/70 sm:gap-3">
-            <a
-              href="/store"
-              className="hidden rounded-full border border-white/15 bg-white/5 px-3 py-2 transition hover:border-white/40 hover:text-white sm:inline-flex"
-            >
-              МАГАЗИН
-            </a>
-            <a
-              href="/ai-lab"
-              className="rounded-full border border-[#2ED1FF]/60 bg-[#0b1014] px-4 py-2 text-[#BFF4FF] shadow-[0_0_18px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
-            >
-              AI ЛАБОРАТОРИЯ
-            </a>
-          </nav>
+          <div className="flex h-8 items-center gap-2 border-t border-white/10 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
+            <span className="text-white/35">STATUS:</span>
+            <span className="text-emerald-200">{currentStatus}</span>
+            <span className="text-white/35">•</span>
+            <span>{displayStage}</span>
+            {(isSynthRunning || serverJobLoading) && (
+              <>
+                <span className="text-white/35">•</span>
+                <span>{Math.round(displayProgress)}%</span>
+              </>
+            )}
+          </div>
         </div>
       </header>
 
@@ -3330,23 +3462,63 @@ function AiLabContent() {
         initial={{ opacity: 0, y: 16 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
-        className={`relative z-30 mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pb-20 pt-10 sm:px-6 lg:grid ${
-          isDesktopPanelHidden
-            ? "lg:grid-cols-1"
-            : isComposeWorkspaceLayout
-              ? "lg:grid-cols-[0.86fr_1.44fr_0.92fr]"
-              : "lg:grid-cols-[1.6fr_0.9fr]"
+        className={`relative z-30 mx-auto flex w-full max-w-[1760px] flex-col gap-6 px-4 pb-20 pt-[110px] sm:px-6 lg:grid ${
+          isDesktopPanelHidden ? "lg:grid-cols-1" : "lg:grid-cols-[360px_minmax(0,1fr)_380px]"
         }`}
       >
-        {labPanelTab === "compose" && (
-          <aside
-            className={`relative flex h-fit flex-col gap-4 rounded-[28px] border border-white/10 bg-white/[0.03] p-4 shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl lg:sticky lg:top-24 ${
-              isDesktopPanelHidden ? "lg:hidden" : "lg:flex"
-            }`}
-          >
+        <aside
+          className={`relative flex h-fit flex-col gap-4 rounded-[28px] border border-white/10 bg-white/[0.03] p-4 shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl lg:sticky lg:top-32 ${
+            isDesktopPanelHidden ? "lg:hidden" : "lg:flex"
+          }`}
+        >
+            <div className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
+              <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/35 p-2">
+                {[
+                  { id: "compose", icon: FlaskConical, label: "Compose" },
+                  { id: "image", icon: ImageIcon, label: "Image Mode" },
+                  { id: "refs", icon: Box, label: "References" },
+                  { id: "mask", icon: Scissors, label: "Mask Editor" },
+                  { id: "smart", icon: Wand2, label: "Smart Tools" },
+                  { id: "magic", icon: SparklesIcon, label: "Enhance" },
+                ].map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 bg-white/[0.03] text-white/70 transition hover:border-white/35 hover:text-white"
+                    title={item.label}
+                  >
+                    <item.icon className="h-4 w-4" />
+                  </button>
+                ))}
+              </div>
+              <div className="space-y-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/55">
               <span>Compose</span>
               <span className="text-[#BFF4FF]">{mode === "image" ? "IMAGE" : "TEXT"}</span>
+            </div>
+            <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
+              <button
+                type="button"
+                onClick={() => setMode("image")}
+                className={`rounded-xl border px-3 py-2 transition ${
+                  mode === "image"
+                    ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                    : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                }`}
+              >
+                Image to 3D
+              </button>
+              <button
+                type="button"
+                onClick={() => setMode("text")}
+                className={`rounded-xl border px-3 py-2 transition ${
+                  mode === "text"
+                    ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                    : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                }`}
+              >
+                Text to 3D
+              </button>
             </div>
             <div
               className={`relative flex min-h-[170px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
@@ -3546,11 +3718,115 @@ function AiLabContent() {
                 className="min-h-[190px] w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/80 placeholder:text-white/40 focus:border-[#2ED1FF]/60 focus:outline-none"
               />
             </div>
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
+              <div className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/60">
+                Generation Settings
+              </div>
+              {(
+                [
+                  ["quality", "Quality"],
+                  ["style", "Style"],
+                  ["advanced", "Advanced"],
+                ] as Array<[GenerationSettingSection, string]>
+              ).map(([section, label]) => (
+                <div key={section} className="mt-2 rounded-xl border border-white/10 bg-black/30">
+                  <button
+                    type="button"
+                    onClick={() => toggleGenerationSetting(section)}
+                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/70 transition hover:text-white"
+                  >
+                    {label}
+                    <ChevronDown
+                      className={`h-4 w-4 transition ${generationSettingsOpen[section] ? "rotate-180" : ""}`}
+                    />
+                  </button>
+                  {generationSettingsOpen[section] && (
+                    <div className="border-t border-white/10 px-3 py-2">
+                      {section === "quality" && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["draft", "standard", "pro"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setQualityPreset(value)}
+                              className={`rounded-lg border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${
+                                qualityPreset === value
+                                  ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                                  : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {section === "style" && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["realistic", "stylized", "anime"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setStylePreset(value)}
+                              className={`rounded-lg border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${
+                                stylePreset === value
+                                  ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                                  : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                      {section === "advanced" && (
+                        <div className="grid grid-cols-3 gap-2">
+                          {(["balanced", "detail", "speed"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setAdvancedPreset(value)}
+                              className={`rounded-lg border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${
+                                advancedPreset === value
+                                  ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                                  : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                void handleStartServerSynthesis();
+              }}
+              disabled={serverJobLoading || isSynthRunning || tokensLoading}
+              className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {serverJobLoading
+                ? "GENERATING..."
+                : isSynthRunning
+                  ? `IN PROGRESS ${Math.round(displayProgress)}%`
+                  : "GENERATE"}
+            </button>
+            <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
+              <div>Cost: {tokenCost}</div>
+              <div>ETA: {displayEta}</div>
+              <div>Queue: {displayQueuePosition}</div>
+            </div>
+              </div>
+            </div>
           </aside>
-        )}
 
         <section
-          className={`relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] bg-transparent ${
+          id="ai-lab-viewport"
+          className={`relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] border border-white/10 bg-black/20 ${
             focusMode ? "lg:min-h-[680px]" : ""
           }`}
         >
@@ -3600,20 +3876,22 @@ function AiLabContent() {
                 gl.setClearColor(0x000000, 0);
               }}
               dpr={[1, 1.6]}
-              camera={{ position: [3.6, 2.6, 4.6], fov: 40 }}
+              camera={{ position: viewportCameraPosition, fov: viewportCameraFov }}
               className="h-full w-full"
             >
               <ambientLight intensity={0.65} />
               <ReactorLights active={isSynthRunning} />
               <FloorPulse active={isSynthRunning} />
-              <Grid
-                infiniteGrid
-                sectionColor="#152b36"
-                cellColor="#0b2230"
-                fadeDistance={16}
-                fadeStrength={4}
-                position={[0, -1.2, 0]}
-              />
+              {viewportShowGrid && (
+                <Grid
+                  infiniteGrid
+                  sectionColor="#152b36"
+                  cellColor="#0b2230"
+                  fadeDistance={16}
+                  fadeStrength={4}
+                  position={[0, -1.2, 0]}
+                />
+              )}
               <Suspense fallback={null}>
                 {activePreviewModel ? (
                   <group position={[0, MODEL_STAGE_OFFSET, 0]} scale={modelScale}>
@@ -3621,7 +3899,7 @@ function AiLabContent() {
                       rawModelUrl={activePreviewModel}
                       paintedModelUrl={null}
                       finish="Raw"
-                      renderMode="final"
+                      renderMode={viewportRenderMode}
                       accentColor="#2ED1FF"
                       onBounds={handleBounds}
                     />
@@ -3631,10 +3909,10 @@ function AiLabContent() {
                 ) : null}
               </Suspense>
               <OrbitControls
-                enablePan={false}
-                enableZoom
+                enablePan={viewportEnablePan}
+                enableZoom={viewportEnableZoom}
                 enableDamping
-                autoRotate={false}
+                autoRotate={viewportAutoRotate}
               />
               <Environment preset="city" />
             </Canvas>
@@ -3667,135 +3945,169 @@ function AiLabContent() {
               {activePreviewLabel ? `PREVIEW: ${activePreviewLabel}` : "NEURAL_CORE: ACTIVE"}
             </div>
           </div>
+          <div className="absolute inset-x-5 bottom-4 z-20 space-y-2">
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 bg-[#050a0f]/85 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 backdrop-blur">
+              <button
+                type="button"
+                onClick={() => setViewportAutoRotate((prev) => !prev)}
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewportAutoRotate
+                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                }`}
+              >
+                Orbit
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewportEnablePan((prev) => !prev)}
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewportEnablePan
+                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                }`}
+              >
+                Pan
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewportEnableZoom((prev) => !prev)}
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewportEnableZoom
+                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                }`}
+              >
+                Zoom
+              </button>
+              <div className="ml-auto flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setViewportViewPreset((prev) =>
+                      prev === "orbit" ? "front" : prev === "front" ? "top" : "orbit"
+                    )
+                  }
+                  className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
+                >
+                  Views
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setFocusMode((prev) => !prev)}
+                  className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
+                >
+                  Settings
+                </button>
+              </div>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 bg-[#050a0f]/85 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 backdrop-blur">
+              <button
+                type="button"
+                onClick={() => setViewportShowGrid((prev) => !prev)}
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewportShowGrid
+                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                }`}
+              >
+                Grid
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  setViewportRenderMode((prev) => (prev === "wireframe" ? "final" : "wireframe"))
+                }
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewportRenderMode === "wireframe"
+                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                }`}
+              >
+                Wireframe
+              </button>
+              <button
+                type="button"
+                onClick={handleViewportCapture}
+                className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
+              >
+                Capture
+              </button>
+              <div className="ml-auto flex items-center gap-2">
+                {isSynthRunning && (
+                  <button
+                    type="button"
+                    onClick={handleCancelSynthesis}
+                    className="rounded-full border border-amber-400/45 bg-amber-500/12 px-2.5 py-1 text-amber-200 transition hover:border-amber-300"
+                  >
+                    Cancel {Math.round(displayProgress)}%
+                  </button>
+                )}
+                {(isSynthRunning || serverJob) && (
+                  <button
+                    type="button"
+                    onClick={handleStopMonitoring}
+                    className="rounded-full border border-rose-400/45 bg-rose-500/10 px-2.5 py-1 text-rose-200 transition hover:border-rose-300"
+                  >
+                    Stop
+                  </button>
+                )}
+              </div>
+            </div>
+          </div>
         </section>
 
         <aside
-          className={`relative flex h-fit flex-col gap-5 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:sticky lg:top-24 ${
+          className={`relative flex h-fit flex-col gap-5 rounded-[32px] border border-white/10 bg-white/[0.03] p-6 shadow-[0_24px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl lg:sticky lg:top-32 ${
             isDesktopPanelHidden ? "lg:hidden" : "lg:flex"
           }`}
         >
-          <div className="space-y-2">
-            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-white/50">
-              AI 3D GENERATION SUITE
-            </p>
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="text-2xl font-semibold text-white">Лаборатория синтеза</h2>
-              <div className="flex flex-col items-end gap-2">
-                <div className="rounded-full border border-[#2ED1FF]/30 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF] shadow-[0_0_16px_rgba(46,209,255,0.25)]">
-                  TOKENS: {tokensLoading ? "..." : tokens}
-                </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setTopupTab("onetime");
-                    setTopupOpen(true);
-                  }}
-                  className="rounded-full border border-emerald-400/50 bg-emerald-400/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-200 transition hover:border-emerald-300 hover:text-white"
-                >
-                  TOP UP
-                </button>
-              </div>
-            </div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-400/40 bg-amber-400/10 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-amber-200">
-              В разработке
-            </div>
-            <p className="text-sm text-white/55">
-              Высокоточный протокол сборки цифровых материалов. Используйте тестовый
-              `.glb` через параметр `preview`.
-            </p>
-          </div>
-
-          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
-            {([
-              ["compose", "Compose"],
-              ["history", "History"],
-              ["assets", "Assets"],
-              ["billing", "Tokens"],
-            ] as Array<[LabPanelTab, string]>).map(([tab, label]) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setLabPanelTab(tab)}
-                className={`min-h-[38px] rounded-xl border px-3 py-2 transition ${
-                  labPanelTab === tab
-                    ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
-                    : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/30 hover:text-white/85"
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-
-          <div className="rounded-2xl border border-[#2ED1FF]/20 bg-[#091018]/85 p-3 shadow-[0_0_22px_rgba(46,209,255,0.12)]">
-            <div className="flex flex-wrap items-center gap-2">
-              <div className="grid min-w-[220px] grid-cols-2 gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
-                <button
-                  type="button"
-                  onClick={() => setMode("image")}
-                  className={`rounded-lg border px-2.5 py-1.5 transition ${
-                    mode === "image"
-                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
-                      : "border-white/15 bg-white/[0.02] text-white/60 hover:border-white/30 hover:text-white"
-                  }`}
-                >
-                  Image to 3D
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setMode("text")}
-                  className={`rounded-lg border px-2.5 py-1.5 transition ${
-                    mode === "text"
-                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
-                      : "border-white/15 bg-white/[0.02] text-white/60 hover:border-white/30 hover:text-white"
-                  }`}
-                >
-                  Text to 3D
-                </button>
-              </div>
-              <div className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#BFF4FF]">
-                TOKENS: {tokensLoading ? "..." : tokens}
-              </div>
-              <div className="rounded-full border border-white/15 bg-white/[0.03] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/65">
-                COST: {tokenCost}
-              </div>
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.34em] text-white/60">
+                Shelf
+              </p>
               <button
                 type="button"
                 onClick={() => {
                   setTopupTab("onetime");
                   setTopupOpen(true);
                 }}
-                className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-100 transition hover:border-emerald-300 hover:text-white"
+                className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-100 transition hover:border-emerald-300 hover:text-white"
               >
                 TOP UP
               </button>
-              <button
-                type="button"
-                onClick={() => {
-                  void handleStartServerSynthesis();
-                }}
-                disabled={serverJobLoading || isSynthRunning || tokensLoading}
-                className="ml-auto rounded-full border border-emerald-400/60 bg-emerald-500/12 px-4 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {serverJobLoading
-                  ? "CREATING..."
-                  : isSynthRunning
-                    ? "IN PROGRESS"
-                    : tokensLoading
-                      ? "LOADING..."
-                      : "START"}
-              </button>
             </div>
-            <div className="mt-2 flex items-center justify-between text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/50">
-              <span>{currentStatus}</span>
-              <span>
-                {displayStage} • {Math.round(displayProgress)}%
-                {(serverJob?.status === "queued" || serverJob?.status === "processing") ? ` • ETA ${displayEta}` : ""}
-              </span>
+            <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
+              {([
+                ["assets", "Assets"],
+                ["history", "History"],
+                ["jobs", "Jobs"],
+              ] as Array<[LabPanelTab, string]>).map(([tab, label]) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setLabPanelTab(tab)}
+                  className={`min-h-[38px] rounded-xl border px-3 py-2 transition ${
+                    labPanelTab === tab
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
+                      : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/30 hover:text-white/85"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
+              {labPanelTab === "history"
+                ? "History stream"
+                : labPanelTab === "assets"
+                  ? "Assets library"
+                  : "Jobs & pipeline monitor"}
             </div>
           </div>
 
-          {labPanelTab === "compose" && (
+          {labPanelTab === "jobs" && (
             <>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
@@ -3893,50 +4205,41 @@ function AiLabContent() {
               <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
             )}
           </div>
-          </div>
-            </>
-          )}
-          {labPanelTab === "billing" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-              <span>TOKEN LOG</span>
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/60">
+              <span>Token log</span>
               <span className="text-white/30">{tokenEvents.length}</span>
             </div>
-            <div className="mt-3 space-y-2">
+            <div className="mt-2 space-y-2">
               {tokenEventsLoading ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                   LOADING...
                 </div>
               ) : tokenEvents.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                   NO TOKEN EVENTS
                 </div>
               ) : (
-                tokenEvents.slice(0, 6).map((event) => {
+                tokenEvents.slice(0, 3).map((event) => {
                   const delta = Number.isFinite(event.delta) ? Math.trunc(event.delta) : 0;
-                  const deltaSign = delta >= 0 ? "+" : "";
-                  const deltaTone =
+                  const sign = delta >= 0 ? "+" : "";
+                  const tone =
                     delta > 0 ? "text-emerald-300" : delta < 0 ? "text-rose-300" : "text-white/60";
-                  const eventDate = formatJobDate(event.createdAt);
                   return (
                     <div
                       key={event.id}
                       className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80">
+                        <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70">
                           {tokenReasonLabel[event.reason] || event.reason}
                         </p>
                         <p
-                          className={`text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] ${deltaTone}`}
+                          className={`text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${tone}`}
                         >
-                          {deltaSign}
+                          {sign}
                           {delta}
                         </p>
-                      </div>
-                      <div className="mt-1 flex items-center justify-between gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                        <span className="truncate">{eventDate || "--:--"}</span>
-                        <span>Balance {Math.max(0, Math.trunc(event.balanceAfter || 0))}</span>
                       </div>
                     </div>
                   );
@@ -3944,6 +4247,8 @@ function AiLabContent() {
               )}
             </div>
           </div>
+          </div>
+            </>
           )}
           {labPanelTab === "history" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
