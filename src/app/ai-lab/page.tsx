@@ -10,14 +10,16 @@ import {
   Box,
   ChevronDown,
   Cpu,
+  ExternalLink,
   FlaskConical,
-  History,
+  FolderGit2,
   ImageIcon,
-  ListTodo,
+  LogOut,
+  Rocket,
   Scissors,
   Settings2,
   ShieldCheck,
-  Sparkles as SparklesIcon,
+  UserCog,
   UploadCloud,
   UserRound,
   Wand2,
@@ -111,6 +113,7 @@ type AiAssetRecord = {
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
 type LabPanelTab = "assets" | "history" | "jobs";
 type GenerationSettingSection = "quality" | "style" | "advanced";
+type LeftTool = "generate" | "references" | "model" | "cleanup" | "materials" | "export";
 
 type AiTokenEvent = {
   id: string;
@@ -1256,6 +1259,18 @@ function AiLabContent() {
   const [subscriptionAction, setSubscriptionAction] = useState<"checkout" | "portal" | null>(null);
   const [focusMode, setFocusMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
+  const [leftTool, setLeftTool] = useState<LeftTool>("generate");
+  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
+  const [tokensPopoverOpen, setTokensPopoverOpen] = useState(false);
+  const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [jobsConsoleOpen, setJobsConsoleOpen] = useState(false);
+  const [rightPanelQuery, setRightPanelQuery] = useState("");
+  const [currentProjectName, setCurrentProjectName] = useState("Main Project");
+  const [uiThemeMode, setUiThemeMode] = useState<"dark" | "auto">("dark");
+  const [uiScale, setUiScale] = useState(100);
+  const [viewerQuality, setViewerQuality] = useState<"performance" | "quality">("quality");
+  const [uiLanguage, setUiLanguage] = useState<"ru" | "en">("ru");
   const [generationSettingsOpen, setGenerationSettingsOpen] = useState<
     Record<GenerationSettingSection, boolean>
   >({
@@ -1268,10 +1283,17 @@ function AiLabContent() {
   const [advancedPreset, setAdvancedPreset] = useState<"balanced" | "detail" | "speed">("balanced");
   const [viewportShowGrid, setViewportShowGrid] = useState(true);
   const [viewportRenderMode, setViewportRenderMode] = useState<"final" | "wireframe">("final");
-  const [viewportEnablePan, setViewportEnablePan] = useState(false);
-  const [viewportEnableZoom, setViewportEnableZoom] = useState(true);
+  const [viewportControlMode, setViewportControlMode] = useState<"orbit" | "pan" | "zoom">("orbit");
   const [viewportAutoRotate, setViewportAutoRotate] = useState(false);
-  const [viewportViewPreset, setViewportViewPreset] = useState<"orbit" | "front" | "top">("orbit");
+  const [viewportViewsOpen, setViewportViewsOpen] = useState(false);
+  const [viewportSettingsOpen, setViewportSettingsOpen] = useState(false);
+  const [viewportEnvironmentPreset, setViewportEnvironmentPreset] = useState<"city" | "studio" | "night">(
+    "city"
+  );
+  const [viewportBackgroundMode, setViewportBackgroundMode] = useState<"scene" | "transparent">("scene");
+  const [viewportViewPreset, setViewportViewPreset] = useState<
+    "orbit" | "front" | "back" | "left" | "right" | "top" | "bottom"
+  >("orbit");
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -3266,6 +3288,27 @@ function AiLabContent() {
     if (jobHistoryFilter === "all") return jobHistory;
     return jobHistory.filter((job) => job.status === jobHistoryFilter);
   }, [jobHistory, jobHistoryFilter]);
+  const filteredHistoryByQuery = useMemo(() => {
+    const q = rightPanelQuery.trim().toLowerCase();
+    if (!q) return filteredJobHistory;
+    return filteredJobHistory.filter((job) => {
+      const prompt = (job.prompt || "").toLowerCase();
+      const id = job.id.toLowerCase();
+      const stage = (job.stage || "").toLowerCase();
+      return prompt.includes(q) || id.includes(q) || stage.includes(q);
+    });
+  }, [filteredJobHistory, rightPanelQuery]);
+  const filteredGalleryByQuery = useMemo(() => {
+    const q = rightPanelQuery.trim().toLowerCase();
+    if (!q) return gallery;
+    return gallery.filter((asset) => {
+      return (
+        asset.name.toLowerCase().includes(q) ||
+        asset.format.toLowerCase().includes(q) ||
+        (asset.localOnly ? "local" : "cloud").includes(q)
+      );
+    });
+  }, [gallery, rightPanelQuery]);
 
   const renderJobStatusTone = (status?: AiGenerationJob["status"]) => {
     if (status === "completed") return "text-emerald-300";
@@ -3278,6 +3321,15 @@ function AiLabContent() {
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
   const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
   const displayEta = formatEta(serverJob?.etaSeconds ?? null);
+  const qualityMultiplier = qualityPreset === "draft" ? 0.8 : qualityPreset === "pro" ? 1.45 : 1;
+  const styleMultiplier = stylePreset === "realistic" ? 1.1 : stylePreset === "anime" ? 0.95 : 1;
+  const advancedMultiplier = advancedPreset === "detail" ? 1.25 : advancedPreset === "speed" ? 0.78 : 1;
+  const estimatedTokenCost = Math.max(1, Math.round(tokenCost * qualityMultiplier * styleMultiplier * advancedMultiplier));
+  const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
+  const estimatedEtaMinutes = Math.max(
+    1,
+    Math.round(baseEtaMinutes * qualityMultiplier * (advancedPreset === "speed" ? 0.7 : 1.15))
+  );
   const displayQueuePosition =
     typeof serverJob?.queuePosition === "number" && serverJob.queuePosition > 0
       ? `#${serverJob.queuePosition}`
@@ -3318,12 +3370,17 @@ function AiLabContent() {
     setModelScale(nextScale);
   }, []);
   const isDesktopPanelHidden = focusMode || panelCollapsed;
+  const supportedProjects = ["Main Project", "Client Demo", "R&D"];
   const viewportCameraPosition = useMemo<[number, number, number]>(() => {
     if (viewportViewPreset === "front") return [0, 1.35, 4.8];
-    if (viewportViewPreset === "top") return [0, 5.2, 0.001];
+    if (viewportViewPreset === "back") return [0, 1.35, -4.8];
+    if (viewportViewPreset === "left") return [-4.8, 1.35, 0];
+    if (viewportViewPreset === "right") return [4.8, 1.35, 0];
+    if (viewportViewPreset === "top") return [0, 5.2, 0.01];
+    if (viewportViewPreset === "bottom") return [0, -3.6, 0.01];
     return [3.6, 2.6, 4.6];
   }, [viewportViewPreset]);
-  const viewportCameraFov = viewportViewPreset === "top" ? 30 : 40;
+  const viewportCameraFov = viewportViewPreset === "top" || viewportViewPreset === "bottom" ? 30 : 40;
   const toggleGenerationSetting = useCallback((section: GenerationSettingSection) => {
     setGenerationSettingsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
   }, []);
@@ -3341,6 +3398,43 @@ function AiLabContent() {
     link.click();
     showSuccess("Capture сохранен.");
   }, [showError, showSuccess]);
+  const handleSelectProject = useCallback(
+    (name: string) => {
+      setCurrentProjectName(name);
+      setLabPanelTab("history");
+      setProjectMenuOpen(false);
+      setRightPanelQuery("");
+      setLeftTool("generate");
+      void fetchTokens(true);
+      void fetchTokenHistory(true);
+      showSuccess(`Проект переключен: ${name}`);
+    },
+    [fetchTokenHistory, fetchTokens, showSuccess]
+  );
+  const handleCloudToggle = useCallback(
+    (asset: GeneratedAsset) => {
+      setGallery((prev) =>
+        prev.map((item) =>
+          item.id === asset.id
+            ? {
+                ...item,
+                localOnly: !item.localOnly,
+              }
+            : item
+        )
+      );
+      showSuccess(asset.localOnly ? "Модель отправлена в cloud." : "Модель оставлена локально.");
+    },
+    [showSuccess]
+  );
+  const handleLogout = useCallback(async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
+    } catch {
+      // ignore
+    }
+    router.push("/store");
+  }, [router]);
   const handleCancelSynthesis = useCallback(() => {
     if (!isSynthRunning) return;
     setServerJob((prev) =>
@@ -3362,6 +3456,16 @@ function AiLabContent() {
     setServerJobError(null);
     showSuccess("Мониторинг задачи остановлен.");
   }, [showSuccess]);
+  useEffect(() => {
+    const onGlobalClick = () => {
+      setProjectMenuOpen(false);
+      setTokensPopoverOpen(false);
+      setQuickSettingsOpen(false);
+      setUserMenuOpen(false);
+    };
+    window.addEventListener("click", onGlobalClick);
+    return () => window.removeEventListener("click", onGlobalClick);
+  }, []);
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[#030304] text-white">
@@ -3381,13 +3485,75 @@ function AiLabContent() {
                 3D-STORE
               </a>
               <nav className="hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/70 lg:flex">
-                <button
-                  type="button"
-                  className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 transition hover:border-white/35 hover:text-white"
-                >
-                  Project
-                  <ChevronDown className="h-3.5 w-3.5" />
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setProjectMenuOpen((prev) => !prev);
+                      setTokensPopoverOpen(false);
+                      setQuickSettingsOpen(false);
+                      setUserMenuOpen(false);
+                    }}
+                    className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 transition hover:border-white/35 hover:text-white"
+                  >
+                    {currentProjectName}
+                    <ChevronDown className={`h-3.5 w-3.5 transition ${projectMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {projectMenuOpen && (
+                    <div
+                      onClick={(event) => event.stopPropagation()}
+                      className="absolute left-0 top-10 z-50 w-[240px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
+                    >
+                      <p className="px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/45">
+                        Select Project
+                      </p>
+                      {supportedProjects.map((projectName) => (
+                        <button
+                          key={projectName}
+                          type="button"
+                          onClick={() => handleSelectProject(projectName)}
+                          className={`flex w-full items-center justify-between rounded-lg border px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
+                            currentProjectName === projectName
+                              ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100"
+                              : "border-white/10 bg-white/[0.02] text-white/70 hover:border-white/30 hover:text-white"
+                          }`}
+                        >
+                          {projectName}
+                          {currentProjectName === projectName && <span className="text-[9px] text-cyan-200">ACTIVE</span>}
+                        </button>
+                      ))}
+                      <div className="my-1 border-t border-white/10" />
+                      {(
+                        [
+                          ["Create project", true],
+                          ["Rename project", true],
+                          ["Delete project", true],
+                        ] as Array<[string, boolean]>
+                      ).map(([label, disabled]) => (
+                        <button
+                          key={label}
+                          type="button"
+                          disabled={disabled}
+                          title="Скоро"
+                          className="w-full rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40 disabled:cursor-not-allowed"
+                        >
+                          {label}
+                        </button>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          router.push("/profile");
+                          setProjectMenuOpen(false);
+                        }}
+                        className="w-full rounded-lg border border-emerald-300/35 bg-emerald-500/10 px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-200"
+                      >
+                        Open settings
+                      </button>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={() => setLabPanelTab("assets")}
@@ -3424,26 +3590,245 @@ function AiLabContent() {
               </nav>
             </div>
             <div className="flex items-center gap-2">
-              <div className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF]">
-                TOKENS: {tokensLoading ? "..." : tokens}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setTokensPopoverOpen((prev) => !prev);
+                    setProjectMenuOpen(false);
+                    setQuickSettingsOpen(false);
+                    setUserMenuOpen(false);
+                  }}
+                  className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60"
+                >
+                  TOKENS: {tokensLoading ? "..." : tokens}
+                </button>
+                {tokensPopoverOpen && (
+                  <div
+                    onClick={(event) => event.stopPropagation()}
+                    className="absolute right-0 top-10 z-50 w-[300px] space-y-2 rounded-xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
+                  >
+                    <div className="flex items-center justify-between">
+                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70">
+                        Token balance
+                      </p>
+                      <p className="text-sm font-semibold text-cyan-100">{tokensLoading ? "..." : tokens}</p>
+                    </div>
+                    <div className="rounded-lg border border-white/10 bg-black/30 p-2">
+                      <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
+                        Last events
+                      </p>
+                      <div className="mt-1 space-y-1">
+                        {tokenEvents.slice(0, 5).map((event) => (
+                          <div key={event.id} className="flex items-center justify-between text-[9px] text-white/65">
+                            <span className="truncate">{tokenReasonLabel[event.reason] || event.reason}</span>
+                            <span>{event.delta >= 0 ? "+" : ""}{Math.trunc(event.delta)}</span>
+                          </div>
+                        ))}
+                        {tokenEvents.length === 0 && (
+                          <p className="text-[9px] text-white/40">No events yet.</p>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopupTab("onetime");
+                          setTopupOpen(true);
+                          setTokensPopoverOpen(false);
+                        }}
+                        className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-300"
+                      >
+                        Top up
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setTopupTab("subscription");
+                          setTopupOpen(true);
+                          setTokensPopoverOpen(false);
+                        }}
+                        className="rounded-full border border-cyan-400/45 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
+                      >
+                        Plan
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
-                aria-label="Settings"
-              >
-                <Settings2 className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
-                aria-label="User"
-              >
-                <UserRound className="h-4 w-4" />
-              </button>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setQuickSettingsOpen((prev) => !prev);
+                    setProjectMenuOpen(false);
+                    setTokensPopoverOpen(false);
+                    setUserMenuOpen(false);
+                  }}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
+                  aria-label="Settings"
+                >
+                  <Settings2 className="h-4 w-4" />
+                </button>
+                {quickSettingsOpen && (
+                  <div
+                    onClick={(event) => event.stopPropagation()}
+                    className="absolute right-0 top-10 z-50 w-[280px] space-y-3 rounded-xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
+                  >
+                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/60">
+                      Quick settings
+                    </p>
+                    <div className="space-y-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70">
+                      <div className="flex items-center justify-between">
+                        <span>Theme</span>
+                        <div className="flex gap-1">
+                          {(["dark", "auto"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setUiThemeMode(value)}
+                              className={`rounded-md border px-2 py-1 ${
+                                uiThemeMode === value
+                                  ? "border-cyan-300/60 bg-cyan-500/10 text-cyan-100"
+                                  : "border-white/15 text-white/60 hover:border-white/30"
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <label className="block">
+                        UI scale ({uiScale}%)
+                        <input
+                          type="range"
+                          min={85}
+                          max={115}
+                          step={5}
+                          value={uiScale}
+                          onChange={(event) => setUiScale(Number(event.target.value))}
+                          className="mt-1 w-full"
+                        />
+                      </label>
+                      <div className="flex items-center justify-between">
+                        <span>Viewer</span>
+                        <div className="flex gap-1">
+                          {(["performance", "quality"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setViewerQuality(value)}
+                              className={`rounded-md border px-2 py-1 ${
+                                viewerQuality === value
+                                  ? "border-cyan-300/60 bg-cyan-500/10 text-cyan-100"
+                                  : "border-white/15 text-white/60 hover:border-white/30"
+                              }`}
+                            >
+                              {value}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span>Language</span>
+                        <div className="flex gap-1">
+                          {(["ru", "en"] as const).map((value) => (
+                            <button
+                              key={value}
+                              type="button"
+                              onClick={() => setUiLanguage(value)}
+                              className={`rounded-md border px-2 py-1 ${
+                                uiLanguage === value
+                                  ? "border-cyan-300/60 bg-cyan-500/10 text-cyan-100"
+                                  : "border-white/15 text-white/60 hover:border-white/30"
+                              }`}
+                            >
+                              {value.toUpperCase()}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => showSuccess("Hotkeys: G generate, H history, A assets, J jobs.")}
+                        className="w-full rounded-md border border-white/15 bg-white/[0.02] px-2 py-1 text-left text-white/70 transition hover:border-white/30"
+                      >
+                        Hotkeys list
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setUserMenuOpen((prev) => !prev);
+                    setProjectMenuOpen(false);
+                    setTokensPopoverOpen(false);
+                    setQuickSettingsOpen(false);
+                  }}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
+                  aria-label="User"
+                >
+                  <UserRound className="h-4 w-4" />
+                </button>
+                {userMenuOpen && (
+                  <div
+                    onClick={(event) => event.stopPropagation()}
+                    className="absolute right-0 top-10 z-50 w-[220px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => router.push("/profile")}
+                      className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/30 hover:text-white"
+                    >
+                      <UserCog className="h-3.5 w-3.5" />
+                      Profile
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setTopupTab("subscription");
+                        setTopupOpen(true);
+                        setUserMenuOpen(false);
+                      }}
+                      className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/30 hover:text-white"
+                    >
+                      <FolderGit2 className="h-3.5 w-3.5" />
+                      Billing
+                    </button>
+                    <button
+                      type="button"
+                      disabled
+                      title="Скоро"
+                      className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40"
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                      API keys
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleLogout()}
+                      className="flex w-full items-center gap-2 rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300"
+                    >
+                      <LogOut className="h-3.5 w-3.5" />
+                      Logout
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
-          <div className="flex h-8 items-center gap-2 border-t border-white/10 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
+          <button
+            type="button"
+            onClick={() => setJobsConsoleOpen((prev) => !prev)}
+            className="flex h-8 w-full items-center gap-2 border-t border-white/10 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55 transition hover:text-white"
+          >
             <span className="text-white/35">STATUS:</span>
             <span className="text-emerald-200">{currentStatus}</span>
             <span className="text-white/35">•</span>
@@ -3454,9 +3839,52 @@ function AiLabContent() {
                 <span>{Math.round(displayProgress)}%</span>
               </>
             )}
-          </div>
+            <span className="ml-auto text-white/30">{jobsConsoleOpen ? "HIDE LOGS" : "OPEN LOGS"}</span>
+          </button>
         </div>
       </header>
+
+      {jobsConsoleOpen && (
+        <div className="fixed right-4 top-[92px] z-40 w-[320px] rounded-2xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_20px_34px_rgba(0,0,0,0.45)] backdrop-blur">
+          <div className="flex items-center justify-between">
+            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/65">
+              Jobs Console
+            </p>
+            <button
+              type="button"
+              onClick={() => setJobsConsoleOpen(false)}
+              className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/30 hover:text-white"
+            >
+              Close
+            </button>
+          </div>
+          <div className="mt-2 space-y-2 text-[10px] text-white/70">
+            <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+              <p className="text-white/45">State</p>
+              <p className="mt-0.5">{currentStatus} • {displayStage}</p>
+            </div>
+            <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
+              <p className="text-white/45">Queue</p>
+              <p className="mt-0.5">{displayQueuePosition} / {displayQueueDepth} • ETA {displayEta}</p>
+            </div>
+            {serverJobError && (
+              <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1.5 text-rose-200">
+                {serverJobError}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => {
+                setLabPanelTab("jobs");
+                setJobsConsoleOpen(false);
+              }}
+              className="w-full rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
+            >
+              Open Jobs tab
+            </button>
+          </div>
+        </div>
+      )}
 
       <motion.main
         initial={{ opacity: 0, y: 16 }}
@@ -3474,17 +3902,29 @@ function AiLabContent() {
             <div className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
               <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/35 p-2">
                 {[
-                  { id: "compose", icon: FlaskConical, label: "Compose" },
-                  { id: "image", icon: ImageIcon, label: "Image Mode" },
-                  { id: "refs", icon: Box, label: "References" },
-                  { id: "mask", icon: Scissors, label: "Mask Editor" },
-                  { id: "smart", icon: Wand2, label: "Smart Tools" },
-                  { id: "magic", icon: SparklesIcon, label: "Enhance" },
+                  { id: "generate", icon: FlaskConical, label: "Generate", enabled: true },
+                  { id: "references", icon: ImageIcon, label: "References", enabled: true },
+                  { id: "model", icon: Box, label: "Model Inspect", enabled: true },
+                  { id: "cleanup", icon: Scissors, label: "Cleanup (Скоро)", enabled: false },
+                  { id: "materials", icon: Wand2, label: "Materials (Скоро)", enabled: false },
+                  { id: "export", icon: Rocket, label: "Export", enabled: true },
                 ].map((item) => (
                   <button
                     key={item.id}
                     type="button"
-                    className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-white/15 bg-white/[0.03] text-white/70 transition hover:border-white/35 hover:text-white"
+                    disabled={!item.enabled}
+                    onClick={() => {
+                      if (!item.enabled) {
+                        showError("Инструмент скоро будет доступен.");
+                        return;
+                      }
+                      setLeftTool(item.id as LeftTool);
+                    }}
+                    className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
+                      leftTool === item.id
+                        ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                        : "border-white/15 bg-white/[0.03] text-white/70 hover:border-white/35 hover:text-white"
+                    } disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/35`}
                     title={item.label}
                   >
                     <item.icon className="h-4 w-4" />
@@ -3493,9 +3933,20 @@ function AiLabContent() {
               </div>
               <div className="space-y-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/55">
-              <span>Compose</span>
+              <span>
+                {leftTool === "generate"
+                  ? "Generate"
+                  : leftTool === "references"
+                    ? "References"
+                    : leftTool === "model"
+                      ? "Model"
+                      : leftTool === "export"
+                        ? "Export"
+                        : "Tool"}
+              </span>
               <span className="text-[#BFF4FF]">{mode === "image" ? "IMAGE" : "TEXT"}</span>
             </div>
+            {(leftTool === "generate" || leftTool === "references") && (
             <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
               <button
                 type="button"
@@ -3520,6 +3971,8 @@ function AiLabContent() {
                 Text to 3D
               </button>
             </div>
+            )}
+            {(leftTool === "generate" || leftTool === "references") && (
             <div
               className={`relative flex min-h-[170px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
                 dragActive
@@ -3585,7 +4038,9 @@ function AiLabContent() {
                 </>
               )}
             </div>
+            )}
 
+            {(leftTool === "generate" || leftTool === "references") && (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
                 <span>References</span>
@@ -3705,7 +4160,10 @@ function AiLabContent() {
                 </div>
               )}
             </div>
+            )}
 
+            {leftTool === "generate" && (
+            <>
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                 <span>AI PROMPT</span>
@@ -3816,17 +4274,97 @@ function AiLabContent() {
                   : "GENERATE"}
             </button>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
-              <div>Cost: {tokenCost}</div>
-              <div>ETA: {displayEta}</div>
+              <div>Cost: {estimatedTokenCost}</div>
+              <div>ETA: ~{estimatedEtaMinutes}m</div>
               <div>Queue: {displayQueuePosition}</div>
             </div>
+            </>
+            )}
+            {leftTool === "model" && (
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
+                  Model Inspect
+                </p>
+                <div className="grid grid-cols-2 gap-2 text-[10px] text-white/70">
+                  <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
+                    Format: {activePreviewModel ? "GLB/GLTF" : "--"}
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
+                    Scale: {modelScale.toFixed(2)}x
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
+                    Source: {activePreviewLabel || "none"}
+                  </div>
+                  <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
+                    Status: {currentStatus}
+                  </div>
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setViewportViewPreset("front")}
+                    className="rounded-lg border border-white/15 bg-white/[0.02] px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70 transition hover:border-white/35 hover:text-white"
+                  >
+                    Center view
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewportViewPreset("orbit")}
+                    className="rounded-lg border border-white/15 bg-white/[0.02] px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70 transition hover:border-white/35 hover:text-white"
+                  >
+                    Reset orbit
+                  </button>
+                </div>
+              </div>
+            )}
+            {leftTool === "export" && (
+              <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
+                  Export & Publish
+                </p>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const first = gallery[0];
+                      if (!first) {
+                        showError("Сначала создайте модель.");
+                        return;
+                      }
+                      handleDownload(first);
+                    }}
+                    disabled={gallery.length === 0}
+                    className="rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Export GLB
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setLabPanelTab("assets")}
+                    className="rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300"
+                  >
+                    Open assets
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  disabled
+                  title="Скоро"
+                  className="w-full rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/40 disabled:cursor-not-allowed"
+                >
+                  Send to Blender/Unity (soon)
+                </button>
+              </div>
+            )}
               </div>
             </div>
           </aside>
 
         <section
           id="ai-lab-viewport"
-          className={`relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] border border-white/10 bg-black/20 ${
+          className={`relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] border border-white/10 ${
+            viewportBackgroundMode === "transparent" ? "bg-transparent" : "bg-black/20"
+          } ${
             focusMode ? "lg:min-h-[680px]" : ""
           }`}
         >
@@ -3875,7 +4413,7 @@ function AiLabContent() {
               onCreated={({ gl }) => {
                 gl.setClearColor(0x000000, 0);
               }}
-              dpr={[1, 1.6]}
+              dpr={viewerQuality === "performance" ? [1, 1.2] : [1, 1.8]}
               camera={{ position: viewportCameraPosition, fov: viewportCameraFov }}
               className="h-full w-full"
             >
@@ -3909,12 +4447,13 @@ function AiLabContent() {
                 ) : null}
               </Suspense>
               <OrbitControls
-                enablePan={viewportEnablePan}
-                enableZoom={viewportEnableZoom}
+                enableRotate={viewportControlMode === "orbit"}
+                enablePan={viewportControlMode === "pan"}
+                enableZoom={viewportControlMode === "zoom" || viewportControlMode === "orbit"}
                 enableDamping
                 autoRotate={viewportAutoRotate}
               />
-              <Environment preset="city" />
+              <Environment preset={viewportEnvironmentPreset} />
             </Canvas>
             <div className="laser-scan pointer-events-none absolute inset-x-6 z-10 h-0.5 rounded-full bg-gradient-to-r from-transparent via-[#2ED1FF] to-transparent opacity-70 shadow-[0_0_18px_rgba(46,209,255,0.65)]" />
           </div>
@@ -3949,9 +4488,9 @@ function AiLabContent() {
             <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 bg-[#050a0f]/85 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 backdrop-blur">
               <button
                 type="button"
-                onClick={() => setViewportAutoRotate((prev) => !prev)}
+                onClick={() => setViewportControlMode("orbit")}
                 className={`rounded-full border px-2.5 py-1 transition ${
-                  viewportAutoRotate
+                  viewportControlMode === "orbit"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
@@ -3960,9 +4499,9 @@ function AiLabContent() {
               </button>
               <button
                 type="button"
-                onClick={() => setViewportEnablePan((prev) => !prev)}
+                onClick={() => setViewportControlMode("pan")}
                 className={`rounded-full border px-2.5 py-1 transition ${
-                  viewportEnablePan
+                  viewportControlMode === "pan"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
@@ -3971,9 +4510,9 @@ function AiLabContent() {
               </button>
               <button
                 type="button"
-                onClick={() => setViewportEnableZoom((prev) => !prev)}
+                onClick={() => setViewportControlMode("zoom")}
                 className={`rounded-full border px-2.5 py-1 transition ${
-                  viewportEnableZoom
+                  viewportControlMode === "zoom"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
@@ -3981,24 +4520,107 @@ function AiLabContent() {
                 Zoom
               </button>
               <div className="ml-auto flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    setViewportViewPreset((prev) =>
-                      prev === "orbit" ? "front" : prev === "front" ? "top" : "orbit"
-                    )
-                  }
-                  className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
-                >
-                  Views
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setFocusMode((prev) => !prev)}
-                  className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
-                >
-                  Settings
-                </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewportViewsOpen((prev) => !prev);
+                      setViewportSettingsOpen(false);
+                    }}
+                    className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
+                  >
+                    Views
+                  </button>
+                  {viewportViewsOpen && (
+                    <div className="absolute right-0 top-9 z-30 w-[170px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
+                      {(
+                        [
+                          ["orbit", "Reset view"],
+                          ["front", "Front"],
+                          ["back", "Back"],
+                          ["left", "Left"],
+                          ["right", "Right"],
+                          ["top", "Top"],
+                          ["bottom", "Bottom"],
+                        ] as Array<[string, string]>
+                      ).map(([value, label]) => (
+                        <button
+                          key={value}
+                          type="button"
+                          onClick={() => {
+                            setViewportViewPreset(value as typeof viewportViewPreset);
+                            setViewportViewsOpen(false);
+                          }}
+                          className={`w-full rounded-lg border px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] transition ${
+                            viewportViewPreset === value
+                              ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                              : "border-white/10 bg-white/[0.02] text-white/65 hover:border-white/30 hover:text-white"
+                          }`}
+                        >
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewportSettingsOpen((prev) => !prev);
+                      setViewportViewsOpen(false);
+                    }}
+                    className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
+                  >
+                    Settings
+                  </button>
+                  {viewportSettingsOpen && (
+                    <div className="absolute right-0 top-9 z-30 w-[220px] space-y-2 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/45">
+                          Lighting
+                        </p>
+                        <div className="grid grid-cols-3 gap-1">
+                          {(["city", "studio", "night"] as const).map((preset) => (
+                            <button
+                              key={preset}
+                              type="button"
+                              onClick={() => setViewportEnvironmentPreset(preset)}
+                              className={`rounded-md border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] ${
+                                viewportEnvironmentPreset === preset
+                                  ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                                  : "border-white/10 text-white/60 hover:border-white/30 hover:text-white"
+                              }`}
+                            >
+                              {preset}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="space-y-1">
+                        <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/45">
+                          Background
+                        </p>
+                        <div className="grid grid-cols-2 gap-1">
+                          {(["scene", "transparent"] as const).map((modeValue) => (
+                            <button
+                              key={modeValue}
+                              type="button"
+                              onClick={() => setViewportBackgroundMode(modeValue)}
+                              className={`rounded-md border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] ${
+                                viewportBackgroundMode === modeValue
+                                  ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                                  : "border-white/10 text-white/60 hover:border-white/30 hover:text-white"
+                              }`}
+                            >
+                              {modeValue}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/15 bg-[#050a0f]/85 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 backdrop-blur">
@@ -4104,6 +4726,14 @@ function AiLabContent() {
                 : labPanelTab === "assets"
                   ? "Assets library"
                   : "Jobs & pipeline monitor"}
+            </div>
+            <div className="rounded-2xl border border-white/10 bg-black/25 p-2">
+              <input
+                value={rightPanelQuery}
+                onChange={(event) => setRightPanelQuery(event.target.value)}
+                placeholder="Поиск..."
+                className="w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 placeholder:text-white/35 focus:border-cyan-400/50 focus:outline-none"
+              />
             </div>
           </div>
 
@@ -4254,7 +4884,7 @@ function AiLabContent() {
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>AI HISTORY</span>
-              <span className="text-white/30">{filteredJobHistory.length}</span>
+              <span className="text-white/30">{filteredHistoryByQuery.length}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
               {(["all", "completed", "failed", "queued", "processing"] as JobHistoryFilter[]).map(
@@ -4282,12 +4912,21 @@ function AiLabContent() {
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
                   LOADING...
                 </div>
-              ) : filteredJobHistory.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
-                  NO JOBS FOR FILTER
+              ) : filteredHistoryByQuery.length === 0 ? (
+                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                    EMPTY. TRY OTHER QUERY OR GENERATE FIRST MODEL.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLeftTool("generate")}
+                    className="mt-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
+                  >
+                    Generate first model
+                  </button>
                 </div>
               ) : (
-                filteredJobHistory.map((job) => {
+                filteredHistoryByQuery.map((job) => {
                   const linkedAssetId = publishedAssetsByJobId[job.id];
                   const linkedAsset = linkedAssetId ? publishedAssetsById[linkedAssetId] : null;
                   const fixAvailable = Boolean(
@@ -4426,15 +5065,24 @@ function AiLabContent() {
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>AI ВИТРИНА</span>
-              <span className="text-white/30">{gallery.length} / {GALLERY_LIMIT}</span>
+              <span className="text-white/30">{filteredGalleryByQuery.length} / {GALLERY_LIMIT}</span>
             </div>
             <div className="mt-3 grid grid-cols-2 gap-3">
-              {gallery.length === 0 ? (
-                <div className="col-span-2 rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-center text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/40">
-                  ПОКА НЕТ РЕЗУЛЬТАТОВ
+              {filteredGalleryByQuery.length === 0 ? (
+                <div className="col-span-2 rounded-xl border border-white/10 bg-white/5 px-3 py-4 text-center">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/40">
+                    ПОКА НЕТ РЕЗУЛЬТАТОВ
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setLeftTool("generate")}
+                    className="mt-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
+                  >
+                    Сгенерировать первую модель
+                  </button>
                 </div>
               ) : (
-                gallery.map((asset) => (
+                filteredGalleryByQuery.map((asset) => (
                   <div
                     key={asset.id}
                     role="button"
@@ -4469,9 +5117,16 @@ function AiLabContent() {
                       <span className="text-white/30">{asset.format.toUpperCase()}</span>
                     </div>
                     <div className="flex w-full items-center gap-2">
-                      <span className="rounded-full border border-white/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleCloudToggle(asset);
+                        }}
+                        className="rounded-full border border-white/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60 transition hover:border-white/35 hover:text-white"
+                      >
                         {asset.localOnly ? "LOCAL" : "CLOUD"}
-                      </span>
+                      </button>
                       <button
                         type="button"
                         onClick={(event) => {
