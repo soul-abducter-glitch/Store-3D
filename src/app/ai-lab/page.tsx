@@ -27,6 +27,7 @@ import {
 import {
   AdditiveBlending,
   Color,
+  MOUSE,
   type Group,
   type Mesh,
   type MeshBasicMaterial,
@@ -36,6 +37,7 @@ import {
 
 import ModelView from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
+import { resolveGenerationEtaMinutes, resolveGenerationTokenCost } from "@/lib/aiGenerationProfile";
 
 type SynthesisMode = "image" | "text";
 type AiReferenceItem = {
@@ -2690,12 +2692,17 @@ function AiLabContent() {
 
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
+    const requiredTokenCost = resolveGenerationTokenCost(tokenCost, {
+      quality: qualityPreset,
+      style: stylePreset,
+      advanced: advancedPreset,
+    });
     if (tokensLoading) {
       showError("Токены еще загружаются.");
       return;
     }
-    if (tokens < tokenCost) {
-      showError(`Недостаточно токенов. Нужно минимум ${tokenCost}.`);
+    if (tokens < requiredTokenCost) {
+      showError(`Недостаточно токенов. Нужно минимум ${requiredTokenCost}.`);
       return;
     }
     if (!prompt.trim() && validInputReferences.length === 0 && !localPreviewModel && !previewModel) {
@@ -2736,6 +2743,7 @@ function AiLabContent() {
             style: stylePreset,
             advanced: advancedPreset,
           },
+          aiMode: qualityPreset === "pro" ? "pro" : "standard",
           sourceUrl: previewModel || "",
           sourceRefs: sourceRefsPayload.slice(0, MAX_INPUT_REFERENCES),
           hasImageReference: Boolean(validInputReferences.length > 0 || localPreviewModel || previewModel),
@@ -2745,9 +2753,6 @@ function AiLabContent() {
       if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
         setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
         void fetchTokenHistory(true);
-      }
-      if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
-        setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
       }
       if (!response.ok) {
         const message =
@@ -2958,16 +2963,21 @@ function AiLabContent() {
 
   const handleRetryHistoryJob = useCallback(
     async (job: AiGenerationJob) => {
+      const requiredTokenCost = resolveGenerationTokenCost(tokenCost, {
+        quality: qualityPreset,
+        style: stylePreset,
+        advanced: advancedPreset,
+      });
       if (serverJobLoading || isSynthRunning) {
         showError("Wait until current generation is finished.");
         return;
       }
       if (tokensLoading) {
-        showError("Tokens are still loading.");
+        showError("Токены еще загружаются.");
         return;
       }
-      if (tokens < tokenCost) {
-        showError(`Not enough tokens. Need ${tokenCost}.`);
+      if (tokens < requiredTokenCost) {
+        showError(`Недостаточно токенов. Нужно минимум ${requiredTokenCost}.`);
         return;
       }
 
@@ -2980,15 +2990,21 @@ function AiLabContent() {
       try {
         const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
           method: "POST",
+          headers: { "Content-Type": "application/json" },
           credentials: "include",
+          body: JSON.stringify({
+            generationProfile: {
+              quality: qualityPreset,
+              style: stylePreset,
+              advanced: advancedPreset,
+            },
+            aiMode: qualityPreset === "pro" ? "pro" : "standard",
+          }),
         });
         const data = await response.json().catch(() => null);
         if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
           setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
           void fetchTokenHistory(true);
-        }
-        if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
-          setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
         }
         if (!response.ok) {
           throw new Error(typeof data?.error === "string" ? data.error : "Failed to retry AI job.");
@@ -3021,8 +3037,11 @@ function AiLabContent() {
       fetchTokens,
       isSynthRunning,
       pushUiError,
+      qualityPreset,
       serverJobLoading,
       showError,
+      stylePreset,
+      advancedPreset,
       tokenCost,
       tokens,
       tokensLoading,
@@ -3039,6 +3058,11 @@ function AiLabContent() {
         issueReference?: AiReferenceItem | null;
       }
     ) => {
+      const requiredTokenCost = resolveGenerationTokenCost(tokenCost, {
+        quality: qualityPreset,
+        style: stylePreset,
+        advanced: advancedPreset,
+      });
       if (job.status !== "completed") {
         showError("Variation is available only for completed jobs.");
         return false;
@@ -3048,11 +3072,11 @@ function AiLabContent() {
         return false;
       }
       if (tokensLoading) {
-        showError("Tokens are still loading.");
+        showError("Токены еще загружаются.");
         return false;
       }
-      if (tokens < tokenCost) {
-        showError(`Not enough tokens. Need ${tokenCost}.`);
+      if (tokens < requiredTokenCost) {
+        showError(`Недостаточно токенов. Нужно минимум ${requiredTokenCost}.`);
         return false;
       }
 
@@ -3093,6 +3117,12 @@ function AiLabContent() {
             action: "variation",
             parentAssetId: publishedAssetsByJobId[job.id] || null,
             prompt: effectivePrompt,
+            generationProfile: {
+              quality: qualityPreset,
+              style: stylePreset,
+              advanced: advancedPreset,
+            },
+            aiMode: qualityPreset === "pro" ? "pro" : "standard",
             ...(issueReference ? { sourceRefs: [issueReference] } : {}),
           }),
         });
@@ -3100,9 +3130,6 @@ function AiLabContent() {
         if (typeof data?.tokensRemaining === "number" && Number.isFinite(data.tokensRemaining)) {
           setTokens(Math.max(0, Math.trunc(data.tokensRemaining)));
           void fetchTokenHistory(true);
-        }
-        if (typeof data?.tokenCost === "number" && Number.isFinite(data.tokenCost) && data.tokenCost > 0) {
-          setTokenCost(Math.max(1, Math.trunc(data.tokenCost)));
         }
         if (!response.ok) {
           throw new Error(typeof data?.error === "string" ? data.error : "Failed to create variation.");
@@ -3138,8 +3165,11 @@ function AiLabContent() {
       isSynthRunning,
       publishedAssetsByJobId,
       pushUiError,
+      qualityPreset,
       serverJobLoading,
       showError,
+      stylePreset,
+      advancedPreset,
       tokenCost,
       tokens,
       tokensLoading,
@@ -3350,15 +3380,17 @@ function AiLabContent() {
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
   const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
   const displayEta = formatEta(serverJob?.etaSeconds ?? null);
-  const qualityMultiplier = qualityPreset === "draft" ? 0.8 : qualityPreset === "pro" ? 1.45 : 1;
-  const styleMultiplier = stylePreset === "realistic" ? 1.1 : stylePreset === "anime" ? 0.95 : 1;
-  const advancedMultiplier = advancedPreset === "detail" ? 1.25 : advancedPreset === "speed" ? 0.78 : 1;
-  const estimatedTokenCost = Math.max(1, Math.round(tokenCost * qualityMultiplier * styleMultiplier * advancedMultiplier));
+  const estimatedTokenCost = resolveGenerationTokenCost(tokenCost, {
+    quality: qualityPreset,
+    style: stylePreset,
+    advanced: advancedPreset,
+  });
   const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
-  const estimatedEtaMinutes = Math.max(
-    1,
-    Math.round(baseEtaMinutes * qualityMultiplier * (advancedPreset === "speed" ? 0.7 : 1.15))
-  );
+  const estimatedEtaMinutes = resolveGenerationEtaMinutes(baseEtaMinutes, {
+    quality: qualityPreset,
+    style: stylePreset,
+    advanced: advancedPreset,
+  });
   const displayQueuePosition =
     typeof serverJob?.queuePosition === "number" && serverJob.queuePosition > 0
       ? `#${serverJob.queuePosition}`
@@ -3410,6 +3442,27 @@ function AiLabContent() {
     return [3.6, 2.6, 4.6];
   }, [viewportViewPreset]);
   const viewportCameraFov = viewportViewPreset === "top" || viewportViewPreset === "bottom" ? 30 : 40;
+  const viewportMouseButtons = useMemo(() => {
+    if (viewportControlMode === "pan") {
+      return {
+        LEFT: MOUSE.PAN,
+        MIDDLE: MOUSE.DOLLY,
+        RIGHT: MOUSE.ROTATE,
+      };
+    }
+    if (viewportControlMode === "zoom") {
+      return {
+        LEFT: MOUSE.DOLLY,
+        MIDDLE: MOUSE.DOLLY,
+        RIGHT: MOUSE.PAN,
+      };
+    }
+    return {
+      LEFT: MOUSE.ROTATE,
+      MIDDLE: MOUSE.DOLLY,
+      RIGHT: MOUSE.PAN,
+    };
+  }, [viewportControlMode]);
   const toggleGenerationSetting = useCallback((section: GenerationSettingSection) => {
     setGenerationSettingsOpen((prev) => ({ ...prev, [section]: !prev[section] }));
   }, []);
@@ -3420,13 +3473,27 @@ function AiLabContent() {
       showError("Viewport не готов к capture.");
       return;
     }
-    const href = canvas.toDataURL("image/png");
+    const exportCanvas = document.createElement("canvas");
+    exportCanvas.width = canvas.width;
+    exportCanvas.height = canvas.height;
+    const ctx = exportCanvas.getContext("2d");
+    if (!ctx) {
+      showError("Не удалось подготовить скриншот.");
+      return;
+    }
+    // Keep screenshot readable even if viewport is in transparent mode.
+    if (viewportBackgroundMode === "transparent") {
+      ctx.fillStyle = "#050a0f";
+      ctx.fillRect(0, 0, exportCanvas.width, exportCanvas.height);
+    }
+    ctx.drawImage(canvas, 0, 0);
+    const href = exportCanvas.toDataURL("image/png");
     const link = document.createElement("a");
     link.href = href;
-    link.download = `ai-lab-capture-${Date.now()}.png`;
+    link.download = `ai-lab-screenshot-${Date.now()}.png`;
     link.click();
-    showSuccess("Снимок сохранен.");
-  }, [showError, showSuccess]);
+    showSuccess("Скриншот сохранен.");
+  }, [showError, showSuccess, viewportBackgroundMode]);
   const handleSelectProject = useCallback(
     (name: string) => {
       setCurrentProjectName(name);
@@ -4445,7 +4512,7 @@ function AiLabContent() {
 
           <div className="relative h-[520px] w-full sm:h-[600px] lg:h-full">
             <Canvas
-              gl={{ alpha: true, antialias: true }}
+              gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
               onCreated={({ gl }) => {
                 gl.setClearColor(0x000000, 0);
               }}
@@ -4483,9 +4550,10 @@ function AiLabContent() {
                 ) : null}
               </Suspense>
               <OrbitControls
-                enableRotate={viewportControlMode === "orbit"}
-                enablePan={viewportControlMode === "pan"}
-                enableZoom={viewportControlMode === "zoom" || viewportControlMode === "orbit"}
+                enableRotate
+                enablePan
+                enableZoom
+                mouseButtons={viewportMouseButtons}
                 enableDamping
                 autoRotate={viewportAutoRotate}
               />
@@ -4525,6 +4593,7 @@ function AiLabContent() {
               <button
                 type="button"
                 onClick={() => setViewportControlMode("orbit")}
+                title="Вращение модели"
                 className={`rounded-full border px-2.5 py-1 transition ${
                   viewportControlMode === "orbit"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
@@ -4536,6 +4605,7 @@ function AiLabContent() {
               <button
                 type="button"
                 onClick={() => setViewportControlMode("pan")}
+                title="Сдвиг сцены (зажмите ЛКМ и тяните)"
                 className={`rounded-full border px-2.5 py-1 transition ${
                   viewportControlMode === "pan"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
@@ -4547,6 +4617,7 @@ function AiLabContent() {
               <button
                 type="button"
                 onClick={() => setViewportControlMode("zoom")}
+                title="Приближение/отдаление (колесо или ЛКМ в режиме зума)"
                 className={`rounded-full border px-2.5 py-1 transition ${
                   viewportControlMode === "zoom"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
@@ -4563,21 +4634,22 @@ function AiLabContent() {
                       setViewportViewsOpen((prev) => !prev);
                       setViewportSettingsOpen(false);
                     }}
+                    title="Выбор готового ракурса камеры"
                     className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
                   >
                     Ракурс
                   </button>
                   {viewportViewsOpen && (
-                    <div className="absolute right-0 top-9 z-30 w-[170px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
+                    <div className="absolute bottom-9 right-0 z-30 w-[170px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
                       {(
                         [
-                          ["orbit", "Reset view"],
-                          ["front", "Front"],
-                          ["back", "Back"],
-                          ["left", "Left"],
-                          ["right", "Right"],
-                          ["top", "Top"],
-                          ["bottom", "Bottom"],
+                          ["orbit", "Сбросить вид"],
+                          ["front", "Спереди"],
+                          ["back", "Сзади"],
+                          ["left", "Слева"],
+                          ["right", "Справа"],
+                          ["top", "Сверху"],
+                          ["bottom", "Снизу"],
                         ] as Array<[string, string]>
                       ).map(([value, label]) => (
                         <button
@@ -4606,15 +4678,16 @@ function AiLabContent() {
                       setViewportSettingsOpen((prev) => !prev);
                       setViewportViewsOpen(false);
                     }}
+                    title="Параметры освещения и фона"
                     className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
                   >
                     Настройки
                   </button>
                   {viewportSettingsOpen && (
-                    <div className="absolute right-0 top-9 z-30 w-[220px] space-y-2 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
+                    <div className="absolute bottom-9 right-0 z-30 w-[220px] space-y-2 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
                       <div className="space-y-1">
                         <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/45">
-                          Lighting
+                          Освещение
                         </p>
                         <div className="grid grid-cols-3 gap-1">
                           {(["city", "studio", "night"] as const).map((preset) => (
@@ -4635,7 +4708,7 @@ function AiLabContent() {
                       </div>
                       <div className="space-y-1">
                         <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/45">
-                          Background
+                          Фон
                         </p>
                         <div className="grid grid-cols-2 gap-1">
                           {(["scene", "transparent"] as const).map((modeValue) => (
@@ -4649,7 +4722,7 @@ function AiLabContent() {
                                   : "border-white/10 text-white/60 hover:border-white/30 hover:text-white"
                               }`}
                             >
-                              {modeValue}
+                              {modeValue === "scene" ? "Сцена" : "Прозрачный"}
                             </button>
                           ))}
                         </div>
@@ -4663,6 +4736,7 @@ function AiLabContent() {
               <button
                 type="button"
                 onClick={() => setViewportShowGrid((prev) => !prev)}
+                title="Показать/скрыть сетку пола"
                 className={`rounded-full border px-2.5 py-1 transition ${
                   viewportShowGrid
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
@@ -4676,6 +4750,7 @@ function AiLabContent() {
                 onClick={() =>
                   setViewportRenderMode((prev) => (prev === "wireframe" ? "final" : "wireframe"))
                 }
+                title="Режим каркаса (wireframe)"
                 className={`rounded-full border px-2.5 py-1 transition ${
                   viewportRenderMode === "wireframe"
                     ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
@@ -4687,9 +4762,10 @@ function AiLabContent() {
               <button
                 type="button"
                 onClick={handleViewportCapture}
+                title="Сделать скриншот окна просмотра"
                 className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
               >
-                Снимок
+                Скриншот
               </button>
               <div className="ml-auto flex items-center gap-2">
                 {isSynthRunning && (

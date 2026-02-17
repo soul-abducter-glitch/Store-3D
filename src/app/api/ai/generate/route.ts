@@ -15,6 +15,12 @@ import {
   normalizeAiModeTier,
   toAiSubscriptionSummary,
 } from "@/lib/aiSubscriptions";
+import {
+  buildProviderPromptWithGenerationProfile,
+  normalizeAiGenerationProfile,
+  resolveAiModeFromGenerationProfile,
+  resolveGenerationTokenCost,
+} from "@/lib/aiGenerationProfile";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -269,6 +275,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   let payloadRef: Awaited<ReturnType<typeof getPayloadClient>> | null = null;
   let chargedUserId: string | number | null = null;
+  let chargedTokenCost = AI_TOKEN_COST;
   try {
     const payload = await getPayloadClient();
     payloadRef = payload;
@@ -281,8 +288,15 @@ export async function POST(request: NextRequest) {
 
     const body = await request.json().catch(() => null);
     const mode = normalizeMode(body?.mode);
-    const aiMode = normalizeAiModeTier(body?.aiMode);
+    const generationProfile = normalizeAiGenerationProfile(body?.generationProfile);
+    const aiMode = normalizeAiModeTier(body?.aiMode || resolveAiModeFromGenerationProfile(generationProfile));
+    const requestedTokenCost = resolveGenerationTokenCost(AI_TOKEN_COST, generationProfile);
+    chargedTokenCost = requestedTokenCost;
     const prompt = toNonEmptyString(body?.prompt).slice(0, 800);
+    const providerPrompt = buildProviderPromptWithGenerationProfile(
+      prompt || "Reference import",
+      generationProfile
+    );
     const sourceUrl = toNonEmptyString(body?.sourceUrl).slice(0, 2048);
     const parentJobId = normalizeRelationshipId(body?.parentJobId);
     const parentAssetId = normalizeRelationshipId(body?.parentAssetId);
@@ -360,7 +374,7 @@ export async function POST(request: NextRequest) {
     const inputValidationError = validateProviderInput({
       provider,
       mode,
-      prompt: prompt || "Reference import",
+      prompt: providerPrompt,
       sourceType,
       sourceUrl: providerSourceUrl,
     });
@@ -369,12 +383,14 @@ export async function POST(request: NextRequest) {
       fallbackHint = inputValidationError;
     }
 
-    const chargeResult = await spendUserAiCredits(payload as any, userId, AI_TOKEN_COST, {
+    const chargeResult = await spendUserAiCredits(payload as any, userId, requestedTokenCost, {
       reason: "spend",
       source: "ai_generate:create",
       meta: {
         mode,
         aiMode,
+        generationProfile,
+        requestedTokenCost,
         providerRequested: providerResolution.requestedProvider,
       },
     });
@@ -382,9 +398,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: `Insufficient AI tokens. Need ${AI_TOKEN_COST}.`,
+          error: `Insufficient AI tokens. Need ${requestedTokenCost}.`,
           tokensRemaining: chargeResult.remaining,
-          tokenCost: AI_TOKEN_COST,
+          tokenCost: requestedTokenCost,
         },
         { status: 402 }
       );
@@ -395,7 +411,7 @@ export async function POST(request: NextRequest) {
     let submission = await submitProviderJob({
       provider,
       mode,
-      prompt: prompt || "Reference import",
+      prompt: providerPrompt,
       sourceType,
       sourceUrl: providerSourceUrl,
     }).catch(async (providerError) => {
@@ -408,7 +424,7 @@ export async function POST(request: NextRequest) {
       return submitProviderJob({
         provider: "mock",
         mode,
-        prompt: prompt || "Reference import",
+        prompt: providerPrompt,
         sourceType,
         sourceUrl: providerSourceUrl,
       });
@@ -459,7 +475,7 @@ export async function POST(request: NextRequest) {
         queueDepth: queueSnapshot.queueDepth,
         activeQueueJobs: queueSnapshot.activeCount,
         tokensRemaining: chargeResult.remaining,
-        tokenCost: AI_TOKEN_COST,
+        tokenCost: requestedTokenCost,
         defaults: {
           modelUrl: process.env.AI_GENERATION_MOCK_MODEL_URL || DEFAULT_MOCK_MODEL_URL,
         },
@@ -469,7 +485,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (payloadRef && chargedUserId !== null) {
       try {
-        await refundUserAiCredits(payloadRef as any, chargedUserId, AI_TOKEN_COST, {
+        await refundUserAiCredits(payloadRef as any, chargedUserId, chargedTokenCost, {
           reason: "refund",
           source: "ai_generate:create_error",
         });
