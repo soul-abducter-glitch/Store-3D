@@ -3511,6 +3511,74 @@ function AiLabContent() {
             ))}
           </div>
 
+          <div className="rounded-2xl border border-[#2ED1FF]/20 bg-[#091018]/85 p-3 shadow-[0_0_22px_rgba(46,209,255,0.12)]">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="grid min-w-[220px] grid-cols-2 gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
+                <button
+                  type="button"
+                  onClick={() => setMode("image")}
+                  className={`rounded-lg border px-2.5 py-1.5 transition ${
+                    mode === "image"
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                      : "border-white/15 bg-white/[0.02] text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                >
+                  Image to 3D
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMode("text")}
+                  className={`rounded-lg border px-2.5 py-1.5 transition ${
+                    mode === "text"
+                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                      : "border-white/15 bg-white/[0.02] text-white/60 hover:border-white/30 hover:text-white"
+                  }`}
+                >
+                  Text to 3D
+                </button>
+              </div>
+              <div className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#BFF4FF]">
+                TOKENS: {tokensLoading ? "..." : tokens}
+              </div>
+              <div className="rounded-full border border-white/15 bg-white/[0.03] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/65">
+                COST: {tokenCost}
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setTopupTab("onetime");
+                  setTopupOpen(true);
+                }}
+                className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-100 transition hover:border-emerald-300 hover:text-white"
+              >
+                TOP UP
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  void handleStartServerSynthesis();
+                }}
+                disabled={serverJobLoading || isSynthRunning || tokensLoading}
+                className="ml-auto rounded-full border border-emerald-400/60 bg-emerald-500/12 px-4 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {serverJobLoading
+                  ? "CREATING..."
+                  : isSynthRunning
+                    ? "IN PROGRESS"
+                    : tokensLoading
+                      ? "LOADING..."
+                      : "START"}
+              </button>
+            </div>
+            <div className="mt-2 flex items-center justify-between text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/50">
+              <span>{currentStatus}</span>
+              <span>
+                {displayStage} • {Math.round(displayProgress)}%
+                {(serverJob?.status === "queued" || serverJob?.status === "processing") ? ` • ETA ${displayEta}` : ""}
+              </span>
+            </div>
+          </div>
+
           {labPanelTab === "compose" && (
             <>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
@@ -3551,37 +3619,8 @@ function AiLabContent() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-2">
-            <div className="grid grid-cols-2 gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em]">
-              <button
-                type="button"
-                onClick={() => setMode("image")}
-                className={`min-h-[44px] rounded-xl px-3 py-2 transition ${
-                  mode === "image"
-                    ? "border border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]"
-                    : "border border-white/10 text-white/50 hover:text-white"
-                }`}
-              >
-                ИЗОБРАЖЕНИЕ-В-3D
-              </button>
-              <button
-                type="button"
-                onClick={() => setMode("text")}
-                className={`min-h-[44px] rounded-xl px-3 py-2 transition ${
-                  mode === "text"
-                    ? "border border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.35)]"
-                    : "border border-white/10 text-white/50 hover:text-white"
-                }`}
-              >
-                ТЕКСТ-В-3D
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-            <span>Списание за запуск</span>
-            <span className="text-[#BFF4FF]">- {tokenCost} TOKENS</span>
-          </div>
-
+          <div className="grid gap-4 xl:grid-cols-[1.18fr_0.82fr]">
+            <div className="space-y-4">
           <div
             className={`relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
               dragActive
@@ -3678,7 +3717,7 @@ function AiLabContent() {
                 Нет загруженных референсов
               </p>
             ) : (
-              <div className="mt-2 grid grid-cols-2 gap-2">
+              <div className="mt-2 grid grid-cols-1 gap-2">
                 {validInputReferences.map((ref) => (
                   <div
                     key={ref.id}
@@ -3782,24 +3821,8 @@ function AiLabContent() {
             />
           </div>
 
-          <button
-            type="button"
-            onClick={() => {
-              void handleStartServerSynthesis();
-            }}
-            disabled={serverJobLoading || isSynthRunning || tokensLoading}
-            className="group flex items-center justify-center gap-3 rounded-2xl border border-emerald-400/60 bg-emerald-400/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-emerald-100 shadow-[0_0_20px_rgba(16,185,129,0.25)] transition hover:border-emerald-300 hover:bg-emerald-400/15 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <Cpu className="h-4 w-4 text-emerald-300 transition group-hover:text-white" />
-            {serverJobLoading
-              ? "CREATING JOB..."
-              : isSynthRunning
-                ? "GENERATION IN PROGRESS"
-                : tokensLoading
-                  ? "LOADING TOKENS..."
-                  : "START GENERATION"}
-          </button>
-
+          </div>
+          <div className="space-y-4">
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
             <div className="flex items-center justify-between">
               <span>TERMINAL STREAM</span>
@@ -3856,6 +3879,8 @@ function AiLabContent() {
             {serverJobError && (
               <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
             )}
+          </div>
+          </div>
           </div>
             </>
           )}
