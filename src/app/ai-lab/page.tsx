@@ -94,6 +94,7 @@ type AiAssetRecord = {
 };
 
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
+type LabPanelTab = "compose" | "history" | "assets" | "billing";
 
 type AiTokenEvent = {
   id: string;
@@ -1269,6 +1270,7 @@ function AiLabContent() {
     id: string;
     type: "retry" | "variation" | "delete" | "publish";
   } | null>(null);
+  const [labPanelTab, setLabPanelTab] = useState<LabPanelTab>("compose");
   const [assetAction, setAssetAction] = useState<{
     assetId: string;
     type: "analyze" | "repair";
@@ -3487,6 +3489,30 @@ function AiLabContent() {
             </p>
           </div>
 
+          <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
+            {([
+              ["compose", "Compose"],
+              ["history", "History"],
+              ["assets", "Assets"],
+              ["billing", "Tokens"],
+            ] as Array<[LabPanelTab, string]>).map(([tab, label]) => (
+              <button
+                key={tab}
+                type="button"
+                onClick={() => setLabPanelTab(tab)}
+                className={`min-h-[38px] rounded-xl border px-3 py-2 transition ${
+                  labPanelTab === tab
+                    ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
+                    : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/30 hover:text-white/85"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {labPanelTab === "compose" && (
+            <>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>Subscription</span>
@@ -3831,6 +3857,9 @@ function AiLabContent() {
               <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
             )}
           </div>
+            </>
+          )}
+          {labPanelTab === "billing" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>TOKEN LOG</span>
@@ -3878,6 +3907,8 @@ function AiLabContent() {
               )}
             </div>
           </div>
+          )}
+          {labPanelTab === "history" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>AI HISTORY</span>
@@ -3942,35 +3973,24 @@ function AiLabContent() {
                         {job.status}
                       </p>
                     </div>
-                    <div className="mt-2 flex items-center justify-between gap-2">
-                        <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                          {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
-                          {(job.status === "queued" || job.status === "processing") &&
-                            ` • ETA ${formatEta(job.etaSeconds ?? null)}`}
-                          {job.status === "queued" &&
-                            typeof job.queuePosition === "number" &&
-                            job.queuePosition > 0 &&
-                            ` • Q#${job.queuePosition}`}
-                          {fixAvailable ? " • fix available" : ""}
-                        </p>
-                      <div className="flex items-center gap-1.5">
+                    <div className="mt-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                      <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                        {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
+                        {(job.status === "queued" || job.status === "processing") &&
+                          ` • ETA ${formatEta(job.etaSeconds ?? null)}`}
+                        {job.status === "queued" &&
+                          typeof job.queuePosition === "number" &&
+                          job.queuePosition > 0 &&
+                          ` • Q#${job.queuePosition}`}
+                        {fixAvailable ? " • fix available" : ""}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
                           onClick={() => handlePickHistoryJob(job)}
                           className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                         >
                           USE
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRetryHistoryJob(job)}
-                          disabled={
-                            historyAction?.id === job.id ||
-                            (job.status !== "failed" && job.status !== "queued")
-                          }
-                          className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {historyAction?.id === job.id && historyAction?.type === "retry" ? "..." : "RETRY"}
                         </button>
                         <button
                           type="button"
@@ -4003,36 +4023,54 @@ function AiLabContent() {
                               ? "..."
                               : "PUBLISH"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleAnalyzePublishedAsset(job)}
-                          disabled={!linkedAssetId || Boolean(assetAction)}
-                          className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          title={linkedAssetId ? "Проверить топологию ассета" : "Сначала сохраните ассет"}
-                        >
-                          {assetAction?.assetId === linkedAssetId && assetAction?.type === "analyze"
-                            ? "..."
-                            : "ANALYZE"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRepairPublishedAsset(job)}
-                          disabled={!linkedAssetId || Boolean(assetAction)}
-                          className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          title={linkedAssetId ? "Создать исправленную версию" : "Сначала сохраните ассет"}
-                        >
-                          {assetAction?.assetId === linkedAssetId && assetAction?.type === "repair"
-                            ? "..."
-                            : "AUTO-FIX"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteHistoryJob(job)}
-                          disabled={historyAction?.id === job.id}
-                          className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                          {historyAction?.id === job.id && historyAction?.type === "delete" ? "..." : "DELETE"}
-                        </button>
+                        <details className="group relative">
+                          <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
+                            MORE
+                          </summary>
+                          <div className="absolute right-0 top-8 z-20 min-w-[172px] space-y-1 rounded-xl border border-white/10 bg-[#06090d]/95 p-2 shadow-[0_12px_24px_rgba(0,0,0,0.45)]">
+                            <button
+                              type="button"
+                              onClick={() => void handleRetryHistoryJob(job)}
+                              disabled={
+                                historyAction?.id === job.id ||
+                                (job.status !== "failed" && job.status !== "queued")
+                              }
+                              className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {historyAction?.id === job.id && historyAction?.type === "retry" ? "..." : "RETRY"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleAnalyzePublishedAsset(job)}
+                              disabled={!linkedAssetId || Boolean(assetAction)}
+                              className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              title={linkedAssetId ? "Проверить топологию ассета" : "Сначала сохраните ассет"}
+                            >
+                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "analyze"
+                                ? "..."
+                                : "ANALYZE"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleRepairPublishedAsset(job)}
+                              disabled={!linkedAssetId || Boolean(assetAction)}
+                              className="w-full rounded-lg border border-amber-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              title={linkedAssetId ? "Создать исправленную версию" : "Сначала сохраните ассет"}
+                            >
+                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "repair"
+                                ? "..."
+                                : "AUTO-FIX"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleDeleteHistoryJob(job)}
+                              disabled={historyAction?.id === job.id}
+                              className="w-full rounded-lg border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              {historyAction?.id === job.id && historyAction?.type === "delete" ? "..." : "DELETE"}
+                            </button>
+                          </div>
+                        </details>
                       </div>
                     </div>
                   </div>
@@ -4041,6 +4079,8 @@ function AiLabContent() {
               )}
             </div>
           </div>
+          )}
+          {labPanelTab === "assets" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
               <span>AI ВИТРИНА</span>
@@ -4106,6 +4146,7 @@ function AiLabContent() {
               )}
             </div>
           </div>
+          )}
         </aside>
       </motion.main>
 
