@@ -3286,6 +3286,7 @@ function AiLabContent() {
     setModelScale(nextScale);
   }, []);
   const isDesktopPanelHidden = focusMode || panelCollapsed;
+  const isComposeWorkspaceLayout = !isDesktopPanelHidden && labPanelTab === "compose";
 
   return (
     <div className="relative min-h-screen overflow-x-hidden bg-[#030304] text-white">
@@ -3330,9 +3331,224 @@ function AiLabContent() {
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
         className={`relative z-30 mx-auto flex w-full max-w-[1400px] flex-col gap-6 px-4 pb-20 pt-10 sm:px-6 lg:grid ${
-          isDesktopPanelHidden ? "lg:grid-cols-1" : "lg:grid-cols-[1.6fr_0.9fr]"
+          isDesktopPanelHidden
+            ? "lg:grid-cols-1"
+            : isComposeWorkspaceLayout
+              ? "lg:grid-cols-[0.86fr_1.44fr_0.92fr]"
+              : "lg:grid-cols-[1.6fr_0.9fr]"
         }`}
       >
+        {labPanelTab === "compose" && (
+          <aside
+            className={`relative flex h-fit flex-col gap-4 rounded-[28px] border border-white/10 bg-white/[0.03] p-4 shadow-[0_24px_60px_rgba(0,0,0,0.42)] backdrop-blur-xl lg:sticky lg:top-24 ${
+              isDesktopPanelHidden ? "lg:hidden" : "lg:flex"
+            }`}
+          >
+            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/55">
+              <span>Compose</span>
+              <span className="text-[#BFF4FF]">{mode === "image" ? "IMAGE" : "TEXT"}</span>
+            </div>
+            <div
+              className={`relative flex min-h-[170px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
+                dragActive
+                  ? "border-[#2ED1FF]/70 bg-[#0b1014]/70 shadow-[0_0_24px_rgba(46,209,255,0.35)]"
+                  : "border-white/20 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.06),transparent_60%)] shadow-[inset_0_0_40px_rgba(46,209,255,0.08)] hover:border-white/40"
+              }`}
+              onClick={handleBrowse}
+              onDragOver={(event) => {
+                event.preventDefault();
+                setDragActive(true);
+              }}
+              onDragLeave={(event) => {
+                event.preventDefault();
+                setDragActive(false);
+              }}
+              onDrop={handleDrop}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  handleBrowse();
+                }
+              }}
+            >
+              <input
+                ref={uploadInputRef}
+                type="file"
+                accept="image/*,.glb,.gltf"
+                multiple
+                className="hidden"
+                onChange={(event) => {
+                  void handleFiles(event.target.files);
+                  event.currentTarget.value = "";
+                }}
+              />
+              {uploadPreview ? (
+                <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/10">
+                  <img src={uploadPreview} alt="Preview" className="h-full w-full object-cover" />
+                  <div className="scanline absolute inset-x-0 top-0 h-1 bg-emerald-400/70 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
+                  <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60" />
+                  <div className="absolute bottom-3 left-3 flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-emerald-200">
+                    <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.7)]" />
+                    {`REFS: ${validInputReferences.length} / ${MAX_INPUT_REFERENCES}`}
+                  </div>
+                </div>
+              ) : uploadedModelName ? (
+                <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-6 text-center">
+                  <div className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF]">
+                    MODEL LOADED
+                  </div>
+                  <p className="text-sm font-semibold text-white">{uploadedModelName}</p>
+                </div>
+              ) : (
+                <>
+                  <UploadCloud className="h-8 w-8 text-[#2ED1FF]" />
+                  <div className="space-y-1">
+                    <p className="text-xs font-semibold text-white">Перетащите изображение</p>
+                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/50">
+                      DROP 2-4 IMAGES OR CLICK TO UPLOAD
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+              <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
+                <span>References</span>
+                <div className="flex items-center gap-2">
+                  <span>
+                    {validInputReferences.length} / {MAX_INPUT_REFERENCES}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      clearInputReferences();
+                    }}
+                    disabled={validInputReferences.length === 0}
+                    className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/65 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    Clear
+                  </button>
+                </div>
+              </div>
+              {validInputReferences.length === 0 ? (
+                <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
+                  Нет загруженных референсов
+                </p>
+              ) : (
+                <div className="mt-2 grid grid-cols-1 gap-2">
+                  {validInputReferences.map((ref) => (
+                    <div
+                      key={ref.id}
+                      className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] p-2"
+                      title={ref.name}
+                    >
+                      <div className="h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/40">
+                        {ref.previewUrl ? (
+                          <img src={ref.previewUrl} alt={ref.name} className="h-full w-full object-cover" />
+                        ) : (
+                          <div className="flex h-full w-full items-center justify-center text-[8px] uppercase text-white/35">
+                            REF
+                          </div>
+                        )}
+                      </div>
+                      <p className="min-w-0 flex-1 truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/65">
+                        {ref.name}
+                      </p>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleOpenMaskEditor(ref.id);
+                          }}
+                          disabled={
+                            maskEditorLoading ||
+                            maskApplying ||
+                            removingReferenceBgId === ref.id ||
+                            smartMaskingReferenceId === ref.id
+                          }
+                          className="rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Ручная маска кистью"
+                        >
+                          EDIT
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleRemoveReferenceBackground(ref.id);
+                          }}
+                          disabled={removingReferenceBgId === ref.id || smartMaskingReferenceId === ref.id}
+                          className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Удалить фон у референса"
+                        >
+                          {removingReferenceBgId === ref.id ? "..." : "RM BG"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handleSmartMaskReference(ref.id);
+                          }}
+                          disabled={smartMaskingReferenceId === ref.id || removingReferenceBgId === ref.id}
+                          className="rounded-full border border-amber-300/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
+                          title="Умная доочистка маски и ореолов"
+                        >
+                          {smartMaskingReferenceId === ref.id ? "..." : "MASK+"}
+                        </button>
+                        <details className="relative">
+                          <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/70 [&::-webkit-details-marker]:hidden">
+                            ...
+                          </summary>
+                          <div className="absolute right-0 top-7 z-20 min-w-[120px] space-y-1 rounded-lg border border-white/10 bg-[#06090d]/95 p-1.5 shadow-[0_8px_22px_rgba(0,0,0,0.45)]">
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleDownloadReference(ref);
+                              }}
+                              className="w-full rounded-md border border-emerald-300/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-emerald-100 transition hover:border-emerald-200"
+                            >
+                              SAVE
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                handleRemoveInputReference(ref.id);
+                              }}
+                              className="w-full rounded-md border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-rose-200 transition hover:border-rose-300"
+                            >
+                              DELETE
+                            </button>
+                          </div>
+                        </details>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
+                <span>AI PROMPT</span>
+                <span className="text-white/30">LEN: {prompt.length}</span>
+              </div>
+              <textarea
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                placeholder="Опишите желаемый результат: форма, стиль, назначение."
+                className="min-h-[190px] w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/80 placeholder:text-white/40 focus:border-[#2ED1FF]/60 focus:outline-none"
+              />
+            </div>
+          </aside>
+        )}
+
         <section
           className={`relative flex min-h-[520px] flex-col overflow-hidden rounded-[32px] bg-transparent ${
             focusMode ? "lg:min-h-[680px]" : ""
@@ -3619,209 +3835,6 @@ function AiLabContent() {
             </div>
           </div>
 
-          <div className="grid gap-4 xl:grid-cols-[1.18fr_0.82fr]">
-            <div className="space-y-4">
-          <div
-            className={`relative flex min-h-[160px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
-              dragActive
-                ? "border-[#2ED1FF]/70 bg-[#0b1014]/70 shadow-[0_0_24px_rgba(46,209,255,0.35)]"
-                : "border-white/20 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.06),transparent_60%)] shadow-[inset_0_0_40px_rgba(46,209,255,0.08)] hover:border-white/40"
-            }`}
-            onClick={handleBrowse}
-            onDragOver={(event) => {
-              event.preventDefault();
-              setDragActive(true);
-            }}
-            onDragLeave={(event) => {
-              event.preventDefault();
-              setDragActive(false);
-            }}
-            onDrop={handleDrop}
-            role="button"
-            tabIndex={0}
-            onKeyDown={(event) => {
-              if (event.key === "Enter" || event.key === " ") {
-                event.preventDefault();
-                handleBrowse();
-              }
-            }}
-          >
-            <input
-              ref={uploadInputRef}
-              type="file"
-              accept="image/*,.glb,.gltf"
-              multiple
-              className="hidden"
-              onChange={(event) => {
-                void handleFiles(event.target.files);
-                event.currentTarget.value = "";
-              }}
-            />
-            {uploadPreview ? (
-              <div className="relative h-full w-full overflow-hidden rounded-xl border border-white/10">
-                <img src={uploadPreview} alt="Preview" className="h-full w-full object-cover" />
-                <div className="scanline absolute inset-x-0 top-0 h-1 bg-emerald-400/70 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
-                <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-black/60" />
-                <div className="absolute bottom-3 left-3 flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-emerald-200">
-                  <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_10px_rgba(16,185,129,0.7)]" />
-                  {`REFS: ${validInputReferences.length} / ${MAX_INPUT_REFERENCES}`}
-                </div>
-                <div className="absolute bottom-3 right-3 rounded-full border border-white/20 bg-black/50 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75">
-                  Add more
-                </div>
-              </div>
-            ) : uploadedModelName ? (
-              <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-6 text-center">
-                <div className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF]">
-                  MODEL LOADED
-                </div>
-                <p className="text-sm font-semibold text-white">{uploadedModelName}</p>
-                <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/40">
-                  ready for synthesis
-                </p>
-              </div>
-            ) : (
-              <>
-                <UploadCloud className="h-8 w-8 text-[#2ED1FF]" />
-                <div className="space-y-1">
-                  <p className="text-xs font-semibold text-white">Перетащите изображение</p>
-                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/50">
-                    DROP 2-4 IMAGES OR CLICK TO UPLOAD
-                  </p>
-                </div>
-              </>
-            )}
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
-              <span>References</span>
-              <div className="flex items-center gap-2">
-                <span>
-                  {validInputReferences.length} / {MAX_INPUT_REFERENCES}
-                </span>
-                <button
-                  type="button"
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    clearInputReferences();
-                  }}
-                  disabled={validInputReferences.length === 0}
-                  className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/65 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Clear
-                </button>
-              </div>
-            </div>
-            {validInputReferences.length === 0 ? (
-              <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
-                Нет загруженных референсов
-              </p>
-            ) : (
-              <div className="mt-2 grid grid-cols-1 gap-2">
-                {validInputReferences.map((ref) => (
-                  <div
-                    key={ref.id}
-                    className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] p-2"
-                    title={ref.name}
-                  >
-                    <div className="h-9 w-9 overflow-hidden rounded-md border border-white/10 bg-black/40">
-                      {ref.previewUrl ? (
-                        <img src={ref.previewUrl} alt={ref.name} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="flex h-full w-full items-center justify-center text-[8px] uppercase text-white/35">
-                          REF
-                        </div>
-                      )}
-                    </div>
-                    <p className="min-w-0 flex-1 truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/65">
-                      {ref.name}
-                    </p>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleOpenMaskEditor(ref.id);
-                      }}
-                      disabled={
-                        maskEditorLoading ||
-                        maskApplying ||
-                        removingReferenceBgId === ref.id ||
-                        smartMaskingReferenceId === ref.id
-                      }
-                      className="rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Ручная маска кистью"
-                    >
-                      EDIT
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleRemoveReferenceBackground(ref.id);
-                      }}
-                      disabled={
-                        removingReferenceBgId === ref.id || smartMaskingReferenceId === ref.id
-                      }
-                      className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Удалить фон у референса"
-                    >
-                      {removingReferenceBgId === ref.id ? "..." : "RM BG"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        void handleSmartMaskReference(ref.id);
-                      }}
-                      disabled={
-                        smartMaskingReferenceId === ref.id || removingReferenceBgId === ref.id
-                      }
-                      className="rounded-full border border-amber-300/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
-                      title="Умная доочистка маски и ореолов"
-                    >
-                      {smartMaskingReferenceId === ref.id ? "..." : "MASK+"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleDownloadReference(ref);
-                      }}
-                      className="rounded-full border border-emerald-300/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-emerald-100 transition hover:border-emerald-200"
-                      title="Скачать текущий референс как PNG"
-                    >
-                      SAVE
-                    </button>
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        handleRemoveInputReference(ref.id);
-                      }}
-                      className="rounded-full border border-rose-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300"
-                    >
-                      X
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <div className="space-y-2">
-            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-              <span>AI PROMPT</span>
-              <span className="text-white/30">LEN: {prompt.length}</span>
-            </div>
-            <textarea
-              value={prompt}
-              onChange={(event) => setPrompt(event.target.value)}
-              placeholder="Опишите желаемый результат: форма, стиль, назначение."
-              className="min-h-[120px] w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/80 placeholder:text-white/40 focus:border-[#2ED1FF]/60 focus:outline-none"
-            />
-          </div>
-
-          </div>
           <div className="space-y-4">
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
             <div className="flex items-center justify-between">
@@ -3879,7 +3892,6 @@ function AiLabContent() {
             {serverJobError && (
               <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
             )}
-          </div>
           </div>
           </div>
             </>
