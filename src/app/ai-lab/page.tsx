@@ -189,6 +189,27 @@ const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   completed: "SYNTHESIS_DONE",
   failed: "SYNTHESIS_FAILED",
 };
+const JOB_STATUS_LABEL_RU: Record<AiGenerationJob["status"], string> = {
+  queued: "В ОЧЕРЕДИ",
+  processing: "В РАБОТЕ",
+  completed: "ГОТОВО",
+  failed: "ОШИБКА",
+};
+const QUALITY_PRESET_LABEL: Record<"draft" | "standard" | "pro", string> = {
+  draft: "Черновик",
+  standard: "Стандарт",
+  pro: "Про",
+};
+const STYLE_PRESET_LABEL: Record<"realistic" | "stylized" | "anime", string> = {
+  realistic: "Реалистичный",
+  stylized: "Стилизованный",
+  anime: "Аниме",
+};
+const ADVANCED_PRESET_LABEL: Record<"balanced" | "detail" | "speed", string> = {
+  balanced: "Баланс",
+  detail: "Детализация",
+  speed: "Скорость",
+};
 
 const createId = () => {
   if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
@@ -1266,7 +1287,7 @@ function AiLabContent() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [jobsConsoleOpen, setJobsConsoleOpen] = useState(false);
   const [rightPanelQuery, setRightPanelQuery] = useState("");
-  const [currentProjectName, setCurrentProjectName] = useState("Main Project");
+  const [currentProjectName, setCurrentProjectName] = useState("Основной проект");
   const [uiThemeMode, setUiThemeMode] = useState<"dark" | "auto">("dark");
   const [uiScale, setUiScale] = useState(100);
   const [viewerQuality, setViewerQuality] = useState<"performance" | "quality">("quality");
@@ -2670,15 +2691,15 @@ function AiLabContent() {
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
     if (tokensLoading) {
-      showError("Tokens are still loading.");
+      showError("Токены еще загружаются.");
       return;
     }
     if (tokens < tokenCost) {
-      showError(`Not enough tokens. Need ${tokenCost}.`);
+      showError(`Недостаточно токенов. Нужно минимум ${tokenCost}.`);
       return;
     }
     if (!prompt.trim() && validInputReferences.length === 0 && !localPreviewModel && !previewModel) {
-      showError("Add a prompt or reference before generation.");
+      showError("Добавьте промпт или референс перед генерацией.");
       return;
     }
 
@@ -2710,6 +2731,11 @@ function AiLabContent() {
         body: JSON.stringify({
           mode,
           prompt: prompt.trim(),
+          generationProfile: {
+            quality: qualityPreset,
+            style: stylePreset,
+            advanced: advancedPreset,
+          },
           sourceUrl: previewModel || "",
           sourceRefs: sourceRefsPayload.slice(0, MAX_INPUT_REFERENCES),
           hasImageReference: Boolean(validInputReferences.length > 0 || localPreviewModel || previewModel),
@@ -2725,7 +2751,7 @@ function AiLabContent() {
       }
       if (!response.ok) {
         const message =
-          typeof data?.error === "string" ? data.error : "Failed to create AI job.";
+          typeof data?.error === "string" ? data.error : "Не удалось создать AI-задачу.";
         throw new Error(message);
       }
       if (typeof data?.tokensRemaining !== "number") {
@@ -2734,13 +2760,13 @@ function AiLabContent() {
       }
       const nextJob = data?.job as AiGenerationJob | undefined;
       if (!nextJob?.id) {
-        throw new Error("Server returned invalid AI job payload.");
+        throw new Error("Сервер вернул некорректный payload задачи.");
       }
       completedServerJobRef.current = null;
       setServerJob(nextJob);
       void fetchJobHistory(true);
     } catch (error) {
-      const message = error instanceof Error ? error.message : "Failed to create AI job.";
+      const message = error instanceof Error ? error.message : "Не удалось создать AI-задачу.";
       const normalizedMessage = toUiErrorMessage(message);
       setServerJobError(normalizedMessage);
       pushUiError(normalizedMessage);
@@ -2763,6 +2789,9 @@ function AiLabContent() {
     tokens,
     tokensLoading,
     validInputReferences,
+    qualityPreset,
+    stylePreset,
+    advancedPreset,
   ]);
 
   useEffect(() => {
@@ -3305,7 +3334,7 @@ function AiLabContent() {
       return (
         asset.name.toLowerCase().includes(q) ||
         asset.format.toLowerCase().includes(q) ||
-        (asset.localOnly ? "local" : "cloud").includes(q)
+        (asset.localOnly ? "локально local" : "облако cloud").includes(q)
       );
     });
   }, [gallery, rightPanelQuery]);
@@ -3317,7 +3346,7 @@ function AiLabContent() {
     return "text-white/60";
   };
 
-  const currentStatus = serverJob?.status?.toUpperCase() ?? "STANDBY";
+  const currentStatus = serverJob?.status ? JOB_STATUS_LABEL_RU[serverJob.status] : "ОЖИДАНИЕ";
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
   const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
   const displayEta = formatEta(serverJob?.etaSeconds ?? null);
@@ -3370,7 +3399,7 @@ function AiLabContent() {
     setModelScale(nextScale);
   }, []);
   const isDesktopPanelHidden = focusMode || panelCollapsed;
-  const supportedProjects = ["Main Project", "Client Demo", "R&D"];
+  const supportedProjects = ["Основной проект", "Демо клиента", "R&D"];
   const viewportCameraPosition = useMemo<[number, number, number]>(() => {
     if (viewportViewPreset === "front") return [0, 1.35, 4.8];
     if (viewportViewPreset === "back") return [0, 1.35, -4.8];
@@ -3396,7 +3425,7 @@ function AiLabContent() {
     link.href = href;
     link.download = `ai-lab-capture-${Date.now()}.png`;
     link.click();
-    showSuccess("Capture сохранен.");
+    showSuccess("Снимок сохранен.");
   }, [showError, showSuccess]);
   const handleSelectProject = useCallback(
     (name: string) => {
@@ -3423,7 +3452,7 @@ function AiLabContent() {
             : item
         )
       );
-      showSuccess(asset.localOnly ? "Модель отправлена в cloud." : "Модель оставлена локально.");
+      showSuccess(asset.localOnly ? "Модель отправлена в облако." : "Модель оставлена локально.");
     },
     [showSuccess]
   );
@@ -3506,7 +3535,7 @@ function AiLabContent() {
                       className="absolute left-0 top-10 z-50 w-[240px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
                     >
                       <p className="px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/45">
-                        Select Project
+                        Выбор проекта
                       </p>
                       {supportedProjects.map((projectName) => (
                         <button
@@ -3520,15 +3549,15 @@ function AiLabContent() {
                           }`}
                         >
                           {projectName}
-                          {currentProjectName === projectName && <span className="text-[9px] text-cyan-200">ACTIVE</span>}
+                          {currentProjectName === projectName && <span className="text-[9px] text-cyan-200">АКТИВЕН</span>}
                         </button>
                       ))}
                       <div className="my-1 border-t border-white/10" />
                       {(
                         [
-                          ["Create project", true],
-                          ["Rename project", true],
-                          ["Delete project", true],
+                          ["Создать проект", true],
+                          ["Переименовать проект", true],
+                          ["Удалить проект", true],
                         ] as Array<[string, boolean]>
                       ).map(([label, disabled]) => (
                         <button
@@ -3549,7 +3578,7 @@ function AiLabContent() {
                         }}
                         className="w-full rounded-lg border border-emerald-300/35 bg-emerald-500/10 px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-200"
                       >
-                        Open settings
+                        Открыть настройки
                       </button>
                     </div>
                   )}
@@ -3563,7 +3592,7 @@ function AiLabContent() {
                       : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
                   }`}
                 >
-                  Assets
+                  Ассеты
                 </button>
                 <button
                   type="button"
@@ -3574,7 +3603,7 @@ function AiLabContent() {
                       : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
                   }`}
                 >
-                  History
+                  История
                 </button>
                 <button
                   type="button"
@@ -3585,7 +3614,7 @@ function AiLabContent() {
                       : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
                   }`}
                 >
-                  Jobs
+                  Задачи
                 </button>
               </nav>
             </div>
@@ -3602,7 +3631,7 @@ function AiLabContent() {
                   }}
                   className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60"
                 >
-                  TOKENS: {tokensLoading ? "..." : tokens}
+                  ТОКЕНЫ: {tokensLoading ? "..." : tokens}
                 </button>
                 {tokensPopoverOpen && (
                   <div
@@ -3611,13 +3640,13 @@ function AiLabContent() {
                   >
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70">
-                        Token balance
+                         Баланс токенов
                       </p>
                       <p className="text-sm font-semibold text-cyan-100">{tokensLoading ? "..." : tokens}</p>
                     </div>
                     <div className="rounded-lg border border-white/10 bg-black/30 p-2">
                       <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
-                        Last events
+                         Последние события
                       </p>
                       <div className="mt-1 space-y-1">
                         {tokenEvents.slice(0, 5).map((event) => (
@@ -3627,7 +3656,7 @@ function AiLabContent() {
                           </div>
                         ))}
                         {tokenEvents.length === 0 && (
-                          <p className="text-[9px] text-white/40">No events yet.</p>
+                           <p className="text-[9px] text-white/40">Событий пока нет.</p>
                         )}
                       </div>
                     </div>
@@ -3641,7 +3670,7 @@ function AiLabContent() {
                         }}
                         className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-300"
                       >
-                        Top up
+                        Пополнить
                       </button>
                       <button
                         type="button"
@@ -3652,7 +3681,7 @@ function AiLabContent() {
                         }}
                         className="rounded-full border border-cyan-400/45 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
                       >
-                        Plan
+                        Тариф
                       </button>
                     </div>
                   </div>
@@ -3669,7 +3698,7 @@ function AiLabContent() {
                     setUserMenuOpen(false);
                   }}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
-                  aria-label="Settings"
+                  aria-label="Настройки"
                 >
                   <Settings2 className="h-4 w-4" />
                 </button>
@@ -3679,11 +3708,11 @@ function AiLabContent() {
                     className="absolute right-0 top-10 z-50 w-[280px] space-y-3 rounded-xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
                   >
                     <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/60">
-                      Quick settings
+                      Быстрые настройки
                     </p>
                     <div className="space-y-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70">
                       <div className="flex items-center justify-between">
-                        <span>Theme</span>
+                        <span>Тема</span>
                         <div className="flex gap-1">
                           {(["dark", "auto"] as const).map((value) => (
                             <button
@@ -3696,13 +3725,13 @@ function AiLabContent() {
                                   : "border-white/15 text-white/60 hover:border-white/30"
                               }`}
                             >
-                              {value}
+                              {value === "dark" ? "темная" : "авто"}
                             </button>
                           ))}
                         </div>
                       </div>
                       <label className="block">
-                        UI scale ({uiScale}%)
+                        Масштаб UI ({uiScale}%)
                         <input
                           type="range"
                           min={85}
@@ -3714,7 +3743,7 @@ function AiLabContent() {
                         />
                       </label>
                       <div className="flex items-center justify-between">
-                        <span>Viewer</span>
+                        <span>Вьювер</span>
                         <div className="flex gap-1">
                           {(["performance", "quality"] as const).map((value) => (
                             <button
@@ -3727,13 +3756,13 @@ function AiLabContent() {
                                   : "border-white/15 text-white/60 hover:border-white/30"
                               }`}
                             >
-                              {value}
+                              {value === "performance" ? "скорость" : "качество"}
                             </button>
                           ))}
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span>Language</span>
+                        <span>Язык</span>
                         <div className="flex gap-1">
                           {(["ru", "en"] as const).map((value) => (
                             <button
@@ -3753,10 +3782,10 @@ function AiLabContent() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => showSuccess("Hotkeys: G generate, H history, A assets, J jobs.")}
+                        onClick={() => showSuccess("Горячие клавиши: G генерация, H история, A ассеты, J задачи.")}
                         className="w-full rounded-md border border-white/15 bg-white/[0.02] px-2 py-1 text-left text-white/70 transition hover:border-white/30"
                       >
-                        Hotkeys list
+                        Список хоткеев
                       </button>
                     </div>
                   </div>
@@ -3773,7 +3802,7 @@ function AiLabContent() {
                     setQuickSettingsOpen(false);
                   }}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
-                  aria-label="User"
+                  aria-label="Профиль"
                 >
                   <UserRound className="h-4 w-4" />
                 </button>
@@ -3788,7 +3817,7 @@ function AiLabContent() {
                       className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/30 hover:text-white"
                     >
                       <UserCog className="h-3.5 w-3.5" />
-                      Profile
+                      Профиль
                     </button>
                     <button
                       type="button"
@@ -3800,7 +3829,7 @@ function AiLabContent() {
                       className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/30 hover:text-white"
                     >
                       <FolderGit2 className="h-3.5 w-3.5" />
-                      Billing
+                      Подписка
                     </button>
                     <button
                       type="button"
@@ -3809,7 +3838,7 @@ function AiLabContent() {
                       className="flex w-full cursor-not-allowed items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
-                      API keys
+                      API ключи
                     </button>
                     <button
                       type="button"
@@ -3817,7 +3846,7 @@ function AiLabContent() {
                       className="flex w-full items-center gap-2 rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300"
                     >
                       <LogOut className="h-3.5 w-3.5" />
-                      Logout
+                      Выйти
                     </button>
                   </div>
                 )}
@@ -3829,7 +3858,7 @@ function AiLabContent() {
             onClick={() => setJobsConsoleOpen((prev) => !prev)}
             className="flex h-8 w-full items-center gap-2 border-t border-white/10 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55 transition hover:text-white"
           >
-            <span className="text-white/35">STATUS:</span>
+            <span className="text-white/35">СТАТУС:</span>
             <span className="text-emerald-200">{currentStatus}</span>
             <span className="text-white/35">•</span>
             <span>{displayStage}</span>
@@ -3839,7 +3868,7 @@ function AiLabContent() {
                 <span>{Math.round(displayProgress)}%</span>
               </>
             )}
-            <span className="ml-auto text-white/30">{jobsConsoleOpen ? "HIDE LOGS" : "OPEN LOGS"}</span>
+            <span className="ml-auto text-white/30">{jobsConsoleOpen ? "СКРЫТЬ ЛОГИ" : "ОТКРЫТЬ ЛОГИ"}</span>
           </button>
         </div>
       </header>
@@ -3848,23 +3877,23 @@ function AiLabContent() {
         <div className="fixed right-4 top-[92px] z-40 w-[320px] rounded-2xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_20px_34px_rgba(0,0,0,0.45)] backdrop-blur">
           <div className="flex items-center justify-between">
             <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/65">
-              Jobs Console
+               Консоль задач
             </p>
             <button
               type="button"
               onClick={() => setJobsConsoleOpen(false)}
               className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/30 hover:text-white"
             >
-              Close
+               Закрыть
             </button>
           </div>
           <div className="mt-2 space-y-2 text-[10px] text-white/70">
             <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-              <p className="text-white/45">State</p>
+              <p className="text-white/45">Состояние</p>
               <p className="mt-0.5">{currentStatus} • {displayStage}</p>
             </div>
             <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-              <p className="text-white/45">Queue</p>
+              <p className="text-white/45">Очередь</p>
               <p className="mt-0.5">{displayQueuePosition} / {displayQueueDepth} • ETA {displayEta}</p>
             </div>
             {serverJobError && (
@@ -3880,7 +3909,7 @@ function AiLabContent() {
               }}
               className="w-full rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
             >
-              Open Jobs tab
+              Открыть вкладку задач
             </button>
           </div>
         </div>
@@ -3902,12 +3931,12 @@ function AiLabContent() {
             <div className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
               <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/35 p-2">
                 {[
-                  { id: "generate", icon: FlaskConical, label: "Generate", enabled: true },
-                  { id: "references", icon: ImageIcon, label: "References", enabled: true },
-                  { id: "model", icon: Box, label: "Model Inspect", enabled: true },
-                  { id: "cleanup", icon: Scissors, label: "Cleanup (Скоро)", enabled: false },
-                  { id: "materials", icon: Wand2, label: "Materials (Скоро)", enabled: false },
-                  { id: "export", icon: Rocket, label: "Export", enabled: true },
+                  { id: "generate", icon: FlaskConical, label: "Генерация", enabled: true },
+                  { id: "references", icon: ImageIcon, label: "Референсы", enabled: true },
+                  { id: "model", icon: Box, label: "Проверка модели", enabled: true },
+                  { id: "cleanup", icon: Scissors, label: "Очистка (Скоро)", enabled: false },
+                  { id: "materials", icon: Wand2, label: "Материалы (Скоро)", enabled: false },
+                  { id: "export", icon: Rocket, label: "Экспорт", enabled: true },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -3933,18 +3962,18 @@ function AiLabContent() {
               </div>
               <div className="space-y-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/55">
-              <span>
+                <span>
                 {leftTool === "generate"
-                  ? "Generate"
+                  ? "Генерация"
                   : leftTool === "references"
-                    ? "References"
+                    ? "Референсы"
                     : leftTool === "model"
-                      ? "Model"
+                      ? "Модель"
                       : leftTool === "export"
-                        ? "Export"
-                        : "Tool"}
+                        ? "Экспорт"
+                        : "Инструмент"}
               </span>
-              <span className="text-[#BFF4FF]">{mode === "image" ? "IMAGE" : "TEXT"}</span>
+              <span className="text-[#BFF4FF]">{mode === "image" ? "ИЗОБРАЖЕНИЕ" : "ТЕКСТ"}</span>
             </div>
             {(leftTool === "generate" || leftTool === "references") && (
             <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
@@ -3957,7 +3986,7 @@ function AiLabContent() {
                     : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
                 }`}
               >
-                Image to 3D
+                Изображение в 3D
               </button>
               <button
                 type="button"
@@ -3968,7 +3997,7 @@ function AiLabContent() {
                     : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
                 }`}
               >
-                Text to 3D
+                Текст в 3D
               </button>
             </div>
             )}
@@ -4022,7 +4051,7 @@ function AiLabContent() {
               ) : uploadedModelName ? (
                 <div className="flex h-full w-full flex-col items-center justify-center gap-3 rounded-xl border border-white/10 bg-black/40 px-4 py-6 text-center">
                   <div className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-[#BFF4FF]">
-                    MODEL LOADED
+                    МОДЕЛЬ ЗАГРУЖЕНА
                   </div>
                   <p className="text-sm font-semibold text-white">{uploadedModelName}</p>
                 </div>
@@ -4032,7 +4061,7 @@ function AiLabContent() {
                   <div className="space-y-1">
                     <p className="text-xs font-semibold text-white">Перетащите изображение</p>
                     <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/50">
-                      DROP 2-4 IMAGES OR CLICK TO UPLOAD
+                      2-4 ИЗОБРАЖЕНИЯ ИЛИ КЛИК ДЛЯ ЗАГРУЗКИ
                     </p>
                   </div>
                 </>
@@ -4043,7 +4072,7 @@ function AiLabContent() {
             {(leftTool === "generate" || leftTool === "references") && (
             <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
               <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55">
-                <span>References</span>
+                <span>Референсы</span>
                 <div className="flex items-center gap-2">
                   <span>
                     {validInputReferences.length} / {MAX_INPUT_REFERENCES}
@@ -4057,7 +4086,7 @@ function AiLabContent() {
                     disabled={validInputReferences.length === 0}
                     className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/65 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
                   >
-                    Clear
+                    Очистить
                   </button>
                 </div>
               </div>
@@ -4101,7 +4130,7 @@ function AiLabContent() {
                           className="rounded-full border border-white/25 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Ручная маска кистью"
                         >
-                          EDIT
+                          ПРАВКА
                         </button>
                         <button
                           type="button"
@@ -4113,7 +4142,7 @@ function AiLabContent() {
                           className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Удалить фон у референса"
                         >
-                          {removingReferenceBgId === ref.id ? "..." : "RM BG"}
+                          {removingReferenceBgId === ref.id ? "..." : "УБРАТЬ ФОН"}
                         </button>
                         <button
                           type="button"
@@ -4125,7 +4154,7 @@ function AiLabContent() {
                           className="rounded-full border border-amber-300/40 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-200 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Умная доочистка маски и ореолов"
                         >
-                          {smartMaskingReferenceId === ref.id ? "..." : "MASK+"}
+                          {smartMaskingReferenceId === ref.id ? "..." : "МАСКА+"}
                         </button>
                         <details className="relative">
                           <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/70 [&::-webkit-details-marker]:hidden">
@@ -4140,7 +4169,7 @@ function AiLabContent() {
                               }}
                               className="w-full rounded-md border border-emerald-300/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-emerald-100 transition hover:border-emerald-200"
                             >
-                              SAVE
+                              СОХРАНИТЬ
                             </button>
                             <button
                               type="button"
@@ -4150,7 +4179,7 @@ function AiLabContent() {
                               }}
                               className="w-full rounded-md border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-rose-200 transition hover:border-rose-300"
                             >
-                              DELETE
+                              УДАЛИТЬ
                             </button>
                           </div>
                         </details>
@@ -4178,13 +4207,13 @@ function AiLabContent() {
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/25 p-3">
               <div className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/60">
-                Generation Settings
+                Параметры генерации
               </div>
               {(
                 [
-                  ["quality", "Quality"],
-                  ["style", "Style"],
-                  ["advanced", "Advanced"],
+                  ["quality", "Качество"],
+                  ["style", "Стиль"],
+                  ["advanced", "Режим"],
                 ] as Array<[GenerationSettingSection, string]>
               ).map(([section, label]) => (
                 <div key={section} className="mt-2 rounded-xl border border-white/10 bg-black/30">
@@ -4213,7 +4242,7 @@ function AiLabContent() {
                                   : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
                               }`}
                             >
-                              {value}
+                              {QUALITY_PRESET_LABEL[value]}
                             </button>
                           ))}
                         </div>
@@ -4231,7 +4260,7 @@ function AiLabContent() {
                                   : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
                               }`}
                             >
-                              {value}
+                              {STYLE_PRESET_LABEL[value]}
                             </button>
                           ))}
                         </div>
@@ -4249,7 +4278,7 @@ function AiLabContent() {
                                   : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
                               }`}
                             >
-                              {value}
+                              {ADVANCED_PRESET_LABEL[value]}
                             </button>
                           ))}
                         </div>
@@ -4258,6 +4287,13 @@ function AiLabContent() {
                   )}
                 </div>
               ))}
+              <div className="mt-3 rounded-xl border border-cyan-400/30 bg-cyan-500/5 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100/85">
+                <p>
+                  Профиль: {QUALITY_PRESET_LABEL[qualityPreset]} • {STYLE_PRESET_LABEL[stylePreset]} •{" "}
+                  {ADVANCED_PRESET_LABEL[advancedPreset]}
+                </p>
+                <p className="mt-1 text-cyan-100/70">Прогноз: {estimatedTokenCost} токенов • ~{estimatedEtaMinutes} мин</p>
+              </div>
             </div>
             <button
               type="button"
@@ -4268,35 +4304,35 @@ function AiLabContent() {
               className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {serverJobLoading
-                ? "GENERATING..."
+                ? "ГЕНЕРАЦИЯ..."
                 : isSynthRunning
-                  ? `IN PROGRESS ${Math.round(displayProgress)}%`
-                  : "GENERATE"}
+                  ? `В РАБОТЕ ${Math.round(displayProgress)}%`
+                  : "ГЕНЕРИРОВАТЬ"}
             </button>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
-              <div>Cost: {estimatedTokenCost}</div>
-              <div>ETA: ~{estimatedEtaMinutes}m</div>
-              <div>Queue: {displayQueuePosition}</div>
+              <div>Цена: {estimatedTokenCost}</div>
+              <div>ETA: ~{estimatedEtaMinutes}м</div>
+              <div>Очередь: {displayQueuePosition}</div>
             </div>
             </>
             )}
             {leftTool === "model" && (
               <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                 <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
-                  Model Inspect
+                  Проверка модели
                 </p>
                 <div className="grid grid-cols-2 gap-2 text-[10px] text-white/70">
                   <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
-                    Format: {activePreviewModel ? "GLB/GLTF" : "--"}
+                    Формат: {activePreviewModel ? "GLB/GLTF" : "--"}
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
-                    Scale: {modelScale.toFixed(2)}x
+                    Масштаб: {modelScale.toFixed(2)}x
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
-                    Source: {activePreviewLabel || "none"}
+                    Источник: {activePreviewLabel || "нет"}
                   </div>
                   <div className="rounded-lg border border-white/10 bg-black/35 px-2 py-1">
-                    Status: {currentStatus}
+                    Статус: {currentStatus}
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -4305,14 +4341,14 @@ function AiLabContent() {
                     onClick={() => setViewportViewPreset("front")}
                     className="rounded-lg border border-white/15 bg-white/[0.02] px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70 transition hover:border-white/35 hover:text-white"
                   >
-                    Center view
+                    Центрировать
                   </button>
                   <button
                     type="button"
                     onClick={() => setViewportViewPreset("orbit")}
                     className="rounded-lg border border-white/15 bg-white/[0.02] px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70 transition hover:border-white/35 hover:text-white"
                   >
-                    Reset orbit
+                    Сбросить вид
                   </button>
                 </div>
               </div>
@@ -4320,7 +4356,7 @@ function AiLabContent() {
             {leftTool === "export" && (
               <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                 <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
-                  Export & Publish
+                  Экспорт и публикация
                 </p>
                 <div className="grid grid-cols-2 gap-2">
                   <button
@@ -4336,14 +4372,14 @@ function AiLabContent() {
                     disabled={gallery.length === 0}
                     className="rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
-                    Export GLB
+                    Экспорт GLB
                   </button>
                   <button
                     type="button"
                     onClick={() => setLabPanelTab("assets")}
                     className="rounded-lg border border-emerald-400/35 bg-emerald-500/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300"
                   >
-                    Open assets
+                    Открыть ассеты
                   </button>
                 </div>
                 <button
@@ -4352,7 +4388,7 @@ function AiLabContent() {
                   title="Скоро"
                   className="w-full rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/40 disabled:cursor-not-allowed"
                 >
-                  Send to Blender/Unity (soon)
+                  Отправка в Blender/Unity (скоро)
                 </button>
               </div>
             )}
@@ -4371,13 +4407,13 @@ function AiLabContent() {
           {!focusMode && (
             <div className="absolute left-6 top-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/70">
               <Cpu className="h-3.5 w-3.5 text-[#2ED1FF]" />
-              REACTOR_VIEW
+              РАБОЧАЯ ЗОНА
             </div>
           )}
           <div className="absolute right-6 top-6 z-20 flex flex-wrap items-center justify-end gap-2">
             {!focusMode && (
               <div className="rounded-full border border-white/10 bg-black/50 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-                STAGE: EXPERIMENTAL // API INTEGRATION IN PROGRESS
+                СТАТУС: ЭКСПЕРИМЕНТАЛЬНО // ИДЕТ ИНТЕГРАЦИЯ API
               </div>
             )}
             <button
@@ -4389,7 +4425,7 @@ function AiLabContent() {
                   : "border-white/20 bg-black/50 text-white/70 hover:border-white/40 hover:text-white"
               }`}
             >
-              {focusMode ? "FOCUS ON" : "FOCUS"}
+              {focusMode ? "ФОКУС: ON" : "ФОКУС"}
             </button>
             <button
               type="button"
@@ -4403,7 +4439,7 @@ function AiLabContent() {
                   : "border-white/20 bg-black/50 text-white/70 hover:border-white/40 hover:text-white"
               }`}
             >
-              {isDesktopPanelHidden ? "PANEL OFF" : "PANEL ON"}
+              {isDesktopPanelHidden ? "ПАНЕЛЬ СКРЫТА" : "ПАНЕЛЬ ПОКАЗАНА"}
             </button>
           </div>
 
@@ -4461,7 +4497,7 @@ function AiLabContent() {
           <div className="pointer-events-none absolute inset-0 z-10">
             <div className="absolute left-6 top-24 flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/60">
               <span className="h-2 w-2 rounded-full bg-emerald-400/80 shadow-[0_0_12px_rgba(16,185,129,0.6)]" />
-              NEURAL_LINK: READY
+              NEURAL_LINK: ГОТОВ
             </div>
             {isSynthRunning && (
               <div className="absolute left-6 top-32 h-24 w-64 overflow-hidden rounded-xl border border-emerald-500/30 bg-black/60 p-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-200/80 shadow-[0_0_20px_rgba(16,185,129,0.2)]">
@@ -4495,7 +4531,7 @@ function AiLabContent() {
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
               >
-                Orbit
+                Орбита
               </button>
               <button
                 type="button"
@@ -4506,7 +4542,7 @@ function AiLabContent() {
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
               >
-                Pan
+                Панорама
               </button>
               <button
                 type="button"
@@ -4517,7 +4553,7 @@ function AiLabContent() {
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
               >
-                Zoom
+                Зум
               </button>
               <div className="ml-auto flex items-center gap-2">
                 <div className="relative">
@@ -4529,7 +4565,7 @@ function AiLabContent() {
                     }}
                     className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
                   >
-                    Views
+                    Ракурс
                   </button>
                   {viewportViewsOpen && (
                     <div className="absolute right-0 top-9 z-30 w-[170px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
@@ -4572,7 +4608,7 @@ function AiLabContent() {
                     }}
                     className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
                   >
-                    Settings
+                    Настройки
                   </button>
                   {viewportSettingsOpen && (
                     <div className="absolute right-0 top-9 z-30 w-[220px] space-y-2 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
@@ -4633,7 +4669,7 @@ function AiLabContent() {
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
               >
-                Grid
+                Сетка
               </button>
               <button
                 type="button"
@@ -4646,14 +4682,14 @@ function AiLabContent() {
                     : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
                 }`}
               >
-                Wireframe
+                Каркас
               </button>
               <button
                 type="button"
                 onClick={handleViewportCapture}
                 className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
               >
-                Capture
+                Снимок
               </button>
               <div className="ml-auto flex items-center gap-2">
                 {isSynthRunning && (
@@ -4662,7 +4698,7 @@ function AiLabContent() {
                     onClick={handleCancelSynthesis}
                     className="rounded-full border border-amber-400/45 bg-amber-500/12 px-2.5 py-1 text-amber-200 transition hover:border-amber-300"
                   >
-                    Cancel {Math.round(displayProgress)}%
+                    Отмена {Math.round(displayProgress)}%
                   </button>
                 )}
                 {(isSynthRunning || serverJob) && (
@@ -4671,7 +4707,7 @@ function AiLabContent() {
                     onClick={handleStopMonitoring}
                     className="rounded-full border border-rose-400/45 bg-rose-500/10 px-2.5 py-1 text-rose-200 transition hover:border-rose-300"
                   >
-                    Stop
+                    Стоп
                   </button>
                 )}
               </div>
@@ -4687,7 +4723,7 @@ function AiLabContent() {
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.34em] text-white/60">
-                Shelf
+                Полка
               </p>
               <button
                 type="button"
@@ -4697,14 +4733,14 @@ function AiLabContent() {
                 }}
                 className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-100 transition hover:border-emerald-300 hover:text-white"
               >
-                TOP UP
+                ПОПОЛНИТЬ
               </button>
             </div>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
               {([
-                ["assets", "Assets"],
-                ["history", "History"],
-                ["jobs", "Jobs"],
+                ["assets", "Ассеты"],
+                ["history", "История"],
+                ["jobs", "Задачи"],
               ] as Array<[LabPanelTab, string]>).map(([tab, label]) => (
                 <button
                   key={tab}
@@ -4722,10 +4758,10 @@ function AiLabContent() {
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
               {labPanelTab === "history"
-                ? "History stream"
+                ? "Лента истории"
                 : labPanelTab === "assets"
-                  ? "Assets library"
-                  : "Jobs & pipeline monitor"}
+                  ? "Библиотека ассетов"
+                  : "Мониторинг задач и очереди"}
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/25 p-2">
               <input
@@ -4741,7 +4777,7 @@ function AiLabContent() {
             <>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-              <span>Subscription</span>
+              <span>Подписка</span>
               <span>{subscriptionLoading ? "..." : subscriptionStatusLabel(subscription?.status)}</span>
             </div>
             <p className="mt-2 text-sm text-white/75">
@@ -4780,7 +4816,7 @@ function AiLabContent() {
           <div className="space-y-4">
           <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
             <div className="flex items-center justify-between">
-              <span>TERMINAL STREAM</span>
+              <span>Поток статуса</span>
               <span className="flex items-center gap-2 text-white/40">
                 <ShieldCheck className="h-3.5 w-3.5 text-[#2ED1FF]" />
                 {currentStatus}
@@ -4799,8 +4835,8 @@ function AiLabContent() {
           </div>
           <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.26em] text-emerald-100/80">
             <div className="flex items-center justify-between gap-3">
-              <span>SERVER JOB</span>
-              <span>{serverJob?.status || "idle"}</span>
+              <span>Серверная задача</span>
+              <span>{serverJob?.status ? JOB_STATUS_LABEL_RU[serverJob.status] : "ожидание"}</span>
             </div>
             <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
               <div
@@ -4815,17 +4851,17 @@ function AiLabContent() {
             )}
             {serverJob?.provider && (
               <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
-                Provider: {serverJob.provider}
+                Провайдер: {serverJob.provider}
               </p>
             )}
             {serverJob?.stage && (
               <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
-                Stage: {serverJob.stage}
+                Этап: {serverJob.stage}
               </p>
             )}
             {serverJob && serverJob.status === "queued" && (
               <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
-                Queue: {displayQueuePosition} / {displayQueueDepth}
+                Очередь: {displayQueuePosition} / {displayQueueDepth}
               </p>
             )}
             {serverJob && (serverJob.status === "queued" || serverJob.status === "processing") && (
@@ -4837,17 +4873,17 @@ function AiLabContent() {
           </div>
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/60">
-              <span>Token log</span>
+              <span>Лог токенов</span>
               <span className="text-white/30">{tokenEvents.length}</span>
             </div>
             <div className="mt-2 space-y-2">
               {tokenEventsLoading ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                  LOADING...
+                  ЗАГРУЗКА...
                 </div>
               ) : tokenEvents.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                  NO TOKEN EVENTS
+                  СОБЫТИЙ НЕТ
                 </div>
               ) : (
                 tokenEvents.slice(0, 3).map((event) => {
@@ -4883,7 +4919,7 @@ function AiLabContent() {
           {labPanelTab === "history" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
             <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-              <span>AI HISTORY</span>
+              <span>История AI</span>
               <span className="text-white/30">{filteredHistoryByQuery.length}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -4901,7 +4937,15 @@ function AiLabContent() {
                           : "border-white/10 text-white/45 hover:border-white/30 hover:text-white/75"
                       }`}
                     >
-                      {filterValue}
+                      {filterValue === "all"
+                        ? "все"
+                        : filterValue === "completed"
+                          ? "готово"
+                          : filterValue === "failed"
+                            ? "ошибка"
+                            : filterValue === "queued"
+                              ? "очередь"
+                              : "в работе"}
                     </button>
                   );
                 }
@@ -4910,19 +4954,19 @@ function AiLabContent() {
             <div className="mt-3 space-y-2">
               {jobHistoryLoading ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
-                  LOADING...
+                  ЗАГРУЗКА...
                 </div>
               ) : filteredHistoryByQuery.length === 0 ? (
                 <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
                   <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
-                    EMPTY. TRY OTHER QUERY OR GENERATE FIRST MODEL.
+                    ПУСТО. ИЗМЕНИТЕ ПОИСК ИЛИ СГЕНЕРИРУЙТЕ ПЕРВУЮ МОДЕЛЬ.
                   </p>
                   <button
                     type="button"
                     onClick={() => setLeftTool("generate")}
                     className="mt-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
                   >
-                    Generate first model
+                    Сгенерировать первую модель
                   </button>
                 </div>
               ) : (
@@ -4940,18 +4984,18 @@ function AiLabContent() {
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-[11px] font-semibold text-white/90">
-                          {job.prompt || `Job ${job.id}`}
+                          {job.prompt || `Задача ${job.id}`}
                         </p>
                         <p className="mt-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                           {formatJobDate(job.createdAt)} • {job.mode}
                           {Array.isArray(job.inputRefs) && job.inputRefs.length > 0
-                            ? ` • refs:${Math.min(MAX_INPUT_REFERENCES, job.inputRefs.length)}`
+                            ? ` • рефы:${Math.min(MAX_INPUT_REFERENCES, job.inputRefs.length)}`
                             : ""}
                           {job.parentJobId ? " • remix" : ""}
                         </p>
                       </div>
                       <p className={`text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${renderJobStatusTone(job.status)}`}>
-                        {job.status}
+                        {JOB_STATUS_LABEL_RU[job.status] || job.status}
                       </p>
                     </div>
                     <div className="mt-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
@@ -4963,7 +5007,7 @@ function AiLabContent() {
                           typeof job.queuePosition === "number" &&
                           job.queuePosition > 0 &&
                           ` • Q#${job.queuePosition}`}
-                        {fixAvailable ? " • fix available" : ""}
+                        {fixAvailable ? " • доступен фикс" : ""}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
@@ -4971,7 +5015,7 @@ function AiLabContent() {
                           onClick={() => handlePickHistoryJob(job)}
                           className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                         >
-                          USE
+                          ВЗЯТЬ
                         </button>
                         <button
                           type="button"
@@ -4986,7 +5030,7 @@ function AiLabContent() {
                           className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Создать ремикс (альтернативный вариант)"
                         >
-                          {historyAction?.id === job.id && historyAction?.type === "variation" ? "..." : "REMIX"}
+                          {historyAction?.id === job.id && historyAction?.type === "variation" ? "..." : "РЕМИКС"}
                         </button>
                         <button
                           type="button"
@@ -4999,14 +5043,14 @@ function AiLabContent() {
                           className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {publishedAssetsByJobId[job.id]
-                            ? "SAVED"
+                            ? "СОХРАНЕНО"
                             : historyAction?.id === job.id && historyAction?.type === "publish"
                               ? "..."
-                              : "PUBLISH"}
+                              : "ПУБЛИКАЦИЯ"}
                         </button>
                         <details className="group relative">
                           <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
-                            MORE
+                            ЕЩЕ
                           </summary>
                           <div className="absolute right-0 top-8 z-20 min-w-[172px] space-y-1 rounded-xl border border-white/10 bg-[#06090d]/95 p-2 shadow-[0_12px_24px_rgba(0,0,0,0.45)]">
                             <button
@@ -5018,7 +5062,7 @@ function AiLabContent() {
                               }
                               className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {historyAction?.id === job.id && historyAction?.type === "retry" ? "..." : "RETRY"}
+                              {historyAction?.id === job.id && historyAction?.type === "retry" ? "..." : "ПОВТОР"}
                             </button>
                             <button
                               type="button"
@@ -5029,7 +5073,7 @@ function AiLabContent() {
                             >
                               {assetAction?.assetId === linkedAssetId && assetAction?.type === "analyze"
                                 ? "..."
-                                : "ANALYZE"}
+                                : "АНАЛИЗ"}
                             </button>
                             <button
                               type="button"
@@ -5040,7 +5084,7 @@ function AiLabContent() {
                             >
                               {assetAction?.assetId === linkedAssetId && assetAction?.type === "repair"
                                 ? "..."
-                                : "AUTO-FIX"}
+                                : "АВТО-ФИКС"}
                             </button>
                             <button
                               type="button"
@@ -5048,7 +5092,7 @@ function AiLabContent() {
                               disabled={historyAction?.id === job.id}
                               className="w-full rounded-lg border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
                             >
-                              {historyAction?.id === job.id && historyAction?.type === "delete" ? "..." : "DELETE"}
+                              {historyAction?.id === job.id && historyAction?.type === "delete" ? "..." : "УДАЛИТЬ"}
                             </button>
                           </div>
                         </details>
@@ -5108,7 +5152,7 @@ function AiLabContent() {
                         />
                       ) : (
                         <div className="flex h-full w-full items-center justify-center text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/30">
-                          MODEL
+                          МОДЕЛЬ
                         </div>
                       )}
                     </div>
@@ -5125,7 +5169,7 @@ function AiLabContent() {
                         }}
                         className="rounded-full border border-white/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60 transition hover:border-white/35 hover:text-white"
                       >
-                        {asset.localOnly ? "LOCAL" : "CLOUD"}
+                        {asset.localOnly ? "ЛОКАЛЬНО" : "ОБЛАКО"}
                       </button>
                       <button
                         type="button"
@@ -5135,7 +5179,7 @@ function AiLabContent() {
                         }}
                         className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                       >
-                        SAVE
+                        СКАЧАТЬ
                       </button>
                     </div>
                   </div>
@@ -5152,7 +5196,7 @@ function AiLabContent() {
           <div className="w-full max-w-[680px] rounded-[28px] border border-emerald-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
             <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-emerald-200">
               <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
-              [ TOKEN TOP UP ]
+                  [ ПОПОЛНЕНИЕ ТОКЕНОВ ]
             </div>
             <p className="mt-4 text-sm text-white/75">One-time пакеты или ежемесячная подписка.</p>
             <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2">
@@ -5200,7 +5244,7 @@ function AiLabContent() {
                       </p>
                       <p className="mt-2 text-lg font-semibold text-white">+{pack.credits}</p>
                       <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                        {isLoading ? "processing..." : pack.note}
+                        {isLoading ? "обработка..." : pack.note}
                       </p>
                     </button>
                   );
@@ -5214,7 +5258,7 @@ function AiLabContent() {
                   </div>
                 ) : subscriptionLoading ? (
                   <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
-                    Loading subscription plans...
+                    Загрузка тарифов подписки...
                   </div>
                 ) : (
                   <>
@@ -5245,7 +5289,7 @@ function AiLabContent() {
                               {plan.proAccess ? "pro+standard" : "standard"}
                             </p>
                             <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                              {subscriptionAction === "checkout" ? "processing..." : selected ? "current" : "switch"}
+                              {subscriptionAction === "checkout" ? "обработка..." : selected ? "текущий" : "сменить"}
                             </p>
                           </button>
                         );
@@ -5263,7 +5307,7 @@ function AiLabContent() {
                         disabled={subscriptionAction === "portal" || !subscription?.stripeCustomerId}
                         className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75 transition hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
                       >
-                        {subscriptionAction === "portal" ? "..." : "Customer portal"}
+                        {subscriptionAction === "portal" ? "..." : "Портал подписки"}
                       </button>
                     </div>
                   </>
@@ -5278,7 +5322,7 @@ function AiLabContent() {
                 disabled={Boolean(topupLoadingPack) || Boolean(subscriptionAction)}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                Close
+                Закрыть
               </button>
             </div>
           </div>
@@ -5330,7 +5374,7 @@ function AiLabContent() {
                   }`}
                   title="Интеллектуальная палочка: клик по похожим пикселям. Alt временно инвертирует действие."
                 >
-                  Wand
+                  Палочка
                 </button>
                 <button
                   type="button"
@@ -5341,14 +5385,14 @@ function AiLabContent() {
                       : "border-white/20 bg-white/5 text-white/70 hover:border-white/35"
                   }`}
                 >
-                  Overlay
+                  Оверлей
                 </button>
               </div>
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2 rounded-2xl border border-white/10 bg-black/35 px-3 py-2">
               <label className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
-                {maskMode === "wand" ? "Tolerance" : "Brush"}
+                {maskMode === "wand" ? "Допуск" : "Кисть"}
               </label>
               <input
                 type="range"
@@ -5379,7 +5423,7 @@ function AiLabContent() {
                         : "border-white/20 bg-white/5 text-white/60 hover:border-white/35"
                     }`}
                   >
-                    Erase
+                    Стереть
                   </button>
                   <button
                     type="button"
@@ -5390,7 +5434,7 @@ function AiLabContent() {
                         : "border-white/20 bg-white/5 text-white/60 hover:border-white/35"
                     }`}
                   >
-                    Restore
+                    Вернуть
                   </button>
                   <button
                     type="button"
@@ -5402,10 +5446,10 @@ function AiLabContent() {
                     }`}
                     title="Когда включено, палочка режет только внешний фон (не трогает внутренние зоны объекта)."
                   >
-                    Outer BG
+                    Внешний фон
                   </button>
                   <label className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/45">
-                    Feather
+                    Сглаживание
                   </label>
                   <input
                     type="range"
@@ -5421,8 +5465,8 @@ function AiLabContent() {
                     {maskFeatherPx}px
                   </span>
                   <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/45">
-                    click = {maskWandAction}
-                    {` , alt+click = ${maskWandAction === "erase" ? "restore" : "erase"}`}
+                    клик = {maskWandAction === "erase" ? "стереть" : "вернуть"}
+                    {` , alt+клик = ${maskWandAction === "erase" ? "вернуть" : "стереть"}`}
                   </span>
                 </>
               ) : null}
@@ -5505,7 +5549,7 @@ function AiLabContent() {
             </p>
             <div className="mt-4 space-y-2">
               <label className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/55">
-                Prompt
+                Промпт
               </label>
               <textarea
                 value={remixPrompt}
@@ -5683,7 +5727,7 @@ function AiLabContent() {
                 onClick={() => setShowResult(false)}
                 className="flex-1 rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white"
               >
-                Close
+                Закрыть
               </button>
             </div>
           </div>
