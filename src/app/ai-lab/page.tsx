@@ -1069,8 +1069,10 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
   const scanRingRef = useRef<Mesh | null>(null);
   const scanRingMaterialRef = useRef<MeshBasicMaterial | null>(null);
   const pointsCount = 4200;
-  const [targetPositions, streamPositions, phases, colors] = useMemo(() => {
-    const target = new Float32Array(pointsCount * 3);
+  const [finalPositions, shapeA, shapeB, streamPositions, phases, colors] = useMemo(() => {
+    const finalShape = new Float32Array(pointsCount * 3);
+    const phaseA = new Float32Array(pointsCount * 3);
+    const phaseB = new Float32Array(pointsCount * 3);
     const stream = new Float32Array(pointsCount * 3);
     const phase = new Float32Array(pointsCount);
     const colorArray = new Float32Array(pointsCount * 3);
@@ -1101,13 +1103,53 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
       const y = -0.64 + Math.random() * 1.02;
       return [x, y, z] as const;
     };
+    const sampleBrandGlyphPoint = () => {
+      const branch = Math.random();
+      if (branch < 0.34) {
+        const t = Math.random();
+        const x = -0.95 + t * 0.78;
+        const y = 0.86 - t * 1.55;
+        const z = (Math.random() - 0.5) * 0.2;
+        return [x, y, z] as const;
+      }
+      if (branch < 0.68) {
+        const t = Math.random();
+        const x = 0.95 - t * 0.78;
+        const y = 0.86 - t * 1.55;
+        const z = (Math.random() - 0.5) * 0.2;
+        return [x, y, z] as const;
+      }
+      const t = Math.random();
+      const x = -0.15 + t * 0.3;
+      const y = -0.58 + t * 1.05;
+      const z = (Math.random() - 0.5) * 0.22;
+      return [x, y, z] as const;
+    };
+    const sampleHelixPoint = () => {
+      const t = Math.random();
+      const turns = 2.8;
+      const angle = t * Math.PI * 2 * turns;
+      const radius = 0.2 + (1 - t) * 0.23;
+      const x = Math.cos(angle) * radius;
+      const z = Math.sin(angle) * radius;
+      const y = -0.92 + t * 2.02;
+      return [x, y, z] as const;
+    };
 
     for (let i = 0; i < pointsCount; i += 1) {
       const [x, y, z] = sampleFigurePoint();
+      const [ax, ay, az] = sampleBrandGlyphPoint();
+      const [bx, by, bz] = sampleHelixPoint();
       const base = i * 3;
-      target[base] = x;
-      target[base + 1] = y;
-      target[base + 2] = z;
+      finalShape[base] = x;
+      finalShape[base + 1] = y;
+      finalShape[base + 2] = z;
+      phaseA[base] = ax;
+      phaseA[base + 1] = ay;
+      phaseA[base + 2] = az;
+      phaseB[base] = bx;
+      phaseB[base + 1] = by;
+      phaseB[base + 2] = bz;
 
       const lane = Math.random() > 0.5 ? 1 : -1;
       stream[base] = lane * (0.95 + Math.random() * 0.95);
@@ -1122,7 +1164,7 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
       colorArray[base + 1] = tmp.g;
       colorArray[base + 2] = tmp.b;
     }
-    return [target, stream, phase, colorArray] as const;
+    return [finalShape, phaseA, phaseB, stream, phase, colorArray] as const;
   }, []);
   const framePositions = useMemo(() => {
     const lines: number[] = [];
@@ -1167,11 +1209,21 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
     const t = clock.getElapsedTime();
     const progress01 = active ? clampNumber(progress / 100, 0, 1) : 0;
     const revealBase = 0.1 + progress01 * 1.2;
+    const phaseAB = clampNumber((progress01 - 0.02) / 0.34, 0, 1);
+    const phaseBC = clampNumber((progress01 - 0.36) / 0.42, 0, 1);
 
     for (let i = 0; i < pointsCount; i += 1) {
       const base = i * 3;
-      const yOrder = clampNumber((targetPositions[base + 1] + 1.2) / 2.5, 0, 1);
-      const reveal = clampNumber((revealBase - yOrder) / 0.36, 0, 1);
+      const midX = shapeA[base] * (1 - phaseAB) + shapeB[base] * phaseAB;
+      const midY = shapeA[base + 1] * (1 - phaseAB) + shapeB[base + 1] * phaseAB;
+      const midZ = shapeA[base + 2] * (1 - phaseAB) + shapeB[base + 2] * phaseAB;
+      const targetX = midX * (1 - phaseBC) + finalPositions[base] * phaseBC;
+      const targetY = midY * (1 - phaseBC) + finalPositions[base + 1] * phaseBC;
+      const targetZ = midZ * (1 - phaseBC) + finalPositions[base + 2] * phaseBC;
+
+      const jitterOrder = ((Math.sin(phases[i] * 1.3) + 1) / 2) * 0.1;
+      const yOrder = clampNumber((targetY + 1.2) / 2.5, 0, 1);
+      const reveal = clampNumber((revealBase - yOrder - jitterOrder) / 0.36, 0, 1);
       const mix = active ? reveal : 0;
       const flutter = (1 - mix) * 0.14 + 0.012;
 
@@ -1179,11 +1231,11 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
       const waveY = Math.cos(t * 3.6 + phases[i] * 0.8) * flutter;
       const waveZ = Math.sin(t * 2.7 + phases[i] * 1.4) * flutter;
 
-      livePositions[base] = streamPositions[base] * (1 - mix) + targetPositions[base] * mix + waveX;
+      livePositions[base] = streamPositions[base] * (1 - mix) + targetX * mix + waveX;
       livePositions[base + 1] =
-        streamPositions[base + 1] * (1 - mix) + targetPositions[base + 1] * mix + waveY;
+        streamPositions[base + 1] * (1 - mix) + targetY * mix + waveY;
       livePositions[base + 2] =
-        streamPositions[base + 2] * (1 - mix) + targetPositions[base + 2] * mix + waveZ;
+        streamPositions[base + 2] * (1 - mix) + targetZ * mix + waveZ;
     }
 
     const attr = geometryRef.current?.getAttribute("position");
@@ -3500,6 +3552,9 @@ function AiLabContent() {
     style: stylePreset,
     advanced: advancedPreset,
   });
+  const canUseProQuality = subscriptionLoading
+    ? true
+    : Boolean(subscription?.isActive && subscription?.proAccess);
   const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
   const estimatedEtaMinutes = resolveGenerationEtaMinutes(baseEtaMinutes, {
     quality: qualityPreset,
@@ -3535,6 +3590,12 @@ function AiLabContent() {
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
   const [modelScale, setModelScale] = useState(1);
+
+  useEffect(() => {
+    if (qualityPreset === "pro" && !canUseProQuality) {
+      setQualityPreset("standard");
+    }
+  }, [canUseProQuality, qualityPreset]);
 
   useEffect(() => {
     setModelScale(1);
@@ -4414,20 +4475,25 @@ function AiLabContent() {
                     <div className="border-t border-white/10 px-3 py-2">
                       {section === "quality" && (
                         <div className="grid grid-cols-3 gap-2">
-                          {(["draft", "standard", "pro"] as const).map((value) => (
-                            <button
-                              key={value}
-                              type="button"
-                              onClick={() => setQualityPreset(value)}
-                              className={`rounded-lg border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${
-                                qualityPreset === value
-                                  ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
-                                  : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
-                              }`}
-                            >
-                              {QUALITY_PRESET_LABEL[value]}
-                            </button>
-                          ))}
+                          {(["draft", "standard", "pro"] as const).map((value) => {
+                            const proLocked = value === "pro" && !canUseProQuality;
+                            return (
+                              <button
+                                key={value}
+                                type="button"
+                                disabled={proLocked}
+                                title={proLocked ? "PRO доступен только с активной подпиской M/L" : undefined}
+                                onClick={() => setQualityPreset(value)}
+                                className={`rounded-lg border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${
+                                  qualityPreset === value
+                                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                                    : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
+                                } disabled:cursor-not-allowed disabled:border-white/10 disabled:text-white/30`}
+                              >
+                                {QUALITY_PRESET_LABEL[value]}
+                              </button>
+                            );
+                          })}
                         </div>
                       )}
                       {section === "style" && (
