@@ -9,6 +9,13 @@ import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.j
 import { resolveAssetUrl, type Finish } from "@/lib/products";
 
 export type RenderMode = "final" | "wireframe" | "base";
+export type ModelIssueMarker = {
+  id: string;
+  position: [number, number, number];
+  color: string;
+  title: string;
+  severity: "low" | "medium" | "high";
+};
 
 type ModelViewProps = {
   rawModelUrl?: string | null;
@@ -17,6 +24,7 @@ type ModelViewProps = {
   renderMode: RenderMode;
   accentColor: string;
   baseColor?: string;
+  analysisSignal?: number;
   onBounds?: (bounds: {
     size: number;
     boxSize: [number, number, number];
@@ -26,6 +34,7 @@ type ModelViewProps = {
     polyCount: number;
     meshCount: number;
   }) => void;
+  onIssueMarkers?: (markers: ModelIssueMarker[]) => void;
   onReady?: () => void;
 };
 
@@ -38,8 +47,10 @@ export default function ModelView({
   renderMode,
   accentColor,
   baseColor,
+  analysisSignal,
   onBounds,
   onStats,
+  onIssueMarkers,
   onReady,
 }: ModelViewProps) {
   const readyNotifiedRef = useRef(false);
@@ -140,6 +151,113 @@ export default function ModelView({
     return box;
   };
 
+  const computeIssueMarkers = (root: Object3D, modelSize: number): ModelIssueMarker[] => {
+    if (!Number.isFinite(modelSize) || modelSize <= 0) return [];
+
+    const thinCandidates: Array<{ position: [number, number, number]; score: number }> = [];
+    const overhangCandidates: Array<{ position: [number, number, number]; score: number }> = [];
+    const a = new Vector3();
+    const b = new Vector3();
+    const c = new Vector3();
+    const ab = new Vector3();
+    const ac = new Vector3();
+    const bc = new Vector3();
+    const normal = new Vector3();
+    const center = new Vector3();
+    const thinThreshold = modelSize * 0.05;
+
+    root.traverse((child) => {
+      if (!(child instanceof Mesh)) return;
+      const geometry = child.geometry;
+      if (!geometry) return;
+      const position = geometry.attributes?.position;
+      if (!position || typeof position.count !== "number") return;
+
+      const index = geometry.index;
+      const triangleCount = Math.floor((index ? index.count : position.count) / 3);
+      if (triangleCount < 1) return;
+
+      const stride = Math.max(1, Math.ceil(triangleCount / 16000));
+
+      for (let tri = 0; tri < triangleCount; tri += stride) {
+        const i0 = index ? index.getX(tri * 3) : tri * 3;
+        const i1 = index ? index.getX(tri * 3 + 1) : tri * 3 + 1;
+        const i2 = index ? index.getX(tri * 3 + 2) : tri * 3 + 2;
+
+        a.fromBufferAttribute(position, i0).applyMatrix4(child.matrixWorld);
+        b.fromBufferAttribute(position, i1).applyMatrix4(child.matrixWorld);
+        c.fromBufferAttribute(position, i2).applyMatrix4(child.matrixWorld);
+
+        ab.subVectors(b, a);
+        ac.subVectors(c, a);
+        bc.subVectors(c, b);
+        normal.crossVectors(ab, ac);
+
+        const doubleArea = normal.length();
+        if (!Number.isFinite(doubleArea) || doubleArea <= 1e-8) continue;
+        const area = doubleArea * 0.5;
+        normal.multiplyScalar(1 / doubleArea);
+        center.copy(a).add(b).add(c).multiplyScalar(1 / 3);
+
+        const minEdge = Math.min(ab.length(), ac.length(), bc.length());
+        if (minEdge < thinThreshold && area < modelSize * modelSize * 0.02) {
+          const score = (thinThreshold - minEdge) / thinThreshold + area * 0.05;
+          thinCandidates.push({
+            position: [center.x, center.y, center.z],
+            score,
+          });
+        }
+
+        if (normal.y < -0.56 && center.y > modelSize * 0.07) {
+          const score = (-normal.y) * Math.sqrt(area);
+          overhangCandidates.push({
+            position: [center.x, center.y, center.z],
+            score,
+          });
+        }
+      }
+    });
+
+    const result: ModelIssueMarker[] = [];
+    const minDistance = modelSize * 0.2;
+    const isFarEnough = (p: [number, number, number]) =>
+      result.every((item) => {
+        const dx = item.position[0] - p[0];
+        const dy = item.position[1] - p[1];
+        const dz = item.position[2] - p[2];
+        return dx * dx + dy * dy + dz * dz > minDistance * minDistance;
+      });
+
+    const pick = (
+      source: Array<{ position: [number, number, number]; score: number }>,
+      limit: number,
+      baseId: string,
+      title: string,
+      color: string,
+      severity: "low" | "medium" | "high"
+    ) => {
+      source
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 20)
+        .forEach((candidate, idx) => {
+          if (result.length >= limit) return;
+          if (!isFarEnough(candidate.position)) return;
+          result.push({
+            id: `${baseId}-${idx + 1}`,
+            position: candidate.position,
+            color,
+            title,
+            severity,
+          });
+        });
+    };
+
+    pick(overhangCandidates, 2, "overhang", "Свесы: нужен контроль поддержек", "#fb7185", "high");
+    pick(thinCandidates, 3, "thin", "Тонкие элементы: риск деформации", "#fbbf24", "medium");
+
+    return result.slice(0, 3);
+  };
+
   useEffect(() => {
     originalMaterials.current = new Map();
     materialStates.current = new Map();
@@ -206,6 +324,8 @@ export default function ModelView({
     if (polyCount > 0 || meshCount > 0) {
       onStats?.({ polyCount, meshCount });
     }
+
+    onIssueMarkers?.(computeIssueMarkers(scene, maxDim));
     
     const storeMaterialState = (material: Material) => {
       if (materialStates.current.has(material.uuid)) {
@@ -310,7 +430,7 @@ export default function ModelView({
       readyNotifiedRef.current = true;
       onReady?.();
     }
-  }, [scene, onBounds, onReady]);
+  }, [analysisSignal, onBounds, onIssueMarkers, onReady, onStats, scene]);
 
   useEffect(() => {
     if (!isReady) return;

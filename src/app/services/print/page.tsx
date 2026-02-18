@@ -8,7 +8,7 @@ import { Environment, Grid, OrbitControls } from "@react-three/drei";
 import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { MOUSE } from "three";
 
-import ModelView from "@/components/ModelView";
+import ModelView, { type ModelIssueMarker } from "@/components/ModelView";
 import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
 
 type SourceKind = "upload" | "store" | "recent";
@@ -52,11 +52,7 @@ type ModelBounds = {
   radius: number;
 };
 
-type IssueMarker = {
-  id: string;
-  position: [number, number, number];
-  color: string;
-};
+type IssueMarker = ModelIssueMarker;
 
 const STEPS = ["Модель", "Настройка печати", "Подготовка", "Корзина/Оформление"];
 
@@ -150,18 +146,6 @@ const VIEW_POSITION: Record<ViewPreset, [number, number, number]> = {
   left: [6, 2, 0],
 };
 
-const ISSUE_MARKERS: IssueMarker[] = [
-  { id: "issue-1", position: [0.38, 1.75, 0.35], color: "#fb7185" },
-  { id: "issue-2", position: [-0.52, 1.22, -0.2], color: "#fbbf24" },
-  { id: "issue-3", position: [0.05, 0.82, 0.63], color: "#34d399" },
-];
-
-const BASE_DIAGNOSTICS: Issue[] = [
-  { id: "wall", title: "Тонкие стенки у основания", severity: "medium" },
-  { id: "overhang", title: "Свесы больше 58°", severity: "high" },
-  { id: "hole", title: "Незамкнутый малый контур", severity: "low" },
-];
-
 const formatPrice = (value: number) => {
   const rounded = Math.max(0, Math.round(value));
   return `${new Intl.NumberFormat("ru-RU").format(rounded)} руб.`;
@@ -224,29 +208,35 @@ function ViewportScene({
   tool,
   gridOn,
   plateOn,
+  issueMarkers,
   showIssues,
   renderMode,
   baseColor,
+  analysisSignal,
   view,
   fitSignal,
   rotationDeg,
   mobileOptimized,
   controlsRef,
   onBounds,
+  onIssueMarkers,
 }: {
   modelUrl?: string;
   tool: ViewTool;
   gridOn: boolean;
   plateOn: boolean;
+  issueMarkers: IssueMarker[];
   showIssues: boolean;
   renderMode: ViewRenderMode;
   baseColor: string;
+  analysisSignal: number;
   view: ViewPreset;
   fitSignal: number;
   rotationDeg: number;
   mobileOptimized: boolean;
   controlsRef: MutableRefObject<OrbitControlsImpl | null>;
   onBounds: (bounds: ModelBounds) => void;
+  onIssueMarkers: (markers: IssueMarker[]) => void;
 }) {
   const mouseButtons = useMemo(() => {
     if (tool === "pan") {
@@ -281,7 +271,7 @@ function ViewportScene({
       )}
 
       {showIssues &&
-        ISSUE_MARKERS.map((marker) => (
+        issueMarkers.map((marker) => (
           <mesh key={marker.id} position={marker.position}>
             <sphereGeometry args={[0.06, mobileOptimized ? 10 : 16, mobileOptimized ? 10 : 16]} />
             <meshStandardMaterial color={marker.color} emissive={marker.color} emissiveIntensity={0.9} />
@@ -297,7 +287,9 @@ function ViewportScene({
               renderMode={renderMode}
               accentColor="#2ed1ff"
               baseColor={baseColor}
+              analysisSignal={analysisSignal}
               onBounds={onBounds}
+              onIssueMarkers={onIssueMarkers}
             />
           </Suspense>
         ) : (
@@ -366,6 +358,8 @@ function PrintOnDemandContent() {
   const [showBuildPlate, setShowBuildPlate] = useState(true);
   const [measureMode, setMeasureMode] = useState(false);
   const [showIssues, setShowIssues] = useState(false);
+  const [issueMarkers, setIssueMarkers] = useState<IssueMarker[]>([]);
+  const [analysisSignal, setAnalysisSignal] = useState(0);
   const [fitSignal, setFitSignal] = useState(0);
   const [rotationDeg, setRotationDeg] = useState(0);
   const [bounds, setBounds] = useState<ModelBounds | null>(null);
@@ -403,10 +397,22 @@ function PrintOnDemandContent() {
   );
   const autoDetectedTech = useMemo(() => inferTechFromModel(selectedModel), [selectedModel]);
 
-  const diagnostics = useMemo(
-    () => (diagnosticsEnabled ? BASE_DIAGNOSTICS : []),
-    [diagnosticsEnabled]
-  );
+  const diagnostics = useMemo(() => {
+    if (!diagnosticsEnabled || !selectedModel?.previewUrl) return [];
+    const seen = new Set<string>();
+    return issueMarkers
+      .filter((item) => {
+        const key = `${item.title}:${item.severity}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      })
+      .map((item) => ({
+        id: item.id,
+        title: item.title,
+        severity: item.severity,
+      }));
+  }, [diagnosticsEnabled, issueMarkers, selectedModel?.previewUrl]);
 
   const cartStorageKey = useMemo(
     () => getCartStorageKey(isLoggedIn ? userId : null),
@@ -488,6 +494,20 @@ function PrintOnDemandContent() {
     setShowGrid(false);
     setShowIssues(false);
   }, [isMobileViewport]);
+
+  useEffect(() => {
+    if (!selectedModel?.previewUrl) {
+      setIssueMarkers([]);
+      setShowIssues(false);
+      return;
+    }
+    setAnalysisSignal((prev) => prev + 1);
+  }, [selectedModel?.previewUrl]);
+
+  useEffect(() => {
+    if (issueMarkers.length > 0) return;
+    setShowIssues(false);
+  }, [issueMarkers.length]);
 
   useEffect(() => {
     syncCartCount();
@@ -843,7 +863,8 @@ function PrintOnDemandContent() {
 
   const handleRunDiagnostics = () => {
     setDiagnosticsEnabled(true);
-    setNoticeWith("Диагностика пересчитана.");
+    setAnalysisSignal((prev) => prev + 1);
+    setNoticeWith("Диагностика пересчитана по текущей геометрии.");
   };
 
   const handleAutoFixRun = () => {
@@ -1375,7 +1396,7 @@ function PrintOnDemandContent() {
             <div className="mt-3 flex h-[560px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3 xl:h-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-white/65">Окно предпросмотра</p>
-                {diagnostics.length > 0 && (
+                {issueMarkers.length > 0 && (
                   <button
                     type="button"
                     onClick={() => setShowIssues((prev) => !prev)}
@@ -1407,15 +1428,18 @@ function PrintOnDemandContent() {
                     tool={viewTool}
                     gridOn={showGrid}
                     plateOn={showBuildPlate}
+                    issueMarkers={issueMarkers}
                     showIssues={showIssues}
                     renderMode={viewRenderMode}
                     baseColor={selectedColorHex}
+                    analysisSignal={analysisSignal}
                     view={viewPreset}
                     fitSignal={fitSignal}
                     rotationDeg={rotationDeg}
                     mobileOptimized={isMobileViewport}
                     controlsRef={controlsRef}
                     onBounds={setBounds}
+                    onIssueMarkers={setIssueMarkers}
                   />
                 </Canvas>
 
