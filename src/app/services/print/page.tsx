@@ -13,6 +13,7 @@ import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cart
 
 type SourceKind = "upload" | "store" | "recent";
 type PrintTech = "SLA" | "FDM";
+type TechControlMode = "auto" | "manual";
 type QualityPreset = "draft" | "standard" | "pro";
 type OrientationPreset = "balanced" | "risk" | "speed";
 type ViewTool = "orbit" | "pan" | "zoom";
@@ -56,7 +57,7 @@ type IssueMarker = {
   color: string;
 };
 
-const STEPS = ["Model", "Print setup", "Prepare", "Cart/Checkout"];
+const STEPS = ["Модель", "Настройка печати", "Подготовка", "Корзина/Оформление"];
 
 const STORE_MODELS: SelectedModel[] = [
   {
@@ -101,13 +102,13 @@ const RECENT_MODELS: SelectedModel[] = [
 ];
 
 const MATERIALS_BY_TECH: Record<PrintTech, string[]> = {
-  SLA: ["Standard resin", "Tough resin", "Castable resin"],
+  SLA: ["Стандартная смола", "Ударопрочная смола", "Литейная смола"],
   FDM: ["PLA", "PETG", "ABS"],
 };
 
 const COLORS_BY_TECH: Record<PrintTech, string[]> = {
-  SLA: ["Gray", "Clear", "Black"],
-  FDM: ["Black", "White", "Red"],
+  SLA: ["Серый", "Прозрачный", "Черный"],
+  FDM: ["Черный", "Белый", "Красный"],
 };
 
 const PRINTER_PROFILES: PrinterProfile[] = [
@@ -118,22 +119,22 @@ const PRINTER_PROFILES: PrinterProfile[] = [
 ];
 
 const QUALITY_LABEL: Record<QualityPreset, string> = {
-  draft: "Draft",
-  standard: "Standard",
-  pro: "Pro",
+  draft: "Черновик",
+  standard: "Стандарт",
+  pro: "Про",
 };
 
 const ORIENTATION_LABEL: Record<OrientationPreset, string> = {
-  balanced: "Balanced",
-  risk: "Min risk",
-  speed: "Min time",
+  balanced: "Баланс",
+  risk: "Мин. риск",
+  speed: "Мин. время",
 };
 
 const VIEW_LABEL: Record<ViewPreset, string> = {
-  isometric: "Isometric",
-  front: "Front",
-  top: "Top",
-  left: "Left",
+  isometric: "Изометрия",
+  front: "Спереди",
+  top: "Сверху",
+  left: "Слева",
 };
 
 const VIEW_POSITION: Record<ViewPreset, [number, number, number]> = {
@@ -150,22 +151,22 @@ const ISSUE_MARKERS: IssueMarker[] = [
 ];
 
 const BASE_DIAGNOSTICS: Issue[] = [
-  { id: "wall", title: "Thin walls near base", severity: "medium" },
-  { id: "overhang", title: "Overhang above 58�", severity: "high" },
-  { id: "hole", title: "Small open contour", severity: "low" },
+  { id: "wall", title: "Тонкие стенки у основания", severity: "medium" },
+  { id: "overhang", title: "Свесы больше 58°", severity: "high" },
+  { id: "hole", title: "Незамкнутый малый контур", severity: "low" },
 ];
 
 const formatPrice = (value: number) => {
   const rounded = Math.max(0, Math.round(value));
-  return `${new Intl.NumberFormat("ru-RU").format(rounded)} ?`;
+  return `${new Intl.NumberFormat("ru-RU").format(rounded)} руб.`;
 };
 
 const formatEta = (minutes: number) => {
   const hours = Math.floor(minutes / 60);
   const mins = minutes % 60;
-  if (hours <= 0) return `~${mins}m`;
-  if (mins === 0) return `~${hours}h`;
-  return `~${hours}h ${mins}m`;
+  if (hours <= 0) return `~${mins} мин`;
+  if (mins === 0) return `~${hours} ч`;
+  return `~${hours} ч ${mins} мин`;
 };
 
 const formatDims = (x: number, y: number, z: number) =>
@@ -175,6 +176,16 @@ const buildCartThumbnail = (label: string) => {
   const shortLabel = label.trim().slice(0, 2).toUpperCase() || "3D";
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="160" height="120" rx="24" fill="url(#g)"/><circle cx="120" cy="24" r="28" fill="rgba(46,209,255,0.25)"/><text x="18" y="70" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">${shortLabel}</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+};
+
+const inferTechFromModel = (model: SelectedModel | null): PrintTech => {
+  if (!model) return "SLA";
+  const name = model.name.toLowerCase();
+
+  if (/\.(stl|3mf|obj)$/i.test(name)) return "FDM";
+  if (/(fdm|pla|petg|abs|bracket|gear|case|mount)/i.test(name)) return "FDM";
+  if (/(sla|resin|mini|figur|bust|statue|jewel)/i.test(name)) return "SLA";
+  return "SLA";
 };
 
 function CameraPresetController({
@@ -311,7 +322,7 @@ function PrintOnDemandContent() {
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const prefillRef = useRef(false);
 
-  const [notice, setNotice] = useState("Ready: configure model and print setup.");
+  const [notice, setNotice] = useState("Готово: настройте модель и параметры печати.");
   const [cartCount, setCartCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
   const [sourceTab, setSourceTab] = useState<SourceKind>("upload");
@@ -329,6 +340,7 @@ function PrintOnDemandContent() {
   const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const [tech, setTech] = useState<PrintTech>("SLA");
+  const [techControlMode, setTechControlMode] = useState<TechControlMode>("auto");
   const [material, setMaterial] = useState(MATERIALS_BY_TECH.SLA[0]);
   const [color, setColor] = useState(COLORS_BY_TECH.SLA[0]);
   const [quantity, setQuantity] = useState(1);
@@ -371,6 +383,7 @@ function PrintOnDemandContent() {
     () => PRINTER_PROFILES.find((profile) => profile.id === printerProfileId) ?? PRINTER_PROFILES[0],
     [printerProfileId]
   );
+  const autoDetectedTech = useMemo(() => inferTechFromModel(selectedModel), [selectedModel]);
 
   const diagnostics = useMemo(
     () => (diagnosticsEnabled ? BASE_DIAGNOSTICS : []),
@@ -390,6 +403,12 @@ function PrintOnDemandContent() {
     }, 0);
     setCartCount(total);
   }, [cartStorageKey]);
+
+  useEffect(() => {
+    if (techControlMode !== "auto") return;
+    if (tech === autoDetectedTech) return;
+    setTech(autoDetectedTech);
+  }, [autoDetectedTech, tech, techControlMode]);
 
   useEffect(() => {
     setMaterial(MATERIALS_BY_TECH[tech][0]);
@@ -480,6 +499,17 @@ function PrintOnDemandContent() {
     setNotice(text);
   };
 
+  const handleTechControlModeChange = (mode: TechControlMode) => {
+    setTechControlMode(mode);
+    if (mode === "auto") {
+      const detected = inferTechFromModel(selectedModel);
+      setTech(detected);
+      setNoticeWith(`Авторежим: выбрана технология ${detected}.`);
+      return;
+    }
+    setNoticeWith("Ручной режим: технологию можно менять.");
+  };
+
   const handleUploadOpen = () => {
     setSourceTab("upload");
     uploadRef.current?.click();
@@ -555,7 +585,7 @@ function PrintOnDemandContent() {
             filename: existingById.filename || file.name,
           });
           setUploadStatus("ready");
-          setNoticeWith("Model already uploaded. Can add to cart.");
+          setNoticeWith("Модель уже загружена. Можно добавить в корзину.");
           return;
         }
       }
@@ -568,7 +598,7 @@ function PrintOnDemandContent() {
           filename: existing.filename || file.name,
         });
         setUploadStatus("ready");
-        setNoticeWith("Model already uploaded. Can add to cart.");
+        setNoticeWith("Модель уже загружена. Можно добавить в корзину.");
         return;
       }
 
@@ -581,7 +611,7 @@ function PrintOnDemandContent() {
       });
 
       if (!response.ok) {
-        let message = "Failed to upload model.";
+        let message = "Не удалось загрузить модель.";
         try {
           const data = await response.json();
           message = data?.error || data?.message || message;
@@ -596,7 +626,7 @@ function PrintOnDemandContent() {
 
       const data = await response.json();
       if (!data?.doc?.id) {
-        throw new Error("Upload complete response is invalid.");
+        throw new Error("Некорректный ответ после загрузки модели.");
       }
 
       setUploadedMedia({
@@ -605,7 +635,7 @@ function PrintOnDemandContent() {
         filename: data.doc.filename || file.name,
       });
       setUploadStatus("ready");
-      setNoticeWith("Model uploaded. Can add to cart.");
+      setNoticeWith("Модель загружена. Можно добавить в корзину.");
     },
     [fetchMediaById, resolveExistingUpload]
   );
@@ -622,7 +652,7 @@ function PrintOnDemandContent() {
 
       const response = await fetch(resolved);
       if (!response.ok) {
-        throw new Error(`Failed to fetch model (${response.status}).`);
+        throw new Error(`Не удалось получить модель (${response.status}).`);
       }
       const blob = await response.blob();
       const safeName = (fallbackName || "model").trim() || "model";
@@ -648,8 +678,8 @@ function PrintOnDemandContent() {
 
     setNoticeWith(
       /\.(glb|gltf)$/i.test(file.name)
-        ? `Model uploaded: ${file.name}`
-        : `Model uploaded: ${file.name}. Preview currently supports GLB/GLTF.`
+        ? `Модель загружена: ${file.name}`
+        : `Модель загружена: ${file.name}. Предпросмотр пока поддерживает только GLB/GLTF.`
     );
     void uploadFileToDatabase(file);
 
@@ -662,13 +692,13 @@ function PrintOnDemandContent() {
     setSourceName(next.name);
     setSourceThumb(null);
     if (!next.fileUrl) {
-      setNoticeWith(`Picked from store: ${next.name}`);
+      setNoticeWith(`Выбрано из магазина: ${next.name}`);
       return;
     }
     void loadModelFromUrl(next.fileUrl, next.name, "store").catch((error) => {
-      setUploadError(error instanceof Error ? error.message : "Failed to load model.");
+      setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель.");
       setUploadStatus("idle");
-      setNoticeWith("Failed to load model from store.");
+      setNoticeWith("Не удалось загрузить модель из магазина.");
     });
   };
 
@@ -678,13 +708,13 @@ function PrintOnDemandContent() {
     setSourceName(next.name);
     setSourceThumb(null);
     if (!next.fileUrl) {
-      setNoticeWith(`Picked from recent: ${next.name}`);
+      setNoticeWith(`Выбрано из недавних: ${next.name}`);
       return;
     }
     void loadModelFromUrl(next.fileUrl, next.name, "recent").catch((error) => {
-      setUploadError(error instanceof Error ? error.message : "Failed to load model.");
+      setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель.");
       setUploadStatus("idle");
-      setNoticeWith("Failed to load model from recent.");
+      setNoticeWith("Не удалось загрузить модель из недавних.");
     });
   };
 
@@ -696,12 +726,12 @@ function PrintOnDemandContent() {
     setBounds(null);
     setSourceName(null);
     setSourceThumb(null);
-    setNoticeWith("Selection cleared.");
+    setNoticeWith("Выбор очищен.");
   };
 
   const handleDownloadModel = () => {
     if (!selectedModel?.fileUrl) {
-      setNoticeWith("No model file is available for download.");
+      setNoticeWith("Нет файла модели для скачивания.");
       return;
     }
 
@@ -712,7 +742,7 @@ function PrintOnDemandContent() {
     anchor.click();
     anchor.remove();
 
-    setNoticeWith(`Download started: ${selectedModel.name}`);
+    setNoticeWith(`Скачивание начато: ${selectedModel.name}`);
   };
 
   useEffect(() => {
@@ -728,6 +758,7 @@ function PrintOnDemandContent() {
     const thumbParam = searchParams.get("thumb");
 
     if (techParam) {
+      setTechControlMode("manual");
       if (techParam.includes("fdm") || techParam.includes("plastic")) {
         setTech("FDM");
       } else {
@@ -753,24 +784,24 @@ function PrintOnDemandContent() {
 
     void loadModelFromUrl(modelParam, nameParam, "upload", mediaIdParam).catch((error) => {
       prefillRef.current = false;
-      setUploadError(error instanceof Error ? error.message : "Failed to load model from URL.");
+      setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель по ссылке.");
       setUploadStatus("idle");
-      setNoticeWith("Failed to prefill model from source.");
+      setNoticeWith("Не удалось подставить модель из источника.");
     });
   }, [loadModelFromUrl, searchParams]);
 
   const handleAutoFit = () => {
     setHeightMm(Math.min(120, selectedPrinter.maxHeightMm));
-    setNoticeWith(`Auto-fit applied for ${selectedPrinter.label}.`);
+    setNoticeWith(`Автоподгонка применена для ${selectedPrinter.label}.`);
   };
 
   const handleApplyOrientation = () => {
-    setNoticeWith(`Orientation preset applied: ${ORIENTATION_LABEL[orientationPreset]}.`);
+    setNoticeWith(`Применен пресет ориентации: ${ORIENTATION_LABEL[orientationPreset]}.`);
   };
 
   const handleManualRotate = () => {
     setRotationDeg((prev) => (prev + 15) % 360);
-    setNoticeWith("Manual rotate: +15� applied.");
+    setNoticeWith("Ручной поворот: +15° применен.");
   };
 
   const handleResetViewport = () => {
@@ -782,23 +813,23 @@ function PrintOnDemandContent() {
     setShowIssues(false);
     setRotationDeg(0);
     setFitSignal((prev) => prev + 1);
-    setNoticeWith("Viewport reset.");
+    setNoticeWith("Вьюпорт сброшен.");
   };
 
   const handleFitToVolume = () => {
     handleAutoFit();
     setFitSignal((prev) => prev + 1);
-    setNoticeWith("Model fitted to build volume.");
+    setNoticeWith("Модель подогнана под объем печати.");
   };
 
   const handleRunDiagnostics = () => {
     setDiagnosticsEnabled(true);
-    setNoticeWith("Diagnostics re-run complete.");
+    setNoticeWith("Диагностика пересчитана.");
   };
 
   const handleAutoFixRun = () => {
     setAutoFixMesh(true);
-    setNoticeWith("Auto-fix requested. Mesh cleanup queued.");
+    setNoticeWith("Авто-фикс запрошен. Очистка сетки поставлена в очередь.");
   };
 
   const price = useMemo(() => {
@@ -834,11 +865,11 @@ function PrintOnDemandContent() {
     risk === "High" ? "text-rose-300" : risk === "Medium" ? "text-amber-300" : "text-emerald-300";
 
   const selectedInfo = selectedModel
-    ? `Selected: ${selectedModel.name} | Units: ${selectedModel.units} | Scale: ${(
+    ? `Выбрано: ${selectedModel.name} | Ед.: ${selectedModel.units} | Масштаб: ${(
         selectedModel.baseScale *
         (heightMm / 120)
       ).toFixed(2)}`
-    : "Selected: none | Units: -- | Scale: --";
+    : "Выбрано: нет | Ед.: -- | Масштаб: --";
 
   const printerOptions = PRINTER_PROFILES.filter((profile) => profile.tech === tech);
 
@@ -875,35 +906,35 @@ function PrintOnDemandContent() {
 
   const volumeLabel = `${selectedPrinter.maxWidthMm} x ${selectedPrinter.maxDepthMm} x ${selectedPrinter.maxHeightMm} mm`;
   const fitStatus = !selectedModel
-    ? "Awaiting model"
+    ? "Ожидание модели"
     : !hasPreviewGeometry
-      ? "Estimate only"
+      ? "Только оценка"
       : !scaledDimensionsMm
-        ? "Calculating"
+        ? "Вычисление"
         : fitsPrinterVolume
-          ? "Fits"
-          : "Too large";
+          ? "Помещается"
+          : "Слишком большая";
   const fitTone =
-    fitStatus === "Fits"
+    fitStatus === "Помещается"
       ? "text-emerald-300"
-      : fitStatus === "Too large"
+      : fitStatus === "Слишком большая"
         ? "text-rose-300"
         : "text-white/65";
 
   const addToCartValidationError = useMemo(() => {
-    if (!selectedModel) return "Select and upload a model first.";
-    if (uploadStatus === "pending") return "Model file is selected. Wait for database upload.";
-    if (uploadStatus === "uploading") return "Upload is in progress. Please wait.";
+    if (!selectedModel) return "Сначала выберите и загрузите модель.";
+    if (uploadStatus === "pending") return "Файл модели выбран. Дождитесь загрузки в базу.";
+    if (uploadStatus === "uploading") return "Идет загрузка. Подождите.";
     if (uploadError) return uploadError;
     if (uploadStatus !== "ready" || !uploadedMedia?.id) {
-      return "Model must be uploaded to database before adding to cart.";
+      return "Перед добавлением в корзину модель должна быть загружена в базу.";
     }
-    if (quantity < 1) return "Quantity must be at least 1.";
+    if (quantity < 1) return "Количество должно быть не меньше 1.";
     if (hasPreviewGeometry && !scaledDimensionsMm) {
-      return "3D bounds are still loading. Please wait a moment.";
+      return "Габариты 3D-модели еще рассчитываются. Подождите.";
     }
     if (hasPreviewGeometry && scaledDimensionsMm && !fitsPrinterVolume) {
-      return `Model does not fit ${volumeLabel}. Reduce height or choose a larger printer profile.`;
+      return `Модель не помещается в ${volumeLabel}. Уменьшите высоту или выберите больший профиль принтера.`;
     }
     return null;
   }, [
@@ -924,7 +955,7 @@ function PrintOnDemandContent() {
     ? `X:${scaledDimensionsMm.x.toFixed(1)} Y:${scaledDimensionsMm.y.toFixed(1)} Z:${scaledDimensionsMm.z.toFixed(1)} mm`
     : bounds
       ? `X:${bounds.boxSize[0].toFixed(2)} Y:${bounds.boxSize[1].toFixed(2)} Z:${bounds.boxSize[2].toFixed(2)}`
-      : "Measure unavailable";
+      : "Измерения недоступны";
 
   const addCurrentModelToCart = () => {
     if (addToCartValidationError) {
@@ -933,7 +964,7 @@ function PrintOnDemandContent() {
     }
 
     if (!selectedModel || !uploadedMedia?.id) {
-      setNoticeWith("Model must be uploaded to database before adding to cart.");
+      setNoticeWith("Перед добавлением в корзину модель должна быть загружена в базу.");
       return false;
     }
 
@@ -942,9 +973,9 @@ function PrintOnDemandContent() {
     const item = {
       id: `custom-print:${uploadedMedia.id}`,
       productId: "service-print",
-      name: sourceName ? `������: ${sourceName}` : selectedModel.name,
+      name: sourceName ? `Печать: ${sourceName}` : selectedModel.name,
       formatKey: "physical",
-      formatLabel: "Printed model",
+      formatLabel: "Печатная модель",
       priceLabel: formatPrice(price),
       priceValue: Math.max(0, Math.round(price)),
       quantity,
@@ -954,9 +985,9 @@ function PrintOnDemandContent() {
         uploadUrl: uploadedMedia.url ?? selectedModel.fileUrl,
         uploadName: uploadedMedia.filename ?? selectedModel.name,
         sourcePrice: Math.max(0, Math.round(price)),
-        technology: tech === "SLA" ? "SLA Resin" : "FDM Plastic",
+        technology: tech === "SLA" ? "SLA смола" : "FDM пластик",
         material,
-        quality: qualityPreset === "pro" ? "0.05mm" : qualityPreset === "draft" ? "Draft" : "0.1mm",
+        quality: qualityPreset === "pro" ? "0.05mm" : qualityPreset === "draft" ? "Черновик" : "0.1mm",
         dimensions: scaledDimensionsMm
           ? {
               x: Number(scaledDimensionsMm.x.toFixed(2)),
@@ -977,7 +1008,7 @@ function PrintOnDemandContent() {
     }
 
     writeCartStorage(cartStorageKey, items);
-    setNoticeWith(`Added ${quantity} item(s) to cart.`);
+    setNoticeWith(`Добавлено ${quantity} шт. в корзину.`);
     syncCartCount();
     return true;
   };
@@ -1017,7 +1048,7 @@ function PrintOnDemandContent() {
           >
             <p className="text-sm font-semibold tracking-[0.2em] text-[#BFF4FF]">3D STORE</p>
             <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
-              Print on demand
+              Печать на заказ
             </p>
           </button>
 
@@ -1027,21 +1058,21 @@ function PrintOnDemandContent() {
               onClick={() => router.push("/store")}
               className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
             >
-              Store
+              Магазин
             </button>
             <button
               type="button"
               onClick={handleCartOpen}
               className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
             >
-              Cart {cartCount > 0 ? `(${cartCount})` : ""}
+              Корзина {cartCount > 0 ? `(${cartCount})` : ""}
             </button>
             <button
               type="button"
               onClick={() => router.push("/profile")}
               className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
             >
-              Profile
+              Профиль
             </button>
           </nav>
         </div>
@@ -1075,7 +1106,7 @@ function PrintOnDemandContent() {
       <main className="mx-auto max-w-[1680px] px-4 pb-8 pt-[142px] sm:px-6">
         <div className="mb-4 rounded-xl border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-3 py-2 text-sm text-[#BFF4FF]">
           {notice}
-          <p className="mt-1 text-xs text-[#BFF4FF]/80">Upload status: {uploadStatus}</p>
+          <p className="mt-1 text-xs text-[#BFF4FF]/80">Статус загрузки: {uploadStatus}</p>
           {uploadError && <p className="mt-1 text-xs text-rose-200">{uploadError}</p>}
         </div>
 
@@ -1089,31 +1120,31 @@ function PrintOnDemandContent() {
 
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
           <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)] xl:overflow-y-auto">
-            <h2 className="mb-3 text-lg font-semibold tracking-wide">LEFT: MODEL</h2>
+            <h2 className="mb-3 text-lg font-semibold tracking-wide">ЛЕВАЯ КОЛОНКА: МОДЕЛЬ</h2>
 
             <section className="rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
-              <h3 className="text-base font-semibold text-white">Source</h3>
+              <h3 className="text-base font-semibold text-white">Источник</h3>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleUploadOpen}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
-                  Upload file
+                  Загрузить файл
                 </button>
                 <button
                   type="button"
                   onClick={() => handlePickStoreModel(STORE_MODELS[0].id)}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
-                  From store
+                  Из магазина
                 </button>
                 <button
                   type="button"
                   onClick={() => handlePickRecentModel(RECENT_MODELS[0].id)}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
-                  Recent
+                  Недавние
                 </button>
               </div>
 
@@ -1153,40 +1184,73 @@ function PrintOnDemandContent() {
                   onClick={handleUploadOpen}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
-                  Replace
+                  Заменить
                 </button>
                 <button
                   type="button"
                   onClick={handleClearModel}
                   disabled={!selectedModel}
-                  title={!selectedModel ? "Select model first" : undefined}
+                  title={!selectedModel ? "Сначала выберите модель" : undefined}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Clear
+                  Очистить
                 </button>
                 <button
                   type="button"
                   onClick={handleDownloadModel}
                   disabled={!selectedModel?.fileUrl}
-                  title={!selectedModel?.fileUrl ? "Select model first" : undefined}
+                  title={!selectedModel?.fileUrl ? "Сначала выберите модель" : undefined}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
-                  Download
+                  Скачать
                 </button>
               </div>
             </section>
 
             <section className="mt-3 rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
-              <h3 className="text-base font-semibold text-white">Basics</h3>
+              <h3 className="text-base font-semibold text-white">Базовые настройки</h3>
 
-              <label className="mt-2 block text-xs text-white/55">Tech</label>
+              <label className="mt-2 block text-xs text-white/55">Режим выбора технологии</label>
+              <div className="mt-1 flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => handleTechControlModeChange("auto")}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                    techControlMode === "auto"
+                      ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                      : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
+                  }`}
+                >
+                  Авто
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleTechControlModeChange("manual")}
+                  className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                    techControlMode === "manual"
+                      ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                      : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
+                  }`}
+                >
+                  Ручной
+                </button>
+              </div>
+              <p className="mt-2 text-xs text-white/55">
+                {techControlMode === "auto"
+                  ? `Технология определена автоматически: ${autoDetectedTech}.`
+                  : "Ручной режим: можно переключать SLA/FDM."}
+              </p>
+
+              <label className="mt-3 block text-xs text-white/55">Технология печати</label>
               <div className="mt-1 flex gap-2">
                 {(["SLA", "FDM"] as const).map((option) => (
                   <button
                     key={option}
                     type="button"
                     onClick={() => setTech(option)}
-                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
+                    disabled={techControlMode === "auto"}
+                    title={techControlMode === "auto" ? "Переключите на ручной режим" : undefined}
+                    className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-50 ${
                       tech === option
                         ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
                         : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
@@ -1197,7 +1261,7 @@ function PrintOnDemandContent() {
                 ))}
               </div>
 
-              <label className="mt-3 block text-xs text-white/55">Material</label>
+              <label className="mt-3 block text-xs text-white/55">Материал</label>
               <select
                 value={material}
                 onChange={(event) => setMaterial(event.target.value)}
@@ -1210,7 +1274,7 @@ function PrintOnDemandContent() {
                 ))}
               </select>
 
-              <label className="mt-3 block text-xs text-white/55">Color</label>
+              <label className="mt-3 block text-xs text-white/55">Цвет</label>
               <select
                 value={color}
                 onChange={(event) => setColor(event.target.value)}
@@ -1223,7 +1287,7 @@ function PrintOnDemandContent() {
                 ))}
               </select>
 
-              <label className="mt-3 block text-xs text-white/55">Quantity</label>
+              <label className="mt-3 block text-xs text-white/55">Количество</label>
               <div className="mt-1 flex items-center gap-2">
                 <button
                   type="button"
@@ -1244,15 +1308,15 @@ function PrintOnDemandContent() {
             </section>
 
             <section className="mt-3 rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
-              <h3 className="text-base font-semibold text-white">Notes (optional)</h3>
+              <h3 className="text-base font-semibold text-white">Заметки (опционально)</h3>
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value.slice(0, 400))}
-                placeholder="Comment for workshop"
+                placeholder="Комментарий для мастерской"
                 className="mt-2 min-h-24 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
               />
 
-              <label className="mt-3 block text-xs text-white/55">Packaging</label>
+              <label className="mt-3 block text-xs text-white/55">Упаковка</label>
               <div className="mt-1 flex gap-2">
                 <button
                   type="button"
@@ -1263,7 +1327,7 @@ function PrintOnDemandContent() {
                       : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                   }`}
                 >
-                  Standard
+                  Стандарт
                 </button>
                 <button
                   type="button"
@@ -1274,20 +1338,20 @@ function PrintOnDemandContent() {
                       : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                   }`}
                 >
-                  Gift
+                  Подарочная
                 </button>
               </div>
 
-              <p className="mt-3 text-xs text-white/55">Delivery and address are set at checkout.</p>
+              <p className="mt-3 text-xs text-white/55">Доставка и адрес указываются при оформлении.</p>
             </section>
           </aside>
 
-          <section className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:h-[calc(100vh-158px)] xl:overflow-hidden">
-            <h2 className="text-lg font-semibold tracking-wide">CENTER: 3D VIEWPORT</h2>
+          <section className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:h-[calc(100vh-158px)] xl:overflow-y-auto">
+            <h2 className="text-lg font-semibold tracking-wide">ЦЕНТР: 3D ВЬЮПОРТ</h2>
 
             <div className="mt-3 flex h-[560px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3 xl:h-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-white/65">Preview window</p>
+                <p className="text-sm text-white/65">Окно предпросмотра</p>
                 {diagnostics.length > 0 && (
                   <button
                     type="button"
@@ -1298,7 +1362,7 @@ function PrintOnDemandContent() {
                         : "border-amber-300/60 bg-amber-500/10 text-amber-100 hover:border-amber-200"
                     }`}
                   >
-                    {showIssues ? "Hide issues" : "Show issues"}
+                    {showIssues ? "Скрыть проблемы" : "Показать проблемы"}
                   </button>
                 )}
               </div>
@@ -1345,7 +1409,7 @@ function PrintOnDemandContent() {
                       type="button"
                       onClick={() => {
                         setViewTool(tool);
-                        setNoticeWith(`Viewport mode: ${tool}.`);
+                        setNoticeWith(`Режим вьюпорта: ${tool}.`);
                       }}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-semibold uppercase transition ${
                         viewTool === tool
@@ -1362,14 +1426,14 @@ function PrintOnDemandContent() {
                     onChange={(event) => {
                       const next = event.target.value as ViewPreset;
                       setViewPreset(next);
-                      setNoticeWith(`View preset: ${VIEW_LABEL[next]}.`);
+                      setNoticeWith(`Вид камеры: ${VIEW_LABEL[next]}.`);
                     }}
                     className="rounded-lg border border-white/15 bg-[#0b1014] px-2 py-1.5 text-xs uppercase"
                   >
-                    <option value="isometric">Views: Isometric</option>
-                    <option value="front">Views: Front</option>
-                    <option value="top">Views: Top</option>
-                    <option value="left">Views: Left</option>
+                    <option value="isometric">Вид: Изометрия</option>
+                    <option value="front">Вид: Спереди</option>
+                    <option value="top">Вид: Сверху</option>
+                    <option value="left">Вид: Слева</option>
                   </select>
                 </div>
 
@@ -1383,7 +1447,7 @@ function PrintOnDemandContent() {
                         : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
-                    Grid
+                    Сетка
                   </button>
                   <button
                     type="button"
@@ -1394,7 +1458,7 @@ function PrintOnDemandContent() {
                         : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
-                    Build plate
+                    Стол печати
                   </button>
                   <button
                     type="button"
@@ -1405,21 +1469,21 @@ function PrintOnDemandContent() {
                         : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
-                    Measure
+                    Измерить
                   </button>
                   <button
                     type="button"
                     onClick={handleResetViewport}
                     className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45"
                   >
-                    Reset
+                    Сброс
                   </button>
                   <button
                     type="button"
                     onClick={handleFitToVolume}
                     className="rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                   >
-                    Fit-to-volume
+                    Подогнать под объем
                   </button>
                 </div>
               </div>
@@ -1427,7 +1491,7 @@ function PrintOnDemandContent() {
           </section>
 
           <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)]">
-            <h2 className="text-lg font-semibold tracking-wide">RIGHT: PRINT SETUP</h2>
+            <h2 className="text-lg font-semibold tracking-wide">ПРАВАЯ КОЛОНКА: НАСТРОЙКА ПЕЧАТИ</h2>
 
             <div className="mt-3 flex h-[560px] flex-col gap-3 xl:h-full">
               <div className="flex-1 space-y-2 overflow-y-auto pr-1">
@@ -1436,12 +1500,12 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("size")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Size and scale</span>
-                  <span className="text-xs text-white/55">{openSections.size ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Размер и масштаб</span>
+                  <span className="text-xs text-white/55">{openSections.size ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.size && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
-                    <label className="text-xs text-white/55">Height: {heightMm} mm</label>
+                    <label className="text-xs text-white/55">Высота: {heightMm} мм</label>
                     <input
                       type="range"
                       min={20}
@@ -1458,10 +1522,10 @@ function PrintOnDemandContent() {
                         onChange={() => setLockProportions((prev) => !prev)}
                         className="accent-[#2ED1FF]"
                       />
-                      Lock proportions
+                      Фиксировать пропорции
                     </label>
 
-                    <label className="mt-3 block text-xs text-white/55">Printer profile</label>
+                    <label className="mt-3 block text-xs text-white/55">Профиль принтера</label>
                     <select
                       value={printerProfileId}
                       onChange={(event) => setPrinterProfileId(event.target.value)}
@@ -1479,7 +1543,7 @@ function PrintOnDemandContent() {
                       onClick={handleAutoFit}
                       className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
-                      Auto-fit
+                      Автоподгонка
                     </button>
                   </div>
                 )}
@@ -1489,8 +1553,8 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("quality")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Quality</span>
-                  <span className="text-xs text-white/55">{openSections.quality ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Качество</span>
+                  <span className="text-xs text-white/55">{openSections.quality ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.quality && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
@@ -1518,12 +1582,12 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("orientation")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Orientation</span>
-                  <span className="text-xs text-white/55">{openSections.orientation ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Ориентация</span>
+                  <span className="text-xs text-white/55">{openSections.orientation ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.orientation && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
-                    <label className="text-xs text-white/55">Recommended preset</label>
+                    <label className="text-xs text-white/55">Рекомендуемый пресет</label>
                     <select
                       value={orientationPreset}
                       onChange={(event) => setOrientationPreset(event.target.value as OrientationPreset)}
@@ -1542,14 +1606,14 @@ function PrintOnDemandContent() {
                         onClick={handleApplyOrientation}
                         className="rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                       >
-                        Apply preset
+                        Применить пресет
                       </button>
                       <button
                         type="button"
                         onClick={handleManualRotate}
                         className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45"
                       >
-                        Manual rotate
+                        Ручной поворот
                       </button>
                     </div>
                   </div>
@@ -1560,13 +1624,13 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("supports")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Supports</span>
-                  <span className="text-xs text-white/55">{openSections.supports ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Поддержки</span>
+                  <span className="text-xs text-white/55">{openSections.supports ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.supports && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
-                      <span>Enable supports</span>
+                      <span>Включить поддержки</span>
                       <input
                         type="checkbox"
                         checked={supportsEnabled}
@@ -1582,29 +1646,29 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("hollow")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Hollow (SLA only)</span>
-                  <span className="text-xs text-white/55">{openSections.hollow ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Полая модель (только SLA)</span>
+                  <span className="text-xs text-white/55">{openSections.hollow ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.hollow && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
-                      <span>Enable hollow</span>
+                      <span>Сделать полой</span>
                       <input
                         type="checkbox"
                         checked={hollowEnabled}
                         disabled={tech !== "SLA"}
                         onChange={() => {
                           if (tech !== "SLA") {
-                            setNoticeWith("Hollow is available only for SLA. Coming soon for FDM.");
+                            setNoticeWith("Полая модель доступна только для SLA. Для FDM позже.");
                             return;
                           }
                           setHollowEnabled((prev) => !prev);
                         }}
-                        title={tech !== "SLA" ? "coming soon" : undefined}
+                        title={tech !== "SLA" ? "скоро" : undefined}
                         className="accent-[#2ED1FF] disabled:cursor-not-allowed"
                       />
                     </label>
-                    {tech !== "SLA" && <p className="mt-2 text-xs text-amber-200">Disabled for FDM. Coming soon.</p>}
+                    {tech !== "SLA" && <p className="mt-2 text-xs text-amber-200">Недоступно для FDM. Скоро.</p>}
                   </div>
                 )}
 
@@ -1613,13 +1677,13 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("autofix")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Auto-fix mesh</span>
-                  <span className="text-xs text-white/55">{openSections.autofix ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Авто-фикс сетки</span>
+                  <span className="text-xs text-white/55">{openSections.autofix ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.autofix && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
-                      <span>Enable auto-fix</span>
+                      <span>Включить авто-фикс</span>
                       <input
                         type="checkbox"
                         checked={autoFixMesh}
@@ -1632,7 +1696,7 @@ function PrintOnDemandContent() {
                       onClick={handleAutoFixRun}
                       className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
-                      Run auto-fix
+                      Запустить авто-фикс
                     </button>
                   </div>
                 )}
@@ -1642,13 +1706,13 @@ function PrintOnDemandContent() {
                   onClick={() => toggleSection("diagnostics")}
                   className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
-                  <span className="text-sm font-semibold">Diagnostics</span>
-                  <span className="text-xs text-white/55">{openSections.diagnostics ? "Hide" : "Show"}</span>
+                  <span className="text-sm font-semibold">Диагностика</span>
+                  <span className="text-xs text-white/55">{openSections.diagnostics ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.diagnostics && (
                   <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
-                      <span>Enable diagnostics</span>
+                      <span>Включить диагностику</span>
                       <input
                         type="checkbox"
                         checked={diagnosticsEnabled}
@@ -1662,11 +1726,11 @@ function PrintOnDemandContent() {
                       onClick={handleRunDiagnostics}
                       className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
-                      Re-run diagnostics
+                      Перезапустить диагностику
                     </button>
 
                     <ul className="mt-3 space-y-1 text-xs text-white/65">
-                      {diagnostics.length === 0 && <li>No issues found.</li>}
+                      {diagnostics.length === 0 && <li>Проблем не найдено.</li>}
                       {diagnostics.map((issue) => (
                         <li key={issue.id}>
                           {issue.title} ({issue.severity})
@@ -1678,30 +1742,30 @@ function PrintOnDemandContent() {
               </div>
 
               <section className="sticky bottom-0 rounded-xl border border-white/15 bg-[#05070a]/94 p-3 backdrop-blur">
-                <h3 className="text-base font-semibold text-white">Order summary</h3>
+                <h3 className="text-base font-semibold text-white">Сводка заказа</h3>
                 <div className="mt-2 flex items-center justify-between text-sm">
-                  <span className="text-white/55">Price</span>
+                  <span className="text-white/55">Цена</span>
                   <span className="font-semibold text-white">{formatPrice(price)}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-white/55">ETA</span>
+                  <span className="text-white/55">Срок</span>
                   <span className="font-semibold text-white">{formatEta(etaMinutes)}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-white/55">Risk</span>
+                  <span className="text-white/55">Риск</span>
                   <span className={`font-semibold ${riskTone}`}>{risk}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-white/55">Fit</span>
+                  <span className="text-white/55">Попадание в объем</span>
                   <span className={`font-semibold ${fitTone}`}>{fitStatus}</span>
                 </div>
                 {scaledDimensionsMm && (
                   <p className="mt-1 text-xs text-white/55">
-                    Model size: {formatDims(scaledDimensionsMm.x, scaledDimensionsMm.y, scaledDimensionsMm.z)}
+                    Размер модели: {formatDims(scaledDimensionsMm.x, scaledDimensionsMm.y, scaledDimensionsMm.z)}
                   </p>
                 )}
 
-                <p className="mt-3 text-xs text-white/55">Delivery: calculated at checkout.</p>
+                <p className="mt-3 text-xs text-white/55">Доставка: рассчитывается при оформлении.</p>
                 {addToCartValidationError && (
                   <p className="mt-2 text-xs text-amber-200">{addToCartValidationError}</p>
                 )}
@@ -1714,7 +1778,7 @@ function PrintOnDemandContent() {
                     title={addToCartValidationError ?? undefined}
                     className="flex-1 rounded-lg border border-[#2ED1FF]/70 bg-[#2ED1FF]/10 px-3 py-2 text-sm font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Add to cart
+                    Добавить в корзину
                   </button>
                   <button
                     type="button"
@@ -1723,7 +1787,7 @@ function PrintOnDemandContent() {
                     title={checkoutValidationError ?? undefined}
                     className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    Continue to checkout
+                    Перейти к оформлению
                   </button>
                 </div>
               </section>
