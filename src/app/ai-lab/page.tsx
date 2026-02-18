@@ -1440,13 +1440,12 @@ function AiLabContent() {
   const [focusMode, setFocusMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [leftTool, setLeftTool] = useState<LeftTool>("generate");
-  const [projectMenuOpen, setProjectMenuOpen] = useState(false);
   const [tokensPopoverOpen, setTokensPopoverOpen] = useState(false);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [jobsConsoleOpen, setJobsConsoleOpen] = useState(false);
   const [rightPanelQuery, setRightPanelQuery] = useState("");
-  const [currentProjectName, setCurrentProjectName] = useState("Основной проект");
+  const currentProjectName = "Личный проект";
   const [uiThemeMode, setUiThemeMode] = useState<"dark" | "auto">("dark");
   const [prefersDarkScheme, setPrefersDarkScheme] = useState(true);
   const [viewerQuality, setViewerQuality] = useState<"performance" | "quality">("quality");
@@ -3607,7 +3606,6 @@ function AiLabContent() {
     setModelScale(nextScale);
   }, []);
   const isDesktopPanelHidden = focusMode || panelCollapsed;
-  const supportedProjects = ["Основной проект", "Демо клиента", "R&D"];
   const viewportCameraPosition = useMemo<[number, number, number]>(() => {
     if (viewportViewPreset === "front") return [0, 1.35, 4.8];
     if (viewportViewPreset === "back") return [0, 1.35, -4.8];
@@ -3679,19 +3677,6 @@ function AiLabContent() {
     link.click();
     showSuccess("Скриншот сохранен.");
   }, [showError, showSuccess, viewportBackgroundMode]);
-  const handleSelectProject = useCallback(
-    (name: string) => {
-      setCurrentProjectName(name);
-      setLabPanelTab("history");
-      setProjectMenuOpen(false);
-      setRightPanelQuery("");
-      setLeftTool("generate");
-      void fetchTokens(true);
-      void fetchTokenHistory(true);
-      showSuccess(`Проект переключен: ${name}`);
-    },
-    [fetchTokenHistory, fetchTokens, showSuccess]
-  );
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
@@ -3723,7 +3708,6 @@ function AiLabContent() {
   }, [showSuccess]);
   useEffect(() => {
     const onGlobalClick = () => {
-      setProjectMenuOpen(false);
       setTokensPopoverOpen(false);
       setQuickSettingsOpen(false);
       setUserMenuOpen(false);
@@ -3769,75 +3753,22 @@ function AiLabContent() {
                 3D-STORE
               </a>
               <nav className="hidden items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/70 lg:flex">
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setProjectMenuOpen((prev) => !prev);
-                      setTokensPopoverOpen(false);
-                      setQuickSettingsOpen(false);
-                      setUserMenuOpen(false);
-                    }}
-                    className="inline-flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 transition hover:border-white/35 hover:text-white"
-                  >
-                    {currentProjectName}
-                    <ChevronDown className={`h-3.5 w-3.5 transition ${projectMenuOpen ? "rotate-180" : ""}`} />
-                  </button>
-                  {projectMenuOpen && (
-                    <div
-                      onClick={(event) => event.stopPropagation()}
-                      className="absolute left-0 top-10 z-50 w-[240px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
-                    >
-                      <p className="px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/45">
-                        Выбор проекта
-                      </p>
-                      {supportedProjects.map((projectName) => (
-                        <button
-                          key={projectName}
-                          type="button"
-                          onClick={() => handleSelectProject(projectName)}
-                          className={`flex w-full items-center justify-between rounded-lg border px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
-                            currentProjectName === projectName
-                              ? "border-cyan-300/50 bg-cyan-500/10 text-cyan-100"
-                              : "border-white/10 bg-white/[0.02] text-white/70 hover:border-white/30 hover:text-white"
-                          }`}
-                        >
-                          {projectName}
-                          {currentProjectName === projectName && <span className="text-[9px] text-cyan-200">АКТИВЕН</span>}
-                        </button>
-                      ))}
-                      <div className="my-1 border-t border-white/10" />
-                      {(
-                        [
-                          ["Создать проект", true],
-                          ["Переименовать проект", true],
-                          ["Удалить проект", true],
-                        ] as Array<[string, boolean]>
-                      ).map(([label, disabled]) => (
-                        <button
-                          key={label}
-                          type="button"
-                          disabled={disabled}
-                          title="Скоро"
-                          className="w-full rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40 disabled:cursor-not-allowed"
-                        >
-                          {label}
-                        </button>
-                      ))}
-                      <button
-                        type="button"
-                        onClick={() => {
-                          router.push("/profile");
-                          setProjectMenuOpen(false);
-                        }}
-                        className="w-full rounded-lg border border-emerald-300/35 bg-emerald-500/10 px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-200"
-                      >
-                        Открыть настройки
-                      </button>
-                    </div>
-                  )}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setTokensPopoverOpen(false);
+                    setQuickSettingsOpen(false);
+                    setUserMenuOpen(false);
+                    showSuccess("Командные workspace будут добавлены позже. Сейчас доступен личный проект.");
+                  }}
+                  className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 transition hover:border-white/35 hover:text-white"
+                  title="Workspaces в разработке"
+                >
+                  <span>{currentProjectName}</span>
+                  <span className="rounded-full border border-white/20 px-2 py-0.5 text-[8px] tracking-[0.22em] text-white/55">
+                    WORKSPACE СКОРО
+                  </span>
+                </button>
                 <button
                   type="button"
                   onClick={() => setLabPanelTab("assets")}
@@ -3880,7 +3811,6 @@ function AiLabContent() {
                   onClick={(event) => {
                     event.stopPropagation();
                     setTokensPopoverOpen((prev) => !prev);
-                    setProjectMenuOpen(false);
                     setQuickSettingsOpen(false);
                     setUserMenuOpen(false);
                   }}
@@ -3948,7 +3878,6 @@ function AiLabContent() {
                   onClick={(event) => {
                     event.stopPropagation();
                     setQuickSettingsOpen((prev) => !prev);
-                    setProjectMenuOpen(false);
                     setTokensPopoverOpen(false);
                     setUserMenuOpen(false);
                   }}
@@ -4041,7 +3970,6 @@ function AiLabContent() {
                   onClick={(event) => {
                     event.stopPropagation();
                     setUserMenuOpen((prev) => !prev);
-                    setProjectMenuOpen(false);
                     setTokensPopoverOpen(false);
                     setQuickSettingsOpen(false);
                   }}
