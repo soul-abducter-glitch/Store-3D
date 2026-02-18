@@ -30,9 +30,9 @@ import {
   BufferGeometry,
   Color,
   MOUSE,
-  Points,
   PointsMaterial,
   type Group,
+  type LineBasicMaterial,
   type Mesh,
   type MeshBasicMaterial,
   type MeshStandardMaterial,
@@ -1062,36 +1062,46 @@ const subscriptionStatusLabel = (value?: string) => {
 
 function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: number }) {
   const groupRef = useRef<Group | null>(null);
-  const pointsRef = useRef<Points | null>(null);
   const geometryRef = useRef<BufferGeometry | null>(null);
+  const frameGeometryRef = useRef<BufferGeometry | null>(null);
   const materialRef = useRef<PointsMaterial | null>(null);
-  const pointsCount = 3400;
-  const [targetPositions, scatterPositions, phases] = useMemo(() => {
+  const frameMaterialRef = useRef<LineBasicMaterial | null>(null);
+  const scanRingRef = useRef<Mesh | null>(null);
+  const scanRingMaterialRef = useRef<MeshBasicMaterial | null>(null);
+  const pointsCount = 4200;
+  const [targetPositions, streamPositions, phases, colors] = useMemo(() => {
     const target = new Float32Array(pointsCount * 3);
-    const scatter = new Float32Array(pointsCount * 3);
+    const stream = new Float32Array(pointsCount * 3);
     const phase = new Float32Array(pointsCount);
+    const colorArray = new Float32Array(pointsCount * 3);
+    const cold = new Color("#9EDBFF");
+    const white = new Color("#FFFFFF");
+    const warm = new Color("#BFFCFF");
+    const tmp = new Color();
+
     const sampleFigurePoint = () => {
       const area = Math.random();
-      if (area < 0.22) {
+      if (area < 0.2) {
         const theta = Math.random() * Math.PI * 2;
-        const radius = Math.sqrt(Math.random()) * 0.34;
+        const radius = Math.sqrt(Math.random()) * 0.33;
         const x = Math.cos(theta) * radius;
-        const z = Math.sin(theta) * radius * 0.8;
-        const y = 1.16 + (Math.random() - 0.5) * 0.34;
+        const z = Math.sin(theta) * radius * 0.82;
+        const y = 1.18 + (Math.random() - 0.5) * 0.34;
         return [x, y, z] as const;
       }
-      if (area < 0.66) {
+      if (area < 0.68) {
         const x = (Math.random() - 0.5) * 0.95;
-        const z = (Math.random() - 0.5) * 0.52;
-        const y = 0.35 + Math.random() * 0.84;
+        const z = (Math.random() - 0.5) * 0.5;
+        const y = 0.32 + Math.random() * 0.88;
         return [x, y, z] as const;
       }
       const left = Math.random() > 0.5 ? -1 : 1;
-      const x = left * (0.16 + Math.random() * 0.24) + (Math.random() - 0.5) * 0.08;
+      const x = left * (0.15 + Math.random() * 0.24) + (Math.random() - 0.5) * 0.09;
       const z = (Math.random() - 0.5) * 0.42;
-      const y = -0.62 + Math.random() * 0.98;
+      const y = -0.64 + Math.random() * 1.02;
       return [x, y, z] as const;
     };
+
     for (let i = 0; i < pointsCount; i += 1) {
       const [x, y, z] = sampleFigurePoint();
       const base = i * 3;
@@ -1099,66 +1109,133 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
       target[base + 1] = y;
       target[base + 2] = z;
 
-      const phi = Math.random() * Math.PI * 2;
-      const theta = Math.acos(2 * Math.random() - 1);
-      const radius = 1.45 + Math.random() * 1.4;
-      scatter[base] = Math.sin(theta) * Math.cos(phi) * radius;
-      scatter[base + 1] = Math.cos(theta) * radius * 0.75;
-      scatter[base + 2] = Math.sin(theta) * Math.sin(phi) * radius;
+      const lane = Math.random() > 0.5 ? 1 : -1;
+      stream[base] = lane * (0.95 + Math.random() * 0.95);
+      stream[base + 1] = -1.15 + Math.random() * 2.45;
+      stream[base + 2] = (Math.random() - 0.5) * 0.95;
+
       phase[i] = Math.random() * Math.PI * 2;
+
+      const yNorm = clampNumber((y + 1.2) / 2.5, 0, 1);
+      tmp.copy(cold).lerp(white, yNorm * 0.65).lerp(warm, Math.random() * 0.25);
+      colorArray[base] = tmp.r;
+      colorArray[base + 1] = tmp.g;
+      colorArray[base + 2] = tmp.b;
     }
-    return [target, scatter, phase] as const;
+    return [target, stream, phase, colorArray] as const;
   }, []);
-  const livePositions = useMemo(() => new Float32Array(scatterPositions), [scatterPositions]);
+  const framePositions = useMemo(() => {
+    const lines: number[] = [];
+    const add = (x1: number, y1: number, z1: number, x2: number, y2: number, z2: number) => {
+      lines.push(x1, y1, z1, x2, y2, z2);
+    };
+    const radius = 1.12;
+    const topY = 1.28;
+    const bottomY = -0.95;
+    const points = Array.from({ length: 6 }, (_, i) => {
+      const a = (Math.PI * 2 * i) / 6 + Math.PI / 6;
+      return [Math.cos(a) * radius, Math.sin(a) * radius] as const;
+    });
+    for (let i = 0; i < points.length; i += 1) {
+      const [x1, z1] = points[i];
+      const [x2, z2] = points[(i + 1) % points.length];
+      add(x1, bottomY, z1, x2, bottomY, z2);
+      add(x1 * 0.8, topY, z1 * 0.8, x2 * 0.8, topY, z2 * 0.8);
+      add(x1, bottomY, z1, x1 * 0.8, topY, z1 * 0.8);
+    }
+    add(-0.9, 0.2, 0, 0.9, 0.2, 0);
+    add(0, -0.7, -0.65, 0, 1.05, 0.65);
+    add(-0.55, -0.6, 0.5, 0.55, 0.95, -0.5);
+    return new Float32Array(lines);
+  }, []);
+  const livePositions = useMemo(() => new Float32Array(streamPositions), [streamPositions]);
 
   useEffect(() => {
     if (!geometryRef.current) return;
-    const attribute = new BufferAttribute(livePositions, 3);
-    geometryRef.current.setAttribute("position", attribute);
+    geometryRef.current.setAttribute("position", new BufferAttribute(livePositions, 3));
+    geometryRef.current.setAttribute("color", new BufferAttribute(colors, 3));
     geometryRef.current.computeBoundingSphere();
-  }, [livePositions]);
+  }, [colors, livePositions]);
+
+  useEffect(() => {
+    if (!frameGeometryRef.current) return;
+    frameGeometryRef.current.setAttribute("position", new BufferAttribute(framePositions, 3));
+    frameGeometryRef.current.computeBoundingSphere();
+  }, [framePositions]);
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
     const progress01 = active ? clampNumber(progress / 100, 0, 1) : 0;
-    const revealBase = 0.12 + progress01 * 1.12;
+    const revealBase = 0.1 + progress01 * 1.2;
 
     for (let i = 0; i < pointsCount; i += 1) {
       const base = i * 3;
-      const order = i / pointsCount;
-      const reveal = clampNumber((revealBase - order) / 0.42, 0, 1);
+      const yOrder = clampNumber((targetPositions[base + 1] + 1.2) / 2.5, 0, 1);
+      const reveal = clampNumber((revealBase - yOrder) / 0.36, 0, 1);
       const mix = active ? reveal : 0;
-      const flutter = (1 - mix) * 0.11 + 0.018;
+      const flutter = (1 - mix) * 0.14 + 0.012;
 
-      const waveX = Math.sin(t * 2.8 + phases[i]) * flutter;
-      const waveY = Math.cos(t * 3.1 + phases[i] * 1.4) * flutter;
-      const waveZ = Math.sin(t * 2.4 + phases[i] * 0.8) * flutter;
+      const waveX = Math.sin(t * 3.2 + phases[i] * 1.1) * flutter;
+      const waveY = Math.cos(t * 3.6 + phases[i] * 0.8) * flutter;
+      const waveZ = Math.sin(t * 2.7 + phases[i] * 1.4) * flutter;
 
-      livePositions[base] = scatterPositions[base] * (1 - mix) + targetPositions[base] * mix + waveX;
+      livePositions[base] = streamPositions[base] * (1 - mix) + targetPositions[base] * mix + waveX;
       livePositions[base + 1] =
-        scatterPositions[base + 1] * (1 - mix) + targetPositions[base + 1] * mix + waveY;
+        streamPositions[base + 1] * (1 - mix) + targetPositions[base + 1] * mix + waveY;
       livePositions[base + 2] =
-        scatterPositions[base + 2] * (1 - mix) + targetPositions[base + 2] * mix + waveZ;
+        streamPositions[base + 2] * (1 - mix) + targetPositions[base + 2] * mix + waveZ;
     }
 
     const attr = geometryRef.current?.getAttribute("position");
     if (attr) attr.needsUpdate = true;
     if (materialRef.current) {
-      materialRef.current.opacity = active ? 0.88 : 0.65;
-      materialRef.current.size = active ? 0.024 : 0.02;
+      materialRef.current.opacity = active ? 0.85 : 0.58;
+      materialRef.current.size = active ? 0.025 : 0.018;
+    }
+    if (frameMaterialRef.current) {
+      frameMaterialRef.current.opacity = active ? 0.18 + progress01 * 0.42 : 0.12;
+    }
+    if (scanRingRef.current) {
+      const travel = active ? ((t * 0.45) % 1) : 0;
+      scanRingRef.current.position.y = -0.9 + travel * 2.15;
+      scanRingRef.current.scale.setScalar(1 + Math.sin(t * 4.6) * 0.02);
+    }
+    if (scanRingMaterialRef.current) {
+      scanRingMaterialRef.current.opacity = active ? 0.18 + Math.sin(t * 4) * 0.05 : 0.08;
     }
     if (groupRef.current) {
-      groupRef.current.rotation.y = Math.sin(t * 0.45) * 0.12;
+      groupRef.current.rotation.y = Math.sin(t * 0.35) * 0.09;
     }
   });
 
   return (
     <group ref={groupRef} position={[0, -0.15, 0]}>
-      <points ref={pointsRef} frustumCulled={false}>
+      <lineSegments>
+        <bufferGeometry ref={frameGeometryRef} />
+        <lineBasicMaterial
+          ref={frameMaterialRef}
+          color="#8CCBFF"
+          transparent
+          opacity={0.3}
+          blending={AdditiveBlending}
+        />
+      </lineSegments>
+      <mesh ref={scanRingRef} rotation={[Math.PI / 2, 0, 0]} position={[0, -0.9, 0]}>
+        <ringGeometry args={[0.22, 0.92, 72]} />
+        <meshBasicMaterial
+          ref={scanRingMaterialRef}
+          color="#BFE9FF"
+          transparent
+          opacity={0.2}
+          blending={AdditiveBlending}
+          depthWrite={false}
+        />
+      </mesh>
+      <points frustumCulled={false}>
         <bufferGeometry ref={geometryRef} />
         <pointsMaterial
           ref={materialRef}
-          color="#E6F4FF"
+          vertexColors
           size={0.024}
           transparent
           opacity={0.88}
@@ -1167,7 +1244,7 @@ function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: numb
           sizeAttenuation
         />
       </points>
-      <Sparkles count={130} scale={3.4} size={1.25} color="#D6ECFF" speed={0.3} opacity={0.35} />
+      <Sparkles count={80} scale={2.8} size={1.15} color="#D6ECFF" speed={0.22} opacity={0.22} />
     </group>
   );
 }
