@@ -16,6 +16,7 @@ type ModelViewProps = {
   finish: Finish;
   renderMode: RenderMode;
   accentColor: string;
+  baseColor?: string;
   onBounds?: (bounds: {
     size: number;
     boxSize: [number, number, number];
@@ -36,6 +37,7 @@ export default function ModelView({
   finish,
   renderMode,
   accentColor,
+  baseColor,
   onBounds,
   onStats,
   onReady,
@@ -83,7 +85,7 @@ export default function ModelView({
     >
   >(new Map());
   const normalizedScenes = useRef<WeakSet<object>>(new WeakSet());
-  const baseModeColor = useMemo(() => new Color("#4a4a4a"), []);
+  const baseModeColor = useMemo(() => new Color(baseColor ?? "#4a4a4a"), [baseColor]);
   const baseRoughness = 0.85;
   const baseMetalness = 0.05;
   const [isReady, setIsReady] = useState(false);
@@ -465,6 +467,7 @@ export default function ModelView({
     paintedModelUrl,
     isReady,
     accentColor,
+    baseModeColor,
   ]);
 
   return <primitive object={scene} dispose={null} />;

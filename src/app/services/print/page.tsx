@@ -18,6 +18,7 @@ type QualityPreset = "draft" | "standard" | "pro";
 type OrientationPreset = "balanced" | "risk" | "speed";
 type ViewTool = "orbit" | "pan" | "zoom";
 type ViewPreset = "isometric" | "front" | "top" | "left";
+type ViewRenderMode = "final" | "base";
 type SectionId = "size" | "quality" | "orientation" | "supports" | "hollow" | "autofix" | "diagnostics";
 
 type SelectedModel = {
@@ -109,6 +110,11 @@ const MATERIALS_BY_TECH: Record<PrintTech, string[]> = {
 const COLORS_BY_TECH: Record<PrintTech, string[]> = {
   SLA: ["Серый", "Прозрачный", "Черный"],
   FDM: ["Черный", "Белый", "Красный"],
+};
+
+const COLOR_HEX_BY_TECH_INDEX: Record<PrintTech, string[]> = {
+  SLA: ["#9CA3AF", "#CFE8FF", "#111827"],
+  FDM: ["#111827", "#F3F4F6", "#DC2626"],
 };
 
 const PRINTER_PROFILES: PrinterProfile[] = [
@@ -219,6 +225,8 @@ function ViewportScene({
   gridOn,
   plateOn,
   showIssues,
+  renderMode,
+  baseColor,
   view,
   fitSignal,
   rotationDeg,
@@ -231,6 +239,8 @@ function ViewportScene({
   gridOn: boolean;
   plateOn: boolean;
   showIssues: boolean;
+  renderMode: ViewRenderMode;
+  baseColor: string;
   view: ViewPreset;
   fitSignal: number;
   rotationDeg: number;
@@ -284,8 +294,9 @@ function ViewportScene({
             <ModelView
               rawModelUrl={modelUrl}
               finish="Raw"
-              renderMode="final"
+              renderMode={renderMode}
               accentColor="#2ed1ff"
+              baseColor={baseColor}
               onBounds={onBounds}
             />
           </Suspense>
@@ -349,6 +360,7 @@ function PrintOnDemandContent() {
   const [packaging, setPackaging] = useState<"standard" | "gift">("standard");
 
   const [viewTool, setViewTool] = useState<ViewTool>("orbit");
+  const [viewRenderMode, setViewRenderMode] = useState<ViewRenderMode>("final");
   const [viewPreset, setViewPreset] = useState<ViewPreset>("isometric");
   const [showGrid, setShowGrid] = useState(true);
   const [showBuildPlate, setShowBuildPlate] = useState(true);
@@ -357,6 +369,12 @@ function PrintOnDemandContent() {
   const [fitSignal, setFitSignal] = useState(0);
   const [rotationDeg, setRotationDeg] = useState(0);
   const [bounds, setBounds] = useState<ModelBounds | null>(null);
+
+  const selectedColorHex = useMemo(() => {
+    const options = COLORS_BY_TECH[tech];
+    const index = Math.max(0, options.indexOf(color));
+    return COLOR_HEX_BY_TECH_INDEX[tech][index] ?? "#9CA3AF";
+  }, [color, tech]);
 
   const [heightMm, setHeightMm] = useState(120);
   const [lockProportions, setLockProportions] = useState(true);
@@ -806,6 +824,7 @@ function PrintOnDemandContent() {
 
   const handleResetViewport = () => {
     setViewTool("orbit");
+    setViewRenderMode("final");
     setViewPreset("isometric");
     setShowGrid(true);
     setShowBuildPlate(true);
@@ -987,7 +1006,11 @@ function PrintOnDemandContent() {
         sourcePrice: Math.max(0, Math.round(price)),
         technology: tech === "SLA" ? "SLA смола" : "FDM пластик",
         material,
+        color,
         quality: qualityPreset === "pro" ? "0.05mm" : qualityPreset === "draft" ? "Черновик" : "0.1mm",
+        note: note.trim() || undefined,
+        packaging: packaging === "gift" ? "Подарочная" : "Стандартная",
+        isHollow: tech === "SLA" ? hollowEnabled : false,
         dimensions: scaledDimensionsMm
           ? {
               x: Number(scaledDimensionsMm.x.toFixed(2)),
@@ -1385,6 +1408,8 @@ function PrintOnDemandContent() {
                     gridOn={showGrid}
                     plateOn={showBuildPlate}
                     showIssues={showIssues}
+                    renderMode={viewRenderMode}
+                    baseColor={selectedColorHex}
                     view={viewPreset}
                     fitSignal={fitSignal}
                     rotationDeg={rotationDeg}
@@ -1459,6 +1484,27 @@ function PrintOnDemandContent() {
                     }`}
                   >
                     Стол печати
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setViewRenderMode((prev) => {
+                        const next = prev === "final" ? "base" : "final";
+                        setNoticeWith(
+                          next === "base"
+                            ? "Режим отображения: без текстур."
+                            : "Режим отображения: с текстурами."
+                        );
+                        return next;
+                      });
+                    }}
+                    className={`rounded-lg border px-3 py-1.5 text-xs transition ${
+                      viewRenderMode === "base"
+                        ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                        : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
+                    }`}
+                  >
+                    {viewRenderMode === "base" ? "Текстуры: выкл" : "Текстуры: вкл"}
                   </button>
                   <button
                     type="button"

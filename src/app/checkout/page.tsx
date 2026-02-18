@@ -59,7 +59,11 @@ type CustomPrintMeta = {
   sourcePrice?: number;
   technology?: string;
   material?: string;
+  color?: string;
   quality?: string;
+  note?: string;
+  packaging?: string;
+  isHollow?: boolean;
   dimensions?: { x: number; y: number; z: number };
   volumeCm3?: number;
 };
@@ -119,7 +123,11 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     sourcePrice: typeof raw.sourcePrice === "number" ? raw.sourcePrice : undefined,
     technology: typeof raw.technology === "string" ? raw.technology : undefined,
     material: typeof raw.material === "string" ? raw.material : undefined,
+    color: typeof raw.color === "string" ? raw.color : undefined,
     quality: typeof raw.quality === "string" ? raw.quality : undefined,
+    note: typeof raw.note === "string" ? raw.note : undefined,
+    packaging: typeof raw.packaging === "string" ? raw.packaging : undefined,
+    isHollow: typeof raw.isHollow === "boolean" ? raw.isHollow : undefined,
     dimensions,
     volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
   };
@@ -2026,7 +2034,11 @@ const CheckoutPage = () => {
         printSpecs?: {
           technology?: string;
           material?: string;
+          color?: string;
           quality?: string;
+          note?: string;
+          packaging?: string;
+          isHollow?: boolean;
           dimensions?: { x: number; y: number; z: number };
           volumeCm3?: number;
         };
@@ -2048,7 +2060,11 @@ const CheckoutPage = () => {
           ? {
               technology: item.customPrint.technology,
               material: item.customPrint.material,
+              color: item.customPrint.color,
               quality: item.customPrint.quality,
+              note: item.customPrint.note,
+              packaging: item.customPrint.packaging,
+              isHollow: item.customPrint.isHollow,
               dimensions: item.customPrint.dimensions,
               volumeCm3: item.customPrint.volumeCm3,
             }

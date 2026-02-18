@@ -210,7 +210,10 @@ type CustomPrintMeta = {
   uploadName?: string;
   technology?: string;
   material?: string;
+  color?: string;
   quality?: string;
+  note?: string;
+  packaging?: string;
   dimensions?: { x: number; y: number; z: number };
   volumeCm3?: number;
 };
@@ -1344,7 +1347,10 @@ export default function Home() {
       uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
       technology: typeof raw.technology === "string" ? raw.technology : undefined,
       material: typeof raw.material === "string" ? raw.material : undefined,
+      color: typeof raw.color === "string" ? raw.color : undefined,
       quality: typeof raw.quality === "string" ? raw.quality : undefined,
+      note: typeof raw.note === "string" ? raw.note : undefined,
+      packaging: typeof raw.packaging === "string" ? raw.packaging : undefined,
       dimensions,
       volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
     };

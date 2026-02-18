@@ -57,7 +57,10 @@ const normalizePrintSpecs = (value: any) => {
   const normalized: {
     technology?: string;
     material?: string;
+    color?: string;
     quality?: string;
+    note?: string;
+    packaging?: string;
     dimensions?: { x: number; y: number; z: number };
     volumeCm3?: number;
     isHollow?: boolean;
@@ -75,7 +78,10 @@ const normalizePrintSpecs = (value: any) => {
   } = {
     technology: typeof value.technology === "string" ? value.technology : undefined,
     material: typeof value.material === "string" ? value.material : undefined,
+    color: typeof value.color === "string" ? value.color.slice(0, 64) : undefined,
     quality: typeof value.quality === "string" ? value.quality : undefined,
+    note: typeof value.note === "string" ? value.note.slice(0, 400) : undefined,
+    packaging: typeof value.packaging === "string" ? value.packaging.slice(0, 64) : undefined,
     dimensions,
     volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
     isHollow: typeof value.isHollow === "boolean" ? value.isHollow : undefined,
@@ -441,7 +447,10 @@ export async function POST(request: NextRequest) {
           orderData.technicalSpecs = {
             technology: firstPrintItem.printSpecs.technology,
             material: firstPrintItem.printSpecs.material,
+            color: (firstPrintItem.printSpecs as any).color,
             quality: firstPrintItem.printSpecs.quality,
+            note: (firstPrintItem.printSpecs as any).note,
+            packaging: (firstPrintItem.printSpecs as any).packaging,
             dimensions: firstPrintItem.printSpecs.dimensions,
             volumeCm3: firstPrintItem.printSpecs.volumeCm3,
             isHollow: firstPrintItem.printSpecs.isHollow,
@@ -695,7 +704,10 @@ export async function POST(request: NextRequest) {
           | {
               technology?: string;
               material?: string;
+              color?: string;
               quality?: string;
+              note?: string;
+              packaging?: string;
               dimensions?: { x: number; y: number; z: number };
               volumeCm3?: number;
               isHollow?: boolean;

@@ -74,7 +74,10 @@ type CustomPrintMeta = {
   sourcePrice?: number;
   technology?: string;
   material?: string;
+  color?: string;
   quality?: string;
+  note?: string;
+  packaging?: string;
   isHollow?: boolean;
   infillPercent?: number;
   dimensions?: { x: number; y: number; z: number };
@@ -364,7 +367,10 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
     technology: typeof raw.technology === "string" ? raw.technology : undefined,
     material: typeof raw.material === "string" ? raw.material : undefined,
+    color: typeof raw.color === "string" ? raw.color : undefined,
     quality: typeof raw.quality === "string" ? raw.quality : undefined,
+    note: typeof raw.note === "string" ? raw.note : undefined,
+    packaging: typeof raw.packaging === "string" ? raw.packaging : undefined,
     dimensions,
     volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
   };
@@ -1318,7 +1324,27 @@ export default function ProfilePage() {
       typeof printItem?.printSpecs?.technology === "string"
         ? printItem.printSpecs.technology
         : null;
-    return { filename, technology };
+    const material =
+      typeof printItem?.printSpecs?.material === "string"
+        ? printItem.printSpecs.material
+        : null;
+    const color =
+      typeof printItem?.printSpecs?.color === "string" ? printItem.printSpecs.color : null;
+    const quality =
+      typeof printItem?.printSpecs?.quality === "string"
+        ? printItem.printSpecs.quality
+        : null;
+    const packaging =
+      typeof printItem?.printSpecs?.packaging === "string"
+        ? printItem.printSpecs.packaging
+        : null;
+    const note =
+      typeof printItem?.printSpecs?.note === "string" ? printItem.printSpecs.note : null;
+    const isHollow =
+      typeof printItem?.printSpecs?.isHollow === "boolean"
+        ? printItem.printSpecs.isHollow
+        : null;
+    return { filename, technology, material, color, quality, packaging, note, isHollow };
   };
 
   const getOrderStatusClass = (status?: string) => getOrderStatusTone(status);
@@ -1506,8 +1532,16 @@ export default function ProfilePage() {
                       : undefined,
                   material:
                     typeof item?.printSpecs?.material === "string" ? item.printSpecs.material : undefined,
+                  color:
+                    typeof item?.printSpecs?.color === "string" ? item.printSpecs.color : undefined,
                   quality:
                     typeof item?.printSpecs?.quality === "string" ? item.printSpecs.quality : undefined,
+                  note:
+                    typeof item?.printSpecs?.note === "string" ? item.printSpecs.note : undefined,
+                  packaging:
+                    typeof item?.printSpecs?.packaging === "string"
+                      ? item.printSpecs.packaging
+                      : undefined,
                   isHollow:
                     typeof item?.printSpecs?.isHollow === "boolean"
                       ? item.printSpecs.isHollow
@@ -2572,6 +2606,26 @@ export default function ProfilePage() {
                             <p className="text-xs text-white/50">
                               Технология: {printInfo.technology}
                             </p>
+                          )}
+                          {printInfo.material && (
+                            <p className="text-xs text-white/50">Материал: {printInfo.material}</p>
+                          )}
+                          {printInfo.color && (
+                            <p className="text-xs text-white/50">Цвет: {printInfo.color}</p>
+                          )}
+                          {printInfo.quality && (
+                            <p className="text-xs text-white/50">Качество: {printInfo.quality}</p>
+                          )}
+                          {typeof printInfo.isHollow === "boolean" && (
+                            <p className="text-xs text-white/50">
+                              Полая модель: {printInfo.isHollow ? "Да" : "Нет"}
+                            </p>
+                          )}
+                          {printInfo.packaging && (
+                            <p className="text-xs text-white/50">Упаковка: {printInfo.packaging}</p>
+                          )}
+                          {printInfo.note && (
+                            <p className="text-xs text-white/50">Комментарий: {printInfo.note}</p>
                           )}
                         </div>
                         <div className="w-full text-left lg:w-[420px] lg:max-w-[50%] lg:text-right">

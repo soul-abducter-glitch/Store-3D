@@ -541,7 +541,19 @@ export const Orders: CollectionConfig = {
               type: "text",
             },
             {
+              name: "color",
+              type: "text",
+            },
+            {
               name: "quality",
+              type: "text",
+            },
+            {
+              name: "note",
+              type: "textarea",
+            },
+            {
+              name: "packaging",
               type: "text",
             },
             {
@@ -572,7 +584,27 @@ export const Orders: CollectionConfig = {
       type: "group",
       fields: [
         {
+          name: "technology",
+          type: "text",
+        },
+        {
           name: "material",
+          type: "text",
+        },
+        {
+          name: "color",
+          type: "text",
+        },
+        {
+          name: "quality",
+          type: "text",
+        },
+        {
+          name: "note",
+          type: "textarea",
+        },
+        {
+          name: "packaging",
           type: "text",
         },
         {
