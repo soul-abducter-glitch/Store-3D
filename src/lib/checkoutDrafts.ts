@@ -5,6 +5,7 @@ const CHECKOUT_DRAFTS_MAX = 15;
 export type CheckoutDraftForm = {
   name?: string;
   email?: string;
+  phone?: string;
   city?: string;
   address?: string;
   shippingMethod?: string;
@@ -18,6 +19,7 @@ export type CheckoutDraftRecord = {
   form: CheckoutDraftForm;
   paymentMethod?: string;
   promoCodeInput?: string;
+  legalConsent?: boolean;
   selectedItemIds?: string[];
   itemCount?: number;
   subtotal?: number;
@@ -76,6 +78,7 @@ export const saveCheckoutDraftRecord = (
     form: data.form ?? {},
     paymentMethod: data.paymentMethod,
     promoCodeInput: data.promoCodeInput,
+    legalConsent: typeof data.legalConsent === "boolean" ? data.legalConsent : undefined,
     selectedItemIds: Array.isArray(data.selectedItemIds) ? data.selectedItemIds : [],
     itemCount: typeof data.itemCount === "number" ? data.itemCount : undefined,
     subtotal: typeof data.subtotal === "number" ? data.subtotal : undefined,

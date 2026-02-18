@@ -10,6 +10,14 @@ interface CartItem {
   priceValue: number;
   quantity: number;
   thumbnailUrl: string;
+  printDetails?: {
+    technology?: string;
+    material?: string;
+    color?: string;
+    quality?: string;
+    dimensionsLabel?: string;
+  };
+  editPrintUrl?: string;
 }
 
 interface StickyOrderSummaryProps {
@@ -44,7 +52,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   const buttonLabel = ctaLabel ?? 'ПОДТВЕРДИТЬ';
 
   return (
-    <div className="w-full min-w-0 lg:sticky lg:top-24">
+    <div className="w-full min-w-0 lg:sticky lg:top-32">
       <div className="w-full min-w-0 rounded-[28px] border border-white/10 bg-white/[0.04] p-4 backdrop-blur-xl sm:p-5">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 sm:mb-5">
           <h2 className="text-lg font-semibold text-white">Ваш заказ</h2>
@@ -90,6 +98,35 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
 
           {detailsOpen && (
             <div className="space-y-2 text-sm text-white/80">
+              {items.some((item) => item.printDetails) && (
+                <div className="space-y-2 rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-xs text-white/70">
+                  {items.map((item) => {
+                    if (!item.printDetails) return null;
+                    return (
+                      <div key={`details:${item.id}`} className="space-y-1.5 border-b border-white/10 pb-2 last:border-b-0 last:pb-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/60">
+                          {item.name}
+                        </p>
+                        <div className="flex flex-wrap gap-x-3 gap-y-1">
+                          {item.printDetails.technology && <span>Тех: {item.printDetails.technology}</span>}
+                          {item.printDetails.material && <span>Материал: {item.printDetails.material}</span>}
+                          {item.printDetails.color && <span>Цвет: {item.printDetails.color}</span>}
+                          {item.printDetails.quality && <span>Качество: {item.printDetails.quality}</span>}
+                          {item.printDetails.dimensionsLabel && <span>Размер: {item.printDetails.dimensionsLabel}</span>}
+                        </div>
+                        {item.editPrintUrl && (
+                          <a
+                            href={item.editPrintUrl}
+                            className="inline-flex rounded-full border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF]/70 hover:text-white"
+                          >
+                            Изменить параметры печати
+                          </a>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
               <div className="flex items-center justify-between">
                 <span className="flex items-center gap-2">
                   <Package className="h-4 w-4" />

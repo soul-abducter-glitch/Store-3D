@@ -324,6 +324,16 @@ function PrintOnDemandContent() {
   const uploadedUrlRef = useRef<string | null>(null);
   const controlsRef = useRef<OrbitControlsImpl | null>(null);
   const prefillRef = useRef(false);
+  const prefillSettingsRef = useRef<{
+    material?: string;
+    color?: string;
+    quality?: QualityPreset;
+    note?: string;
+    packaging?: "standard" | "gift";
+    hollow?: boolean;
+    quantity?: number;
+    heightMm?: number;
+  } | null>(null);
 
   const [notice, setNotice] = useState("Готово: настройте модель и параметры печати.");
   const [cartCount, setCartCount] = useState(0);
@@ -448,6 +458,38 @@ function PrintOnDemandContent() {
       setHollowEnabled(false);
     }
   }, [tech]);
+
+  useEffect(() => {
+    const prefill = prefillSettingsRef.current;
+    if (!prefill) return;
+
+    if (prefill.material && MATERIALS_BY_TECH[tech].includes(prefill.material)) {
+      setMaterial(prefill.material);
+    }
+    if (prefill.color && COLORS_BY_TECH[tech].includes(prefill.color)) {
+      setColor(prefill.color);
+    }
+    if (prefill.quality) {
+      setQualityPreset(prefill.quality);
+    }
+    if (typeof prefill.note === "string") {
+      setNote(prefill.note);
+    }
+    if (prefill.packaging) {
+      setPackaging(prefill.packaging);
+    }
+    if (typeof prefill.hollow === "boolean") {
+      setHollowEnabled(tech === "SLA" ? prefill.hollow : false);
+    }
+    if (typeof prefill.quantity === "number" && Number.isFinite(prefill.quantity)) {
+      setQuantity(Math.min(20, Math.max(1, Math.trunc(prefill.quantity))));
+    }
+    if (typeof prefill.heightMm === "number" && Number.isFinite(prefill.heightMm)) {
+      setHeightMm(Math.max(20, Math.min(selectedPrinter.maxHeightMm, Math.round(prefill.heightMm))));
+    }
+
+    prefillSettingsRef.current = null;
+  }, [selectedPrinter.maxHeightMm, tech]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -794,6 +836,49 @@ function PrintOnDemandContent() {
     const nameParam = searchParams.get("name") || "model.glb";
     const techParam = (searchParams.get("tech") || "").toLowerCase();
     const thumbParam = searchParams.get("thumb");
+    const materialParam = searchParams.get("material") || undefined;
+    const colorParam = searchParams.get("color") || undefined;
+    const qualityParam = (searchParams.get("quality") || "").toLowerCase();
+    const noteParam = searchParams.get("note") || undefined;
+    const packagingParam = (searchParams.get("packaging") || "").toLowerCase();
+    const hollowParam = (searchParams.get("hollow") || "").toLowerCase();
+    const quantityParam = Number(searchParams.get("quantity"));
+    const heightParam = Number(searchParams.get("height"));
+
+    const qualityPresetParam: QualityPreset | undefined =
+      qualityParam === "draft"
+        ? "draft"
+        : qualityParam === "pro"
+          ? "pro"
+          : qualityParam === "standard"
+            ? "standard"
+            : undefined;
+    const packagingModeParam: "standard" | "gift" | undefined =
+      packagingParam.includes("gift") || packagingParam.includes("подар")
+        ? "gift"
+        : packagingParam
+          ? "standard"
+          : undefined;
+
+    prefillSettingsRef.current = {
+      material: materialParam,
+      color: colorParam,
+      quality: qualityPresetParam,
+      note: noteParam,
+      packaging: packagingModeParam,
+      hollow:
+        hollowParam === ""
+          ? undefined
+          : hollowParam === "1" || hollowParam === "true" || hollowParam === "yes",
+      quantity:
+        Number.isFinite(quantityParam) && quantityParam > 0
+          ? Math.min(20, Math.max(1, Math.trunc(quantityParam)))
+          : undefined,
+      heightMm:
+        Number.isFinite(heightParam) && heightParam > 0
+          ? Math.round(heightParam)
+          : undefined,
+    };
 
     if (techParam) {
       setTechControlMode("manual");

@@ -12,7 +12,7 @@ import {
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, Loader2, Save, ShieldCheck } from "lucide-react";
+import { Loader2, Save, ShieldCheck } from "lucide-react";
 import { CardElement, Elements, useElements, useStripe } from "@stripe/react-stripe-js";
 import type { StripeCardElement, StripeCardElementChangeEvent } from "@stripe/stripe-js";
 import { loadStripe } from "@stripe/stripe-js";
@@ -266,6 +266,7 @@ const digitalLabels = {
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'.-]{1,49}$/;
 const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\s.,\\-\\/№]{3,120}$/;
+const PHONE_REGEX = /^[+0-9()\s-]{6,20}$/;
 
 const normalizeAddressInput = (value: string) =>
   value
@@ -328,6 +329,10 @@ const buildCheckoutPayloadSignature = (payload: Record<string, any>) => {
     typeof payload?.customer?.email === "string"
       ? payload.customer.email.trim().toLowerCase()
       : "";
+  const customerPhone =
+    typeof payload?.customer?.phone === "string"
+      ? payload.customer.phone.trim()
+      : "";
   const shippingMethod =
     typeof payload?.shipping?.method === "string" ? payload.shipping.method : "";
   const shippingCity =
@@ -348,6 +353,7 @@ const buildCheckoutPayloadSignature = (payload: Record<string, any>) => {
   return [
     customerName,
     customerEmail,
+    customerPhone,
     shippingMethod,
     shippingCity,
     shippingAddress,
@@ -356,6 +362,50 @@ const buildCheckoutPayloadSignature = (payload: Record<string, any>) => {
     paymentMethod,
     items,
   ].join("||");
+};
+
+const mapQualityToPrintParam = (quality?: string) => {
+  const normalized = (quality || "").trim().toLowerCase();
+  if (!normalized) return "";
+  if (normalized.includes("чернов")) return "draft";
+  if (normalized.includes("0.05") || normalized.includes("pro")) return "pro";
+  return "standard";
+};
+
+const buildPrintEditUrl = (item: CartItem) => {
+  const custom = item.customPrint;
+  if (!custom?.uploadUrl) return null;
+  const params = new URLSearchParams();
+  params.set("model", custom.uploadUrl);
+
+  if (custom.uploadId) params.set("mediaId", custom.uploadId);
+  if (custom.uploadName) params.set("name", custom.uploadName);
+  if (custom.technology) params.set("tech", custom.technology);
+  if (custom.material) params.set("material", custom.material);
+  if (custom.color) params.set("color", custom.color);
+  if (custom.note) params.set("note", custom.note);
+  if (custom.packaging) params.set("packaging", custom.packaging);
+  if (typeof custom.isHollow === "boolean") params.set("hollow", custom.isHollow ? "1" : "0");
+
+  const quality = mapQualityToPrintParam(custom.quality);
+  if (quality) params.set("quality", quality);
+  if (item.quantity > 0) params.set("quantity", String(item.quantity));
+  if (typeof custom.dimensions?.y === "number" && custom.dimensions.y > 0) {
+    params.set("height", String(custom.dimensions.y));
+  }
+
+  if (
+    typeof item.thumbnailUrl === "string" &&
+    (item.thumbnailUrl.startsWith("/") ||
+      item.thumbnailUrl.startsWith("http://") ||
+      item.thumbnailUrl.startsWith("https://") ||
+      item.thumbnailUrl.startsWith("data:") ||
+      item.thumbnailUrl.startsWith("blob:"))
+  ) {
+    params.set("thumb", item.thumbnailUrl);
+  }
+
+  return `/services/print?${params.toString()}`;
 };
 
 type StripePaymentFormProps = {
@@ -975,23 +1025,29 @@ const CheckoutPage = () => {
   const [form, setForm] = useState({
     name: "",
     email: "",
+    phone: "",
     city: "",
     address: "",
     shippingMethod: shippingMethodOptions[0].value,
     zipCode: "",
   });
+  const [legalConsent, setLegalConsent] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<{
     name?: string;
     email?: string;
+    phone?: string;
     city?: string;
     address?: string;
     zipCode?: string;
     shippingMethod?: string;
+    consent?: string;
   }>({});
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
+  const phoneRef = useRef<HTMLInputElement>(null);
   const cityRef = useRef<HTMLInputElement>(null);
   const addressRef = useRef<HTMLTextAreaElement>(null);
+  const consentRef = useRef<HTMLInputElement>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(
     () => getCartStorageKey(userReady ? userId : null),
@@ -1081,7 +1137,7 @@ const CheckoutPage = () => {
   const paymentsIntentUrl = "/api/payments/create-intent";
   const paymentsConfirmUrl = "/api/payments/confirm";
   const isProcessing = step === "processing";
-  const checkoutCtaLabel = "ПОДТВЕРДИТЬ";
+  const checkoutCtaLabel = "Подтвердить и оплатить";
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -1150,6 +1206,9 @@ const CheckoutPage = () => {
               ...prev,
               name: prev.name || user.name || prev.name,
               email: prev.email || user.email || prev.email,
+              phone:
+                prev.phone ||
+                (typeof user.phone === "string" ? user.phone : prev.phone),
               address: prev.address || user.shippingAddress || prev.address,
             }));
           }
@@ -1177,6 +1236,7 @@ const CheckoutPage = () => {
       ...prev,
       name: typeof draftForm.name === "string" ? draftForm.name : prev.name,
       email: typeof draftForm.email === "string" ? draftForm.email : prev.email,
+      phone: typeof draftForm.phone === "string" ? draftForm.phone : prev.phone,
       city: typeof draftForm.city === "string" ? draftForm.city : prev.city,
       address: typeof draftForm.address === "string" ? draftForm.address : prev.address,
       shippingMethod: shippingMethodSet.has(draftForm.shippingMethod)
@@ -1184,6 +1244,9 @@ const CheckoutPage = () => {
         : prev.shippingMethod,
       zipCode: typeof draftForm.zipCode === "string" ? draftForm.zipCode : prev.zipCode,
     }));
+    if (typeof stored.legalConsent === "boolean") {
+      setLegalConsent(stored.legalConsent);
+    }
 
     if (typeof stored.paymentMethod === "string") {
       const nextMethod =
@@ -1201,6 +1264,7 @@ const CheckoutPage = () => {
       hasForm: Boolean(draftForm),
       hasPaymentMethod: typeof stored.paymentMethod === "string",
       hasPromoCode: typeof stored.promoCodeInput === "string",
+      hasLegalConsent: typeof stored.legalConsent === "boolean",
     });
     setDraftLoaded(true);
   }, [cartReady, checkoutDraftKey, draftLoaded, logCheckoutEvent, userReady]);
@@ -1217,6 +1281,7 @@ const CheckoutPage = () => {
         form,
         paymentMethod,
         promoCodeInput,
+        legalConsent,
         savedAt: new Date().toISOString(),
       };
       localStorage.setItem(checkoutDraftKey, JSON.stringify(payload));
@@ -1225,6 +1290,7 @@ const CheckoutPage = () => {
         city: form.city,
         shippingMethod: form.shippingMethod,
         hasPromoCode: promoCodeInput.trim().length > 0,
+        legalConsent,
       });
     }, DRAFT_SAVE_DEBOUNCE_MS);
     return () => {
@@ -1238,6 +1304,7 @@ const CheckoutPage = () => {
     logCheckoutEvent,
     paymentMethod,
     promoCodeInput,
+    legalConsent,
     step,
   ]);
 
@@ -1467,6 +1534,10 @@ const CheckoutPage = () => {
     () => (hasPhysical ? resolveDeliveryCost(form.shippingMethod) : 0),
     [hasPhysical, form.shippingMethod]
   );
+  const selectedDeliveryOption = useMemo(
+    () => deliveryOptions.find((option) => option.id === form.shippingMethod) ?? null,
+    [form.shippingMethod]
+  );
   const grandTotal = useMemo(
     () => discountedSubtotal + deliveryCost,
     [deliveryCost, discountedSubtotal]
@@ -1536,26 +1607,41 @@ const CheckoutPage = () => {
       isActive = false;
     };
   }, [isPaymentsMock, paymentMethod, sbpQrPayload, sbpQrImageOverride]);
-  const isPaymentStep = step === "payment";
+  const isConfirmStep = step !== "form";
   const isAwaitingOrderCreation = isPaymentsMock && !pendingOrderId;
+  const deliveryReady = useMemo(() => {
+    if (!hasPhysical) return true;
+    return Boolean(
+      form.shippingMethod &&
+        form.city.trim() &&
+        normalizeAddressInput(form.address)
+    );
+  }, [form.address, form.city, form.shippingMethod, hasPhysical]);
   const stepperSteps = useMemo(
     () => [
       {
         id: 1,
         title: "Доставка",
-        description: "Выберите службу",
-        completed: !hasPhysical || Boolean(form.shippingMethod),
-        current: hasPhysical && !isPaymentStep,
+        description: "Контакты и адрес",
+        completed: deliveryReady,
+        current: step === "form",
       },
       {
         id: 2,
         title: "Оплата",
-        description: "Метод оплаты",
-        completed: Boolean(paymentMethod) || isPaymentStep,
-        current: !hasPhysical || isPaymentStep || Boolean(paymentMethod),
+        description: "Способ оплаты",
+        completed: Boolean(paymentMethod) || isConfirmStep,
+        current: false,
+      },
+      {
+        id: 3,
+        title: "Подтверждение",
+        description: "Финальная проверка",
+        completed: false,
+        current: isConfirmStep,
       },
     ],
-    [hasPhysical, form.shippingMethod, paymentMethod, isPaymentStep]
+    [deliveryReady, isConfirmStep, paymentMethod, step]
   );
 
   const getFormErrors = useCallback(() => {
@@ -1565,6 +1651,7 @@ const CheckoutPage = () => {
 
     const name = form.name.trim();
     const email = form.email.trim();
+    const phone = form.phone.trim();
     const city = form.city.trim();
     const address = normalizeAddressInput(form.address);
 
@@ -1584,6 +1671,13 @@ const CheckoutPage = () => {
       submitError = "Имя может содержать только буквы, пробелы, дефис и апостроф.";
       errors.name = "Разрешены только буквы, пробел, дефис и апостроф.";
       firstErrorField = "name";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    if (phone && !PHONE_REGEX.test(phone)) {
+      submitError = "Проверьте телефон. Допустимы цифры, +, пробел, скобки и дефис.";
+      errors.phone = "Некорректный формат телефона.";
+      firstErrorField = "phone";
       return { errors, submitError, firstErrorField, isValid: false };
     }
 
@@ -1637,14 +1731,22 @@ const CheckoutPage = () => {
       }
     }
 
+    if (!legalConsent) {
+      submitError = "Подтвердите согласие с условиями оформления заказа.";
+      errors.consent = "Требуется согласие.";
+      firstErrorField = "consent";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
     return { errors, submitError, firstErrorField, isValid: true };
-  }, [form, hasPhysical]);
+  }, [form, hasPhysical, legalConsent]);
 
   const canCheckout =
     cartItems.length > 0 &&
     step === "form" &&
     !submitLock &&
-    !promoLoading;
+    !promoLoading &&
+    legalConsent;
 
   const handleSaveDraftRecord = useCallback(() => {
     if (typeof window === "undefined") {
@@ -1655,6 +1757,7 @@ const CheckoutPage = () => {
       form,
       paymentMethod,
       promoCodeInput,
+      legalConsent,
       savedAt,
     };
     window.localStorage.setItem(checkoutDraftKey, JSON.stringify(draftPayload));
@@ -1662,6 +1765,7 @@ const CheckoutPage = () => {
       form,
       paymentMethod,
       promoCodeInput,
+      legalConsent,
       selectedItemIds: cartItems.map((item) => item.id),
       itemCount: cartItems.reduce((sum, item) => sum + item.quantity, 0),
       subtotal: totalValue,
@@ -1672,6 +1776,7 @@ const CheckoutPage = () => {
       itemCount: cartItems.length,
       subtotal: totalValue,
       hasPromoCode: promoCodeInput.trim().length > 0,
+      legalConsent,
     });
   }, [
     cartItems,
@@ -1680,6 +1785,7 @@ const CheckoutPage = () => {
     logCheckoutEvent,
     paymentMethod,
     promoCodeInput,
+    legalConsent,
     totalValue,
     userId,
     userReady,
@@ -1691,8 +1797,12 @@ const CheckoutPage = () => {
         ? nameRef
         : field === "email"
           ? emailRef
+          : field === "phone"
+            ? phoneRef
           : field === "city"
             ? cityRef
+            : field === "consent"
+              ? consentRef
             : addressRef;
     ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
     ref.current?.focus?.();
@@ -1995,6 +2105,7 @@ const CheckoutPage = () => {
 
     const name = form.name.trim();
     const email = form.email.trim();
+    const phone = form.phone.trim();
     const city = form.city.trim();
     const address = normalizeAddressInput(form.address);
     const zipCode = form.zipCode.trim();
@@ -2090,6 +2201,7 @@ const CheckoutPage = () => {
         customer: {
           name,
           email,
+          phone: phone || undefined,
         },
       };
       if (promoApplied?.code) {
@@ -2243,33 +2355,41 @@ const CheckoutPage = () => {
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1200px] px-6 pb-24 pt-10">
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div>
-            <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-            Checkout
-            </p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">Оформление заказа</h1>
-          </div>
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#04080d]/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-[1280px] items-center justify-between px-4 sm:px-6">
+          <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/50">
+            3D STORE | Checkout
+          </p>
           <div className="flex flex-wrap items-center gap-2">
             {step === "form" && (
               <button
                 type="button"
                 onClick={handleSaveDraftRecord}
-                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20 hover:text-white"
+                className="flex items-center gap-2 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20 hover:text-white"
               >
                 <Save className="h-3.5 w-3.5" />
-                {lastManualDraftTimeLabel ? `Сохранено ${lastManualDraftTimeLabel}` : "Сохранить черновик"}
+                {lastManualDraftTimeLabel
+                  ? `Сохранено ${lastManualDraftTimeLabel}`
+                  : "Сохранить черновик"}
               </button>
             )}
             <Link
               href="/store"
-              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
+              className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-white/70 transition hover:text-white"
             >
               Назад в магазин
             </Link>
           </div>
         </div>
+      </header>
+
+      <div className="fixed inset-x-0 top-16 z-30 border-b border-white/10 bg-[#04080d]/90 backdrop-blur-xl">
+        <div className="mx-auto max-w-[1280px] px-4 py-3 sm:px-6">
+          <CheckoutStepper steps={stepperSteps} variant="compact" />
+        </div>
+      </div>
+
+      <div className="relative z-10 mx-auto max-w-[1280px] px-4 pb-24 pt-[142px] sm:px-6">
 
         <AnimatePresence mode="wait">
           {step === "form" ? (
@@ -2282,12 +2402,9 @@ const CheckoutPage = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.35 }}
-              className="mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]"
+              className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]"
             >
-              <div className="hidden lg:col-span-2 md:block">
-                <CheckoutStepper steps={stepperSteps} variant="compact" />
-              </div>
-              <div className="min-w-0 space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+              <div className="min-w-0 max-h-[calc(100vh-220px)] space-y-6 overflow-y-auto rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                     <ShieldCheck className="h-5 w-5" />
@@ -2345,6 +2462,30 @@ const CheckoutPage = () => {
                       </p>
                     )}
                   </div>
+                  <div className="space-y-2">
+                    <label className="text-xs uppercase tracking-[0.3em] text-white/50">
+                      Телефон
+                    </label>
+                    <input
+                      type="tel"
+                      ref={phoneRef}
+                      value={form.phone}
+                      onChange={handleInputChange("phone")}
+                      placeholder="+7 (___) ___-__-__"
+                      aria-invalid={Boolean(fieldErrors.phone)}
+                      aria-describedby={fieldErrors.phone ? "checkout-phone-error" : undefined}
+                      className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                        fieldErrors.phone
+                          ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                          : "border-white/10"
+                      }`}
+                    />
+                    {fieldErrors.phone && (
+                      <p id="checkout-phone-error" className="text-xs text-rose-300">
+                        {fieldErrors.phone}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 {hasPhysical && (
@@ -2370,6 +2511,11 @@ const CheckoutPage = () => {
                         ))}
                       </div>
                     </div>
+                    {selectedDeliveryOption && (
+                      <p className="rounded-2xl border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-3 text-sm text-[#BFF4FF]">
+                        {`ETA: ${selectedDeliveryOption.estimatedTime} • Стоимость: ${formatPrice(deliveryCost)} ₽`}
+                      </p>
+                    )}
                     <div className="space-y-2">
                       <label className="text-xs uppercase tracking-[0.3em] text-white/50">
                         {shippingLabels.city}
@@ -2557,6 +2703,28 @@ const CheckoutPage = () => {
                     </p>
                   )}
                 </div>
+                <div className="space-y-2 rounded-[22px] border border-white/10 bg-white/[0.03] p-5">
+                  <label className="flex cursor-pointer items-start gap-3 text-sm text-white/75">
+                    <input
+                      ref={consentRef}
+                      type="checkbox"
+                      checked={legalConsent}
+                      onChange={(event) => {
+                        setLegalConsent(event.target.checked);
+                        if (fieldErrors.consent) {
+                          setFieldErrors((prev) => ({ ...prev, consent: undefined }));
+                        }
+                      }}
+                      className="mt-0.5 h-4 w-4 rounded border-white/20 bg-white/5 accent-[#2ED1FF]"
+                    />
+                    <span>
+                      Подтверждаю согласие с условиями покупки и обработкой персональных данных.
+                    </span>
+                  </label>
+                  {fieldErrors.consent && (
+                    <p className="text-xs text-rose-300">{fieldErrors.consent}</p>
+                  )}
+                </div>
                 {submitError && (
                   <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">
                     {submitError}
@@ -2566,14 +2734,34 @@ const CheckoutPage = () => {
 
               <div className="min-w-0">
                 <StickyOrderSummary
-                  items={cartItems.map((item) => ({
-                    id: item.id,
-                    name: item.name,
-                    formatLabel: item.formatLabel,
-                    priceValue: item.priceValue,
-                    quantity: item.quantity,
-                    thumbnailUrl: item.thumbnailUrl,
-                  }))}
+                  items={cartItems.map((item) => {
+                    const dims = item.customPrint?.dimensions;
+                    const dimensionsLabel =
+                      dims &&
+                      typeof dims.x === "number" &&
+                      typeof dims.y === "number" &&
+                      typeof dims.z === "number"
+                        ? `${dims.x.toFixed(1)} x ${dims.y.toFixed(1)} x ${dims.z.toFixed(1)} mm`
+                        : undefined;
+                    return {
+                      id: item.id,
+                      name: item.name,
+                      formatLabel: item.formatLabel,
+                      priceValue: item.priceValue,
+                      quantity: item.quantity,
+                      thumbnailUrl: item.thumbnailUrl,
+                      printDetails: item.customPrint
+                        ? {
+                            technology: item.customPrint.technology,
+                            material: item.customPrint.material,
+                            color: item.customPrint.color,
+                            quality: item.customPrint.quality,
+                            dimensionsLabel,
+                          }
+                        : undefined,
+                      editPrintUrl: item.customPrint ? buildPrintEditUrl(item) ?? undefined : undefined,
+                    };
+                  })}
                   subtotal={totalValue}
                   deliveryCost={deliveryCost}
                   discount={promoDiscount}
@@ -2584,6 +2772,13 @@ const CheckoutPage = () => {
                   isProcessing={isProcessing}
                   ctaLabel={checkoutCtaLabel}
                 />
+                <div className="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-xs text-white/60">
+                  <p className="font-semibold uppercase tracking-[0.24em] text-white/55">
+                    Заметки
+                  </p>
+                  <p className="mt-2">Безопасная оплата и шифрование платежных данных.</p>
+                  <p className="mt-1">Подтверждая заказ, вы принимаете условия сервиса.</p>
+                </div>
                 {!userId && (
                   <p className="mt-3 text-xs text-white/60">
                     Войдите, чтобы оплатить заказ.
@@ -2604,9 +2799,6 @@ const CheckoutPage = () => {
               transition={{ duration: 0.35 }}
               className="mt-12 space-y-6"
             >
-              <div className="hidden md:block">
-                <CheckoutStepper steps={stepperSteps} variant="compact" />
-              </div>
               <div className="rounded-[32px] border border-white/10 bg-white/[0.04] px-4 py-8 text-center backdrop-blur-xl sm:px-6 sm:py-10">
                 <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                   <ShieldCheck className="h-6 w-6" />
