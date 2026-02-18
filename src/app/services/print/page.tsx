@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, MutableRefObject } from "react";
@@ -151,13 +151,13 @@ const ISSUE_MARKERS: IssueMarker[] = [
 
 const BASE_DIAGNOSTICS: Issue[] = [
   { id: "wall", title: "Thin walls near base", severity: "medium" },
-  { id: "overhang", title: "Overhang above 58°", severity: "high" },
+  { id: "overhang", title: "Overhang above 58�", severity: "high" },
   { id: "hole", title: "Small open contour", severity: "low" },
 ];
 
 const formatPrice = (value: number) => {
   const rounded = Math.max(0, Math.round(value));
-  return `${new Intl.NumberFormat("ru-RU").format(rounded)} ₽`;
+  return `${new Intl.NumberFormat("ru-RU").format(rounded)} ?`;
 };
 
 const formatEta = (minutes: number) => {
@@ -211,6 +211,7 @@ function ViewportScene({
   view,
   fitSignal,
   rotationDeg,
+  mobileOptimized,
   controlsRef,
   onBounds,
 }: {
@@ -222,6 +223,7 @@ function ViewportScene({
   view: ViewPreset;
   fitSignal: number;
   rotationDeg: number;
+  mobileOptimized: boolean;
   controlsRef: MutableRefObject<OrbitControlsImpl | null>;
   onBounds: (bounds: ModelBounds) => void;
 }) {
@@ -239,9 +241,16 @@ function ViewportScene({
     <>
       <ambientLight intensity={0.7} />
       <directionalLight position={[5, 8, 6]} intensity={1.2} />
-      <Environment preset="city" />
+      {!mobileOptimized && <Environment preset="city" />}
 
-      {gridOn && <Grid args={[10, 10]} cellSize={0.5} cellThickness={0.45} sectionSize={2} />}
+      {gridOn && (
+        <Grid
+          args={mobileOptimized ? [8, 8] : [10, 10]}
+          cellSize={mobileOptimized ? 0.7 : 0.5}
+          cellThickness={0.4}
+          sectionSize={2}
+        />
+      )}
 
       {plateOn && (
         <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, 0.01, 0]} receiveShadow>
@@ -253,27 +262,37 @@ function ViewportScene({
       {showIssues &&
         ISSUE_MARKERS.map((marker) => (
           <mesh key={marker.id} position={marker.position}>
-            <sphereGeometry args={[0.06, 16, 16]} />
+            <sphereGeometry args={[0.06, mobileOptimized ? 10 : 16, mobileOptimized ? 10 : 16]} />
             <meshStandardMaterial color={marker.color} emissive={marker.color} emissiveIntensity={0.9} />
           </mesh>
         ))}
 
       <group rotation={[0, (rotationDeg * Math.PI) / 180, 0]}>
-        <Suspense fallback={null}>
-          <ModelView
-            rawModelUrl={modelUrl ?? null}
-            finish="Raw"
-            renderMode="final"
-            accentColor="#2ed1ff"
-            onBounds={onBounds}
-          />
-        </Suspense>
+        {modelUrl ? (
+          <Suspense fallback={null}>
+            <ModelView
+              rawModelUrl={modelUrl}
+              finish="Raw"
+              renderMode="final"
+              accentColor="#2ed1ff"
+              onBounds={onBounds}
+            />
+          </Suspense>
+        ) : (
+          <mesh position={[0, 0.4, 0]}>
+            <cylinderGeometry args={[1.6, 1.6, 0.08, mobileOptimized ? 28 : 48]} />
+            <meshStandardMaterial color="#12445a" metalness={0.15} roughness={0.7} opacity={0.45} transparent />
+          </mesh>
+        )}
       </group>
 
       <OrbitControls
         ref={controlsRef}
-        enableDamping
-        dampingFactor={0.08}
+        enableDamping={!mobileOptimized}
+        dampingFactor={mobileOptimized ? 0 : 0.08}
+        rotateSpeed={mobileOptimized ? 0.8 : 1}
+        zoomSpeed={mobileOptimized ? 0.9 : 1}
+        panSpeed={mobileOptimized ? 0.9 : 1}
         minDistance={1.2}
         maxDistance={12}
         mouseButtons={mouseButtons}
@@ -307,6 +326,7 @@ function PrintOnDemandContent() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const [tech, setTech] = useState<PrintTech>("SLA");
   const [material, setMaterial] = useState(MATERIALS_BY_TECH.SLA[0]);
@@ -412,6 +432,25 @@ function PrintOnDemandContent() {
     run();
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const media = window.matchMedia("(max-width: 1024px), (pointer: coarse)");
+    const sync = () => setIsMobileViewport(media.matches);
+    sync();
+    if (typeof media.addEventListener === "function") {
+      media.addEventListener("change", sync);
+      return () => media.removeEventListener("change", sync);
+    }
+    media.addListener(sync);
+    return () => media.removeListener(sync);
+  }, []);
+
+  useEffect(() => {
+    if (!isMobileViewport) return;
+    setShowGrid(false);
+    setShowIssues(false);
+  }, [isMobileViewport]);
 
   useEffect(() => {
     syncCartCount();
@@ -731,7 +770,7 @@ function PrintOnDemandContent() {
 
   const handleManualRotate = () => {
     setRotationDeg((prev) => (prev + 15) % 360);
-    setNoticeWith("Manual rotate: +15° applied.");
+    setNoticeWith("Manual rotate: +15� applied.");
   };
 
   const handleResetViewport = () => {
@@ -849,7 +888,7 @@ function PrintOnDemandContent() {
       ? "text-emerald-300"
       : fitStatus === "Too large"
         ? "text-rose-300"
-        : "text-slate-300";
+        : "text-white/65";
 
   const addToCartValidationError = useMemo(() => {
     if (!selectedModel) return "Select and upload a model first.";
@@ -903,7 +942,7 @@ function PrintOnDemandContent() {
     const item = {
       id: `custom-print:${uploadedMedia.id}`,
       productId: "service-print",
-      name: sourceName ? `Печать: ${sourceName}` : selectedModel.name,
+      name: sourceName ? `������: ${sourceName}` : selectedModel.name,
       formatKey: "physical",
       formatLabel: "Printed model",
       priceLabel: formatPrice(price),
@@ -964,33 +1003,43 @@ function PrintOnDemandContent() {
   };
 
   return (
-    <div className="min-h-screen bg-[radial-gradient(circle_at_25%_0%,#182533_0%,#090f17_45%,#05080d_100%)] text-slate-100">
-      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/15 bg-slate-950/90 backdrop-blur">
-        <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-4 sm:px-6">
-          <div>
-            <p className="text-sm font-semibold tracking-[0.2em] text-cyan-200">3D STORE</p>
-            <p className="text-xs text-slate-400">Print on demand</p>
-          </div>
+    <div className="relative min-h-screen overflow-x-hidden bg-[#050505] text-white">
+      <div className="pointer-events-none fixed inset-0 cad-grid-pattern opacity-40" />
+      <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_24%_0%,rgba(46,209,255,0.12)_0%,rgba(5,5,5,0)_45%),radial-gradient(circle_at_85%_8%,rgba(212,175,55,0.08)_0%,rgba(5,5,5,0)_42%)]" />
 
-          <nav className="flex items-center gap-2 sm:gap-3">
+      <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl">
+        <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-4 sm:px-6">
+          <button
+            type="button"
+            onClick={() => router.push("/store")}
+            aria-label="Go to store"
+            className="rounded-xl border border-[#2ED1FF]/35 bg-[#0b1014]/85 px-3 py-1.5 text-left transition hover:border-[#7FE7FF]/70"
+          >
+            <p className="text-sm font-semibold tracking-[0.2em] text-[#BFF4FF]">3D STORE</p>
+            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
+              Print on demand
+            </p>
+          </button>
+
+          <nav className="flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] sm:gap-3">
             <button
               type="button"
               onClick={() => router.push("/store")}
-              className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+              className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
             >
               Store
             </button>
             <button
               type="button"
               onClick={handleCartOpen}
-              className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+              className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
             >
               Cart {cartCount > 0 ? `(${cartCount})` : ""}
             </button>
             <button
               type="button"
               onClick={() => router.push("/profile")}
-              className="rounded-lg border border-white/20 px-3 py-1.5 text-sm text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+              className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
             >
               Profile
             </button>
@@ -998,7 +1047,7 @@ function PrintOnDemandContent() {
         </div>
       </header>
 
-      <div className="fixed inset-x-0 top-16 z-30 border-b border-white/10 bg-slate-950/85 backdrop-blur">
+      <div className="fixed inset-x-0 top-16 z-30 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl">
         <div className="mx-auto flex h-14 max-w-[1680px] items-center px-4 sm:px-6">
           <ol className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
             {STEPS.map((step, index) => {
@@ -1009,10 +1058,10 @@ function PrintOnDemandContent() {
                   key={step}
                   className={`rounded-md border px-2 py-1 text-center text-xs font-semibold uppercase tracking-[0.13em] ${
                     active
-                      ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
+                      ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
                       : done
-                        ? "border-emerald-300/60 bg-emerald-500/10 text-emerald-100"
-                        : "border-white/15 bg-white/5 text-slate-400"
+                        ? "border-[#D4AF37]/60 bg-[#D4AF37]/10 text-[#F6DFA0]"
+                        : "border-white/15 bg-white/5 text-white/55"
                   }`}
                 >
                   {index + 1}. {step}
@@ -1024,9 +1073,9 @@ function PrintOnDemandContent() {
       </div>
 
       <main className="mx-auto max-w-[1680px] px-4 pb-8 pt-[142px] sm:px-6">
-        <div className="mb-4 rounded-xl border border-cyan-300/25 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100">
+        <div className="mb-4 rounded-xl border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-3 py-2 text-sm text-[#BFF4FF]">
           {notice}
-          <p className="mt-1 text-xs text-cyan-200/80">Upload status: {uploadStatus}</p>
+          <p className="mt-1 text-xs text-[#BFF4FF]/80">Upload status: {uploadStatus}</p>
           {uploadError && <p className="mt-1 text-xs text-rose-200">{uploadError}</p>}
         </div>
 
@@ -1039,30 +1088,30 @@ function PrintOnDemandContent() {
         />
 
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-          <aside className="rounded-2xl border border-white/15 bg-slate-900/70 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)] xl:overflow-y-auto">
+          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)] xl:overflow-y-auto">
             <h2 className="mb-3 text-lg font-semibold tracking-wide">LEFT: MODEL</h2>
 
-            <section className="rounded-xl border border-white/10 bg-slate-950/60 p-3">
+            <section className="rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
               <h3 className="text-base font-semibold text-white">Source</h3>
               <div className="mt-2 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleUploadOpen}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
                   Upload file
                 </button>
                 <button
                   type="button"
                   onClick={() => handlePickStoreModel(STORE_MODELS[0].id)}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
                   From store
                 </button>
                 <button
                   type="button"
                   onClick={() => handlePickRecentModel(RECENT_MODELS[0].id)}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
                   Recent
                 </button>
@@ -1072,7 +1121,7 @@ function PrintOnDemandContent() {
                 <select
                   value={selectedModel?.source === "store" ? selectedModel.id : STORE_MODELS[0].id}
                   onChange={(event) => handlePickStoreModel(event.target.value)}
-                  className="mt-3 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                  className="mt-3 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
                 >
                   {STORE_MODELS.map((item) => (
                     <option key={item.id} value={item.id}>
@@ -1086,7 +1135,7 @@ function PrintOnDemandContent() {
                 <select
                   value={selectedModel?.source === "recent" ? selectedModel.id : RECENT_MODELS[0].id}
                   onChange={(event) => handlePickRecentModel(event.target.value)}
-                  className="mt-3 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                  className="mt-3 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
                 >
                   {RECENT_MODELS.map((item) => (
                     <option key={item.id} value={item.id}>
@@ -1096,13 +1145,13 @@ function PrintOnDemandContent() {
                 </select>
               )}
 
-              <p className="mt-3 text-xs text-slate-300">{selectedInfo}</p>
+              <p className="mt-3 text-xs text-white/65">{selectedInfo}</p>
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={handleUploadOpen}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-slate-200 transition hover:border-cyan-300/70 hover:text-cyan-100"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
                   Replace
                 </button>
@@ -1111,7 +1160,7 @@ function PrintOnDemandContent() {
                   onClick={handleClearModel}
                   disabled={!selectedModel}
                   title={!selectedModel ? "Select model first" : undefined}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Clear
                 </button>
@@ -1120,17 +1169,17 @@ function PrintOnDemandContent() {
                   onClick={handleDownloadModel}
                   disabled={!selectedModel?.fileUrl}
                   title={!selectedModel?.fileUrl ? "Select model first" : undefined}
-                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Download
                 </button>
               </div>
             </section>
 
-            <section className="mt-3 rounded-xl border border-white/10 bg-slate-950/60 p-3">
+            <section className="mt-3 rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
               <h3 className="text-base font-semibold text-white">Basics</h3>
 
-              <label className="mt-2 block text-xs text-slate-400">Tech</label>
+              <label className="mt-2 block text-xs text-white/55">Tech</label>
               <div className="mt-1 flex gap-2">
                 {(["SLA", "FDM"] as const).map((option) => (
                   <button
@@ -1139,8 +1188,8 @@ function PrintOnDemandContent() {
                     onClick={() => setTech(option)}
                     className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                       tech === option
-                        ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                        : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                        ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                        : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
                     {option}
@@ -1148,11 +1197,11 @@ function PrintOnDemandContent() {
                 ))}
               </div>
 
-              <label className="mt-3 block text-xs text-slate-400">Material</label>
+              <label className="mt-3 block text-xs text-white/55">Material</label>
               <select
                 value={material}
                 onChange={(event) => setMaterial(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
               >
                 {MATERIALS_BY_TECH[tech].map((item) => (
                   <option key={item} value={item}>
@@ -1161,11 +1210,11 @@ function PrintOnDemandContent() {
                 ))}
               </select>
 
-              <label className="mt-3 block text-xs text-slate-400">Color</label>
+              <label className="mt-3 block text-xs text-white/55">Color</label>
               <select
                 value={color}
                 onChange={(event) => setColor(event.target.value)}
-                className="mt-1 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
               >
                 {COLORS_BY_TECH[tech].map((item) => (
                   <option key={item} value={item}>
@@ -1174,7 +1223,7 @@ function PrintOnDemandContent() {
                 ))}
               </select>
 
-              <label className="mt-3 block text-xs text-slate-400">Quantity</label>
+              <label className="mt-3 block text-xs text-white/55">Quantity</label>
               <div className="mt-1 flex items-center gap-2">
                 <button
                   type="button"
@@ -1194,24 +1243,24 @@ function PrintOnDemandContent() {
               </div>
             </section>
 
-            <section className="mt-3 rounded-xl border border-white/10 bg-slate-950/60 p-3">
+            <section className="mt-3 rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
               <h3 className="text-base font-semibold text-white">Notes (optional)</h3>
               <textarea
                 value={note}
                 onChange={(event) => setNote(event.target.value.slice(0, 400))}
                 placeholder="Comment for workshop"
-                className="mt-2 min-h-24 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                className="mt-2 min-h-24 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
               />
 
-              <label className="mt-3 block text-xs text-slate-400">Packaging</label>
+              <label className="mt-3 block text-xs text-white/55">Packaging</label>
               <div className="mt-1 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setPackaging("standard")}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                     packaging === "standard"
-                      ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                      : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                      ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                      : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                   }`}
                 >
                   Standard
@@ -1221,24 +1270,24 @@ function PrintOnDemandContent() {
                   onClick={() => setPackaging("gift")}
                   className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                     packaging === "gift"
-                      ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                      : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                      ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                      : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                   }`}
                 >
                   Gift
                 </button>
               </div>
 
-              <p className="mt-3 text-xs text-slate-400">Delivery and address are set at checkout.</p>
+              <p className="mt-3 text-xs text-white/55">Delivery and address are set at checkout.</p>
             </section>
           </aside>
 
-          <section className="rounded-2xl border border-white/15 bg-slate-900/70 p-3 xl:h-[calc(100vh-158px)] xl:overflow-hidden">
+          <section className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:h-[calc(100vh-158px)] xl:overflow-hidden">
             <h2 className="text-lg font-semibold tracking-wide">CENTER: 3D VIEWPORT</h2>
 
-            <div className="mt-3 flex h-[560px] flex-col rounded-xl border border-white/10 bg-slate-950/65 p-3 xl:h-full">
+            <div className="mt-3 flex h-[560px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3 xl:h-full">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <p className="text-sm text-slate-300">Preview window</p>
+                <p className="text-sm text-white/65">Preview window</p>
                 {diagnostics.length > 0 && (
                   <button
                     type="button"
@@ -1255,7 +1304,17 @@ function PrintOnDemandContent() {
               </div>
 
               <div className="relative mt-3 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,#0c141f_0%,#070d15_100%)]">
-                <Canvas shadows camera={{ position: VIEW_POSITION[viewPreset], fov: 45 }}>
+                <Canvas
+                  frameloop={isMobileViewport ? "demand" : "always"}
+                  shadows={!isMobileViewport}
+                  dpr={isMobileViewport ? [1, 1.25] : [1, 2]}
+                  gl={{
+                    antialias: !isMobileViewport,
+                    powerPreference: isMobileViewport ? "low-power" : "high-performance",
+                  }}
+                  performance={{ min: 0.5 }}
+                  camera={{ position: VIEW_POSITION[viewPreset], fov: 45 }}
+                >
                   <ViewportScene
                     modelUrl={selectedModel?.previewUrl}
                     tool={viewTool}
@@ -1265,19 +1324,20 @@ function PrintOnDemandContent() {
                     view={viewPreset}
                     fitSignal={fitSignal}
                     rotationDeg={rotationDeg}
+                    mobileOptimized={isMobileViewport}
                     controlsRef={controlsRef}
                     onBounds={setBounds}
                   />
                 </Canvas>
 
                 {measureMode && (
-                  <div className="absolute bottom-16 right-3 rounded-md border border-cyan-300/50 bg-slate-950/85 px-2 py-1 text-[11px] text-cyan-100">
+                  <div className="absolute bottom-16 right-3 rounded-md border border-[#2ED1FF]/45 bg-[#04080d]/85 px-2 py-1 text-[11px] text-[#BFF4FF]">
                     {measureLabel}
                   </div>
                 )}
               </div>
 
-              <div className="mt-3 space-y-2 rounded-xl border border-white/10 bg-slate-900/80 p-2">
+              <div className="mt-3 space-y-2 rounded-xl border border-white/10 bg-[#050a0f]/80 p-2">
                 <div className="flex flex-wrap items-center gap-2">
                   {(["orbit", "pan", "zoom"] as const).map((tool) => (
                     <button
@@ -1289,8 +1349,8 @@ function PrintOnDemandContent() {
                       }}
                       className={`rounded-lg border px-3 py-1.5 text-xs font-semibold uppercase transition ${
                         viewTool === tool
-                          ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                          : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                          ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                          : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                       }`}
                     >
                       {tool}
@@ -1304,7 +1364,7 @@ function PrintOnDemandContent() {
                       setViewPreset(next);
                       setNoticeWith(`View preset: ${VIEW_LABEL[next]}.`);
                     }}
-                    className="rounded-lg border border-white/15 bg-slate-900 px-2 py-1.5 text-xs uppercase"
+                    className="rounded-lg border border-white/15 bg-[#0b1014] px-2 py-1.5 text-xs uppercase"
                   >
                     <option value="isometric">Views: Isometric</option>
                     <option value="front">Views: Front</option>
@@ -1319,8 +1379,8 @@ function PrintOnDemandContent() {
                     onClick={() => setShowGrid((prev) => !prev)}
                     className={`rounded-lg border px-3 py-1.5 text-xs transition ${
                       showGrid
-                        ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                        : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                        ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                        : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
                     Grid
@@ -1330,8 +1390,8 @@ function PrintOnDemandContent() {
                     onClick={() => setShowBuildPlate((prev) => !prev)}
                     className={`rounded-lg border px-3 py-1.5 text-xs transition ${
                       showBuildPlate
-                        ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                        : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                        ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                        : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
                     Build plate
@@ -1341,8 +1401,8 @@ function PrintOnDemandContent() {
                     onClick={() => setMeasureMode((prev) => !prev)}
                     className={`rounded-lg border px-3 py-1.5 text-xs transition ${
                       measureMode
-                        ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                        : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                        ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                        : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                     }`}
                   >
                     Measure
@@ -1350,14 +1410,14 @@ function PrintOnDemandContent() {
                   <button
                     type="button"
                     onClick={handleResetViewport}
-                    className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/45"
+                    className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45"
                   >
                     Reset
                   </button>
                   <button
                     type="button"
                     onClick={handleFitToVolume}
-                    className="rounded-lg border border-cyan-300/70 bg-cyan-500/10 px-3 py-1.5 text-xs text-cyan-100 transition hover:border-cyan-200"
+                    className="rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                   >
                     Fit-to-volume
                   </button>
@@ -1366,7 +1426,7 @@ function PrintOnDemandContent() {
             </div>
           </section>
 
-          <aside className="rounded-2xl border border-white/15 bg-slate-900/70 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)]">
+          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)]">
             <h2 className="text-lg font-semibold tracking-wide">RIGHT: PRINT SETUP</h2>
 
             <div className="mt-3 flex h-[560px] flex-col gap-3 xl:h-full">
@@ -1374,38 +1434,38 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("size")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Size and scale</span>
-                  <span className="text-xs text-slate-400">{openSections.size ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.size ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.size && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
-                    <label className="text-xs text-slate-400">Height: {heightMm} mm</label>
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                    <label className="text-xs text-white/55">Height: {heightMm} mm</label>
                     <input
                       type="range"
                       min={20}
                       max={selectedPrinter.maxHeightMm}
                       value={heightMm}
                       onChange={(event) => setHeightMm(Number(event.target.value))}
-                      className="mt-2 w-full accent-cyan-400"
+                      className="mt-2 w-full accent-[#2ED1FF]"
                     />
 
-                    <label className="mt-3 flex items-center gap-2 text-xs text-slate-300">
+                    <label className="mt-3 flex items-center gap-2 text-xs text-white/65">
                       <input
                         type="checkbox"
                         checked={lockProportions}
                         onChange={() => setLockProportions((prev) => !prev)}
-                        className="accent-cyan-400"
+                        className="accent-[#2ED1FF]"
                       />
                       Lock proportions
                     </label>
 
-                    <label className="mt-3 block text-xs text-slate-400">Printer profile</label>
+                    <label className="mt-3 block text-xs text-white/55">Printer profile</label>
                     <select
                       value={printerProfileId}
                       onChange={(event) => setPrinterProfileId(event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                      className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
                     >
                       {printerOptions.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -1417,7 +1477,7 @@ function PrintOnDemandContent() {
                     <button
                       type="button"
                       onClick={handleAutoFit}
-                      className="mt-3 rounded-lg border border-cyan-300/70 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:border-cyan-200"
+                      className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
                       Auto-fit
                     </button>
@@ -1427,13 +1487,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("quality")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Quality</span>
-                  <span className="text-xs text-slate-400">{openSections.quality ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.quality ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.quality && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <div className="flex flex-wrap gap-2">
                       {(["draft", "standard", "pro"] as const).map((preset) => (
                         <button
@@ -1442,8 +1502,8 @@ function PrintOnDemandContent() {
                           onClick={() => setQualityPreset(preset)}
                           className={`rounded-lg border px-3 py-1.5 text-xs font-semibold transition ${
                             qualityPreset === preset
-                              ? "border-cyan-300/80 bg-cyan-500/15 text-cyan-100"
-                              : "border-white/20 text-slate-200 hover:border-cyan-300/70 hover:text-cyan-100"
+                              ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                              : "border-white/20 text-white/75 hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                           }`}
                         >
                           {QUALITY_LABEL[preset]}
@@ -1456,18 +1516,18 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("orientation")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Orientation</span>
-                  <span className="text-xs text-slate-400">{openSections.orientation ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.orientation ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.orientation && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
-                    <label className="text-xs text-slate-400">Recommended preset</label>
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                    <label className="text-xs text-white/55">Recommended preset</label>
                     <select
                       value={orientationPreset}
                       onChange={(event) => setOrientationPreset(event.target.value as OrientationPreset)}
-                      className="mt-1 w-full rounded-lg border border-white/15 bg-slate-900 px-2 py-2 text-sm"
+                      className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
                     >
                       {(["balanced", "risk", "speed"] as const).map((preset) => (
                         <option key={preset} value={preset}>
@@ -1480,14 +1540,14 @@ function PrintOnDemandContent() {
                       <button
                         type="button"
                         onClick={handleApplyOrientation}
-                        className="rounded-lg border border-cyan-300/70 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:border-cyan-200"
+                        className="rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                       >
                         Apply preset
                       </button>
                       <button
                         type="button"
                         onClick={handleManualRotate}
-                        className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-slate-200 transition hover:border-white/45"
+                        className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45"
                       >
                         Manual rotate
                       </button>
@@ -1498,20 +1558,20 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("supports")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Supports</span>
-                  <span className="text-xs text-slate-400">{openSections.supports ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.supports ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.supports && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Enable supports</span>
                       <input
                         type="checkbox"
                         checked={supportsEnabled}
                         onChange={() => setSupportsEnabled((prev) => !prev)}
-                        className="accent-cyan-400"
+                        className="accent-[#2ED1FF]"
                       />
                     </label>
                   </div>
@@ -1520,13 +1580,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("hollow")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Hollow (SLA only)</span>
-                  <span className="text-xs text-slate-400">{openSections.hollow ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.hollow ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.hollow && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Enable hollow</span>
                       <input
@@ -1541,7 +1601,7 @@ function PrintOnDemandContent() {
                           setHollowEnabled((prev) => !prev);
                         }}
                         title={tech !== "SLA" ? "coming soon" : undefined}
-                        className="accent-cyan-400 disabled:cursor-not-allowed"
+                        className="accent-[#2ED1FF] disabled:cursor-not-allowed"
                       />
                     </label>
                     {tech !== "SLA" && <p className="mt-2 text-xs text-amber-200">Disabled for FDM. Coming soon.</p>}
@@ -1551,26 +1611,26 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("autofix")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Auto-fix mesh</span>
-                  <span className="text-xs text-slate-400">{openSections.autofix ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.autofix ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.autofix && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Enable auto-fix</span>
                       <input
                         type="checkbox"
                         checked={autoFixMesh}
                         onChange={() => setAutoFixMesh((prev) => !prev)}
-                        className="accent-cyan-400"
+                        className="accent-[#2ED1FF]"
                       />
                     </label>
                     <button
                       type="button"
                       onClick={handleAutoFixRun}
-                      className="mt-3 rounded-lg border border-cyan-300/70 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:border-cyan-200"
+                      className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
                       Run auto-fix
                     </button>
@@ -1580,32 +1640,32 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("diagnostics")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-slate-950/70 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
                 >
                   <span className="text-sm font-semibold">Diagnostics</span>
-                  <span className="text-xs text-slate-400">{openSections.diagnostics ? "Hide" : "Show"}</span>
+                  <span className="text-xs text-white/55">{openSections.diagnostics ? "Hide" : "Show"}</span>
                 </button>
                 {openSections.diagnostics && (
-                  <div className="rounded-lg border border-white/10 bg-slate-950/60 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Enable diagnostics</span>
                       <input
                         type="checkbox"
                         checked={diagnosticsEnabled}
                         onChange={() => setDiagnosticsEnabled((prev) => !prev)}
-                        className="accent-cyan-400"
+                        className="accent-[#2ED1FF]"
                       />
                     </label>
 
                     <button
                       type="button"
                       onClick={handleRunDiagnostics}
-                      className="mt-3 rounded-lg border border-cyan-300/70 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold text-cyan-100 transition hover:border-cyan-200"
+                      className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
                       Re-run diagnostics
                     </button>
 
-                    <ul className="mt-3 space-y-1 text-xs text-slate-300">
+                    <ul className="mt-3 space-y-1 text-xs text-white/65">
                       {diagnostics.length === 0 && <li>No issues found.</li>}
                       {diagnostics.map((issue) => (
                         <li key={issue.id}>
@@ -1617,31 +1677,31 @@ function PrintOnDemandContent() {
                 )}
               </div>
 
-              <section className="sticky bottom-0 rounded-xl border border-white/15 bg-slate-950/95 p-3 backdrop-blur">
+              <section className="sticky bottom-0 rounded-xl border border-white/15 bg-[#05070a]/94 p-3 backdrop-blur">
                 <h3 className="text-base font-semibold text-white">Order summary</h3>
                 <div className="mt-2 flex items-center justify-between text-sm">
-                  <span className="text-slate-400">Price</span>
+                  <span className="text-white/55">Price</span>
                   <span className="font-semibold text-white">{formatPrice(price)}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-slate-400">ETA</span>
+                  <span className="text-white/55">ETA</span>
                   <span className="font-semibold text-white">{formatEta(etaMinutes)}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-slate-400">Risk</span>
+                  <span className="text-white/55">Risk</span>
                   <span className={`font-semibold ${riskTone}`}>{risk}</span>
                 </div>
                 <div className="mt-1 flex items-center justify-between text-sm">
-                  <span className="text-slate-400">Fit</span>
+                  <span className="text-white/55">Fit</span>
                   <span className={`font-semibold ${fitTone}`}>{fitStatus}</span>
                 </div>
                 {scaledDimensionsMm && (
-                  <p className="mt-1 text-xs text-slate-400">
+                  <p className="mt-1 text-xs text-white/55">
                     Model size: {formatDims(scaledDimensionsMm.x, scaledDimensionsMm.y, scaledDimensionsMm.z)}
                   </p>
                 )}
 
-                <p className="mt-3 text-xs text-slate-400">Delivery: calculated at checkout.</p>
+                <p className="mt-3 text-xs text-white/55">Delivery: calculated at checkout.</p>
                 {addToCartValidationError && (
                   <p className="mt-2 text-xs text-amber-200">{addToCartValidationError}</p>
                 )}
@@ -1652,7 +1712,7 @@ function PrintOnDemandContent() {
                     onClick={handleAddToCart}
                     disabled={Boolean(addToCartValidationError)}
                     title={addToCartValidationError ?? undefined}
-                    className="flex-1 rounded-lg border border-cyan-300/75 bg-cyan-500/10 px-3 py-2 text-sm font-semibold text-cyan-100 transition hover:border-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex-1 rounded-lg border border-[#2ED1FF]/70 bg-[#2ED1FF]/10 px-3 py-2 text-sm font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Add to cart
                   </button>
@@ -1661,7 +1721,7 @@ function PrintOnDemandContent() {
                     onClick={handleContinueCheckout}
                     disabled={Boolean(checkoutValidationError)}
                     title={checkoutValidationError ?? undefined}
-                    className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-sm font-semibold text-slate-100 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="flex-1 rounded-lg border border-white/20 px-3 py-2 text-sm font-semibold text-white transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Continue to checkout
                   </button>
@@ -1677,9 +1737,11 @@ function PrintOnDemandContent() {
 
 export default function PrintServicePage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-slate-950" />}>
+    <Suspense fallback={<div className="min-h-screen bg-[#050505]" />}>
       <PrintOnDemandContent />
     </Suspense>
   );
 }
+
+
 
