@@ -172,7 +172,7 @@ const inferTechFromModel = (model: SelectedModel | null): PrintTech => {
   if (!model) return "SLA";
   const name = model.name.toLowerCase();
 
-  if (/\.(stl|3mf|obj)$/i.test(name)) return "FDM";
+  if (/\.(stl|obj)$/i.test(name)) return "FDM";
   if (/(fdm|pla|petg|abs|bracket|gear|case|mount)/i.test(name)) return "FDM";
   if (/(sla|resin|mini|figur|bust|statue|jewel)/i.test(name)) return "SLA";
   return "SLA";
@@ -1157,7 +1157,7 @@ function PrintOnDemandContent() {
         <input
           ref={uploadRef}
           type="file"
-          accept=".stl,.obj,.3mf,.glb,.gltf"
+          accept=".stl,.obj,.glb,.gltf"
           onChange={handleUploadChange}
           className="hidden"
         />
