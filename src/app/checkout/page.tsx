@@ -2404,7 +2404,7 @@ const CheckoutPage = () => {
               transition={{ duration: 0.35 }}
               className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]"
             >
-              <div className="min-w-0 max-h-[calc(100vh-220px)] space-y-6 overflow-y-auto rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
+              <div className="min-w-0 space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
                   <div className="flex h-11 w-11 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
                     <ShieldCheck className="h-5 w-5" />

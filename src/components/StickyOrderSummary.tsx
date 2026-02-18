@@ -61,7 +61,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
           </span>
         </div>
 
-        <div className="mb-4 max-h-[240px] space-y-3 overflow-y-auto pr-1 sm:mb-5 sm:max-h-[320px]">
+        <div className="mb-4 space-y-3 pr-1 sm:mb-5">
           {items.map((item) => (
             <div
               key={item.id}
