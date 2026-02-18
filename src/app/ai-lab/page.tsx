@@ -26,8 +26,12 @@ import {
 } from "lucide-react";
 import {
   AdditiveBlending,
+  BufferAttribute,
+  BufferGeometry,
   Color,
   MOUSE,
+  Points,
+  PointsMaterial,
   type Group,
   type Mesh,
   type MeshBasicMaterial,
@@ -1056,90 +1060,114 @@ const subscriptionStatusLabel = (value?: string) => {
   return raw ? raw.toUpperCase() : "NO PLAN";
 };
 
-function NeuralCore({ active }: { active: boolean }) {
+function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: number }) {
   const groupRef = useRef<Group | null>(null);
-  const coreRef = useRef<Mesh | null>(null);
-  const coreMaterialRef = useRef<MeshStandardMaterial | null>(null);
-  const cageRef = useRef<Mesh | null>(null);
-  const cageMaterialRef = useRef<MeshBasicMaterial | null>(null);
-  const ringMaterialRef = useRef<MeshStandardMaterial | null>(null);
-  const coolEmissive = useRef(new Color("#2ED1FF"));
-  const cageBase = useRef(new Color("#7FE7FF"));
-  const hotEmissive = useRef(new Color("#F9E7AE"));
-  const tempColor = useRef(new Color());
+  const pointsRef = useRef<Points | null>(null);
+  const geometryRef = useRef<BufferGeometry | null>(null);
+  const materialRef = useRef<PointsMaterial | null>(null);
+  const pointsCount = 3400;
+  const [targetPositions, scatterPositions, phases] = useMemo(() => {
+    const target = new Float32Array(pointsCount * 3);
+    const scatter = new Float32Array(pointsCount * 3);
+    const phase = new Float32Array(pointsCount);
+    const sampleFigurePoint = () => {
+      const area = Math.random();
+      if (area < 0.22) {
+        const theta = Math.random() * Math.PI * 2;
+        const radius = Math.sqrt(Math.random()) * 0.34;
+        const x = Math.cos(theta) * radius;
+        const z = Math.sin(theta) * radius * 0.8;
+        const y = 1.16 + (Math.random() - 0.5) * 0.34;
+        return [x, y, z] as const;
+      }
+      if (area < 0.66) {
+        const x = (Math.random() - 0.5) * 0.95;
+        const z = (Math.random() - 0.5) * 0.52;
+        const y = 0.35 + Math.random() * 0.84;
+        return [x, y, z] as const;
+      }
+      const left = Math.random() > 0.5 ? -1 : 1;
+      const x = left * (0.16 + Math.random() * 0.24) + (Math.random() - 0.5) * 0.08;
+      const z = (Math.random() - 0.5) * 0.42;
+      const y = -0.62 + Math.random() * 0.98;
+      return [x, y, z] as const;
+    };
+    for (let i = 0; i < pointsCount; i += 1) {
+      const [x, y, z] = sampleFigurePoint();
+      const base = i * 3;
+      target[base] = x;
+      target[base + 1] = y;
+      target[base + 2] = z;
+
+      const phi = Math.random() * Math.PI * 2;
+      const theta = Math.acos(2 * Math.random() - 1);
+      const radius = 1.45 + Math.random() * 1.4;
+      scatter[base] = Math.sin(theta) * Math.cos(phi) * radius;
+      scatter[base + 1] = Math.cos(theta) * radius * 0.75;
+      scatter[base + 2] = Math.sin(theta) * Math.sin(phi) * radius;
+      phase[i] = Math.random() * Math.PI * 2;
+    }
+    return [target, scatter, phase] as const;
+  }, []);
+  const livePositions = useMemo(() => new Float32Array(scatterPositions), [scatterPositions]);
+
+  useEffect(() => {
+    if (!geometryRef.current) return;
+    const attribute = new BufferAttribute(livePositions, 3);
+    geometryRef.current.setAttribute("position", attribute);
+    geometryRef.current.computeBoundingSphere();
+  }, [livePositions]);
 
   useFrame(({ clock }) => {
     const t = clock.getElapsedTime();
+    const progress01 = active ? clampNumber(progress / 100, 0, 1) : 0;
+    const revealBase = 0.12 + progress01 * 1.12;
+
+    for (let i = 0; i < pointsCount; i += 1) {
+      const base = i * 3;
+      const order = i / pointsCount;
+      const reveal = clampNumber((revealBase - order) / 0.42, 0, 1);
+      const mix = active ? reveal : 0;
+      const flutter = (1 - mix) * 0.11 + 0.018;
+
+      const waveX = Math.sin(t * 2.8 + phases[i]) * flutter;
+      const waveY = Math.cos(t * 3.1 + phases[i] * 1.4) * flutter;
+      const waveZ = Math.sin(t * 2.4 + phases[i] * 0.8) * flutter;
+
+      livePositions[base] = scatterPositions[base] * (1 - mix) + targetPositions[base] * mix + waveX;
+      livePositions[base + 1] =
+        scatterPositions[base + 1] * (1 - mix) + targetPositions[base + 1] * mix + waveY;
+      livePositions[base + 2] =
+        scatterPositions[base + 2] * (1 - mix) + targetPositions[base + 2] * mix + waveZ;
+    }
+
+    const attr = geometryRef.current?.getAttribute("position");
+    if (attr) attr.needsUpdate = true;
+    if (materialRef.current) {
+      materialRef.current.opacity = active ? 0.88 : 0.65;
+      materialRef.current.size = active ? 0.024 : 0.02;
+    }
     if (groupRef.current) {
-      groupRef.current.rotation.y = t * 0.35;
-      groupRef.current.rotation.x = Math.sin(t * 0.2) * 0.15;
-    }
-    if (coreRef.current) {
-      const pulse = 1 + Math.sin(t * 2.1) * 0.04;
-      coreRef.current.scale.setScalar(pulse);
-    }
-    if (coreMaterialRef.current) {
-      if (active) {
-        const glow = (Math.sin(t * 4) + 1) / 2;
-        tempColor.current.copy(coolEmissive.current).lerp(hotEmissive.current, glow);
-        coreMaterialRef.current.emissive.copy(tempColor.current);
-        coreMaterialRef.current.emissiveIntensity = 2.1 + glow * 1.4;
-      } else {
-        coreMaterialRef.current.emissive.copy(coolEmissive.current);
-        coreMaterialRef.current.emissiveIntensity = 1.4 + Math.sin(t * 3.1) * 0.35;
-      }
-    }
-    if (cageRef.current) {
-      cageRef.current.rotation.z = t * 0.15;
-    }
-    if (cageMaterialRef.current) {
-      const glow = active ? (Math.sin(t * 4) + 1) / 2 : 0;
-      tempColor.current.copy(cageBase.current).lerp(hotEmissive.current, glow);
-      cageMaterialRef.current.color.copy(tempColor.current);
-    }
-    if (ringMaterialRef.current) {
-      const glow = active ? (Math.sin(t * 4) + 1) / 2 : 0;
-      tempColor.current.copy(coolEmissive.current).lerp(hotEmissive.current, glow);
-      ringMaterialRef.current.emissive.copy(tempColor.current);
-      ringMaterialRef.current.emissiveIntensity = 0.8 + glow * 0.8;
+      groupRef.current.rotation.y = Math.sin(t * 0.45) * 0.12;
     }
   });
 
   return (
-    <group ref={groupRef}>
-      <mesh ref={coreRef}>
-        <sphereGeometry args={[1.1, 64, 64]} />
-        <meshStandardMaterial
-          ref={coreMaterialRef}
-          color="#0b1220"
-          emissive="#2ED1FF"
-          emissiveIntensity={1.5}
-          roughness={0.18}
-          metalness={0.2}
-        />
-      </mesh>
-      <mesh ref={cageRef} scale={1.75}>
-        <boxGeometry args={[2.4, 2.4, 2.4]} />
-        <meshBasicMaterial
-          ref={cageMaterialRef}
-          color="#7FE7FF"
-          wireframe
+    <group ref={groupRef} position={[0, -0.15, 0]}>
+      <points ref={pointsRef} frustumCulled={false}>
+        <bufferGeometry ref={geometryRef} />
+        <pointsMaterial
+          ref={materialRef}
+          color="#E6F4FF"
+          size={0.024}
           transparent
-          opacity={0.35}
+          opacity={0.88}
+          depthWrite={false}
+          blending={AdditiveBlending}
+          sizeAttenuation
         />
-      </mesh>
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
-        <torusGeometry args={[1.7, 0.05, 16, 128]} />
-        <meshStandardMaterial
-          ref={ringMaterialRef}
-          color="#7FE7FF"
-          emissive="#2ED1FF"
-          emissiveIntensity={0.9}
-          roughness={0.2}
-          metalness={0.4}
-        />
-      </mesh>
-      <Sparkles count={90} scale={3.6} size={1.6} color="#BFF4FF" speed={0.35} opacity={0.45} />
+      </points>
+      <Sparkles count={130} scale={3.4} size={1.25} color="#D6ECFF" speed={0.3} opacity={0.35} />
     </group>
   );
 }
@@ -1291,9 +1319,9 @@ function AiLabContent() {
   const [rightPanelQuery, setRightPanelQuery] = useState("");
   const [currentProjectName, setCurrentProjectName] = useState("Основной проект");
   const [uiThemeMode, setUiThemeMode] = useState<"dark" | "auto">("dark");
-  const [uiScale, setUiScale] = useState(100);
+  const [prefersDarkScheme, setPrefersDarkScheme] = useState(true);
   const [viewerQuality, setViewerQuality] = useState<"performance" | "quality">("quality");
-  const [uiLanguage, setUiLanguage] = useState<"ru" | "en">("ru");
+  const [uiLanguage] = useState<"ru" | "en">("ru");
   const [generationSettingsOpen, setGenerationSettingsOpen] = useState<
     Record<GenerationSettingSection, boolean>
   >({
@@ -1390,9 +1418,20 @@ function AiLabContent() {
     maskMode === "wand" ? (maskWandAction === "restore") !== maskWandAltPressed : false;
   const maskCanvasCursor = maskMode === "wand" ? (isWandRestorePreview ? WAND_CURSOR_RESTORE : WAND_CURSOR_ERASE) : "crosshair";
   const isSynthRunning = serverJob?.status === "queued" || serverJob?.status === "processing";
+  const effectiveThemeMode = uiThemeMode === "auto" ? (prefersDarkScheme ? "dark" : "light") : "dark";
 
   const { toasts, showError, showSuccess, removeToast } = useToast();
   const showErrorRef = useRef(showError);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const apply = () => setPrefersDarkScheme(media.matches);
+    apply();
+    const onChange = () => apply();
+    media.addEventListener?.("change", onChange);
+    return () => media.removeEventListener?.("change", onChange);
+  }, []);
 
   useEffect(() => {
     showErrorRef.current = showError;
@@ -3363,8 +3402,7 @@ function AiLabContent() {
     return gallery.filter((asset) => {
       return (
         asset.name.toLowerCase().includes(q) ||
-        asset.format.toLowerCase().includes(q) ||
-        (asset.localOnly ? "локально local" : "облако cloud").includes(q)
+        asset.format.toLowerCase().includes(q)
       );
     });
   }, [gallery, rightPanelQuery]);
@@ -3442,6 +3480,15 @@ function AiLabContent() {
     return [3.6, 2.6, 4.6];
   }, [viewportViewPreset]);
   const viewportCameraFov = viewportViewPreset === "top" || viewportViewPreset === "bottom" ? 30 : 40;
+  const viewportPresetLabel = useMemo(() => {
+    if (viewportViewPreset === "front") return "спереди";
+    if (viewportViewPreset === "back") return "сзади";
+    if (viewportViewPreset === "left") return "слева";
+    if (viewportViewPreset === "right") return "справа";
+    if (viewportViewPreset === "top") return "сверху";
+    if (viewportViewPreset === "bottom") return "снизу";
+    return "свободный";
+  }, [viewportViewPreset]);
   const viewportMouseButtons = useMemo(() => {
     if (viewportControlMode === "pan") {
       return {
@@ -3507,22 +3554,6 @@ function AiLabContent() {
     },
     [fetchTokenHistory, fetchTokens, showSuccess]
   );
-  const handleCloudToggle = useCallback(
-    (asset: GeneratedAsset) => {
-      setGallery((prev) =>
-        prev.map((item) =>
-          item.id === asset.id
-            ? {
-                ...item,
-                localOnly: !item.localOnly,
-              }
-            : item
-        )
-      );
-      showSuccess(asset.localOnly ? "Модель отправлена в облако." : "Модель оставлена локально.");
-    },
-    [showSuccess]
-  );
   const handleLogout = useCallback(async () => {
     try {
       await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
@@ -3567,11 +3598,30 @@ function AiLabContent() {
     <div className="relative min-h-screen overflow-x-hidden bg-[#030304] text-white">
       <div
         className="pointer-events-none fixed inset-0 z-0 bg-cover bg-center page-bg-fade"
-        style={{ backgroundImage: `url(${AI_LAB_BG})`, backgroundPosition: "center 70%", filter: "brightness(0.75)" }}
+        style={{
+          backgroundImage: `url(${AI_LAB_BG})`,
+          backgroundPosition: "center 70%",
+          filter:
+            effectiveThemeMode === "light" ? "brightness(0.92) saturate(0.82)" : "brightness(0.75)",
+        }}
       />
-      <div className="pointer-events-none fixed inset-0 z-10 bg-black/35" />
-      <div className="pointer-events-none fixed inset-0 z-20 cad-grid-pattern opacity-[0.22]" />
-      <div className="pointer-events-none fixed inset-0 z-20 bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.08),_transparent_50%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.07),_transparent_45%)]" />
+      <div
+        className={`pointer-events-none fixed inset-0 z-10 ${
+          effectiveThemeMode === "light" ? "bg-black/20" : "bg-black/35"
+        }`}
+      />
+      <div
+        className={`pointer-events-none fixed inset-0 z-20 cad-grid-pattern ${
+          effectiveThemeMode === "light" ? "opacity-[0.14]" : "opacity-[0.22]"
+        }`}
+      />
+      <div
+        className={`pointer-events-none fixed inset-0 z-20 ${
+          effectiveThemeMode === "light"
+            ? "bg-[radial-gradient(circle_at_top,_rgba(180,220,255,0.1),_transparent_55%),radial-gradient(circle_at_20%_20%,_rgba(203,213,225,0.1),_transparent_45%)]"
+            : "bg-[radial-gradient(circle_at_top,_rgba(46,209,255,0.08),_transparent_50%),radial-gradient(circle_at_20%_20%,_rgba(148,163,184,0.07),_transparent_45%)]"
+        }`}
+      />
 
       <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl">
         <div className="mx-auto w-full max-w-[1760px] px-4 sm:px-6">
@@ -3797,18 +3847,6 @@ function AiLabContent() {
                           ))}
                         </div>
                       </div>
-                      <label className="block">
-                        Масштаб UI ({uiScale}%)
-                        <input
-                          type="range"
-                          min={85}
-                          max={115}
-                          step={5}
-                          value={uiScale}
-                          onChange={(event) => setUiScale(Number(event.target.value))}
-                          className="mt-1 w-full"
-                        />
-                      </label>
                       <div className="flex items-center justify-between">
                         <span>Вьювер</span>
                         <div className="flex gap-1">
@@ -3829,17 +3867,18 @@ function AiLabContent() {
                         </div>
                       </div>
                       <div className="flex items-center justify-between">
-                        <span>Язык</span>
+                        <span>Язык (скоро)</span>
                         <div className="flex gap-1">
                           {(["ru", "en"] as const).map((value) => (
                             <button
                               key={value}
                               type="button"
-                              onClick={() => setUiLanguage(value)}
+                              disabled
+                              title="Скоро"
                               className={`rounded-md border px-2 py-1 ${
                                 uiLanguage === value
                                   ? "border-cyan-300/60 bg-cyan-500/10 text-cyan-100"
-                                  : "border-white/15 text-white/60 hover:border-white/30"
+                                  : "border-white/15 text-white/60"
                               }`}
                             >
                               {value.toUpperCase()}
@@ -4546,7 +4585,7 @@ function AiLabContent() {
                     />
                   </group>
                 ) : isSynthRunning ? (
-                  <NeuralCore active />
+                  <NeuralCore active progress={displayProgress} />
                 ) : null}
               </Suspense>
               <OrbitControls
@@ -4561,6 +4600,23 @@ function AiLabContent() {
             </Canvas>
             <div className="laser-scan pointer-events-none absolute inset-x-6 z-10 h-0.5 rounded-full bg-gradient-to-r from-transparent via-[#2ED1FF] to-transparent opacity-70 shadow-[0_0_18px_rgba(46,209,255,0.65)]" />
           </div>
+
+          {isSynthRunning && !activePreviewModel && (
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center">
+              <div className="w-[min(430px,78%)] rounded-2xl border border-white/15 bg-[#050a0f]/72 px-5 py-4 text-center backdrop-blur-sm">
+                <p className="text-sm font-semibold text-white/90">Генерация...</p>
+                <p className="mt-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
+                  собираем геометрию и материалы
+                </p>
+                <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/15">
+                  <div
+                    className="h-full bg-gradient-to-r from-[#8ECFFF] via-[#D9ECFF] to-[#FFFFFF] transition-all"
+                    style={{ width: `${Math.max(4, Math.min(100, Math.round(displayProgress)))}%` }}
+                  />
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="pointer-events-none absolute inset-0 z-10">
             <div className="absolute left-6 top-24 flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/60">
@@ -4637,7 +4693,7 @@ function AiLabContent() {
                     title="Выбор готового ракурса камеры"
                     className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
                   >
-                    Ракурс
+                    {`Ракурс: ${viewportPresetLabel}`}
                   </button>
                   {viewportViewsOpen && (
                     <div className="absolute bottom-9 right-0 z-30 w-[170px] space-y-1 rounded-xl border border-white/15 bg-[#060a10]/95 p-2 shadow-[0_12px_28px_rgba(0,0,0,0.45)]">
@@ -5241,19 +5297,9 @@ function AiLabContent() {
                         type="button"
                         onClick={(event) => {
                           event.stopPropagation();
-                          handleCloudToggle(asset);
-                        }}
-                        className="rounded-full border border-white/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60 transition hover:border-white/35 hover:text-white"
-                      >
-                        {asset.localOnly ? "ЛОКАЛЬНО" : "ОБЛАКО"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(event) => {
-                          event.stopPropagation();
                           handleDownload(asset);
                         }}
-                        className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                        className="min-w-0 w-full truncate rounded-full border border-[#2ED1FF]/40 px-1.5 py-1 text-center text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                       >
                         СКАЧАТЬ
                       </button>
