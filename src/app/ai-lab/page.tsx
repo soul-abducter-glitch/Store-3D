@@ -5880,12 +5880,12 @@ function AiLabContent() {
 
           {labPanelTab === "queue" && (
             <div className="space-y-3">
-              <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
-                <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65">
+              <div className="rounded-2xl border border-white/15 bg-black/35 px-3 py-2">
+                <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70">
                   <span>
                     Сейчас: {queueSummary.running} в работе • {queueSummary.queued} в очереди • {queueSummary.errors} ошибок
                   </span>
-                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/60 px-2 py-0.5 text-emerald-200">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/60 bg-emerald-500/10 px-2 py-0.5 text-emerald-200">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                     online
                   </span>
@@ -5904,10 +5904,10 @@ function AiLabContent() {
                     key={value}
                     type="button"
                     onClick={() => setQueueFilter(value)}
-                    className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
+                    className={`rounded-full border px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
                       queueFilter === value
-                        ? "border-[#2ED1FF]/60 text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.25)]"
-                        : "border-white/10 text-white/45 hover:border-white/30 hover:text-white/75"
+                        ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.25)]"
+                        : "border-white/15 bg-white/[0.02] text-white/45 hover:border-white/30 hover:text-white/75"
                     }`}
                   >
                     {label}
@@ -5934,17 +5934,25 @@ function AiLabContent() {
                   </div>
                 ) : (
                   filteredQueueByQuery.map((item) => {
+                    const typeLower = item.type.toLowerCase();
                     const isRunning = item.status === "running";
                     const isQueued = item.status === "queued";
                     const isDone = item.status === "done";
                     const isError = item.status === "error" || item.status === "canceled";
+                    const iconToneClass = isError
+                      ? "border-rose-400/35 bg-rose-500/10 text-rose-200"
+                      : isRunning
+                        ? "border-emerald-400/35 bg-emerald-500/10 text-emerald-100"
+                        : isQueued
+                          ? "border-cyan-400/35 bg-cyan-500/10 text-cyan-100"
+                          : "border-white/20 bg-white/[0.05] text-white/70";
                     const badgeClass = isRunning
-                      ? "border-emerald-400/50 text-emerald-200"
+                      ? "border-emerald-400/55 bg-emerald-500/10 text-emerald-100"
                       : isQueued
-                        ? "border-cyan-400/50 text-cyan-200"
+                        ? "border-cyan-400/55 bg-cyan-500/10 text-cyan-100"
                         : isDone
-                          ? "border-white/30 text-white/70"
-                          : "border-rose-400/50 text-rose-200";
+                          ? "border-white/30 bg-white/5 text-white/70"
+                          : "border-rose-400/55 bg-rose-500/10 text-rose-200";
                     const statusLabel = isRunning
                       ? "В РАБОТЕ"
                       : isQueued
@@ -5964,20 +5972,41 @@ function AiLabContent() {
                     return (
                       <div
                         key={item.id}
-                        className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3"
+                        className="rounded-2xl border border-white/12 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] px-3 py-3"
                       >
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-white/90">{item.type}</p>
-                            <p className="truncate text-[11px] text-white/60">{item.label}</p>
+                        <div className="flex items-start gap-3">
+                          <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${iconToneClass}`}>
+                            {typeLower.includes("генерац") || typeLower.includes("ремикс") ? (
+                              <FlaskConical className="h-4 w-4" />
+                            ) : typeLower.includes("фикс") ? (
+                              <Wand2 className="h-4 w-4" />
+                            ) : typeLower.includes("раздел") ? (
+                              <Scissors className="h-4 w-4" />
+                            ) : typeLower.includes("экспорт") ? (
+                              <Rocket className="h-4 w-4" />
+                            ) : typeLower.includes("blender") ? (
+                              <BlenderBadgeIcon className="h-4 w-4" />
+                            ) : typeLower.includes("анализ") ? (
+                              <Cpu className="h-4 w-4" />
+                            ) : (
+                              <Box className="h-4 w-4" />
+                            )}
                           </div>
-                          <span
-                            className={`rounded-full border px-2 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${badgeClass}`}
-                          >
-                            {statusLabel}
-                          </span>
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <p className="text-[15px] font-semibold leading-5 text-white/90">{item.type}</p>
+                                <p className="mt-1 truncate text-[12px] text-white/60">{item.label}</p>
+                              </div>
+                              <span
+                                className={`rounded-full border px-2.5 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${badgeClass}`}
+                              >
+                                {statusLabel}
+                              </span>
+                            </div>
+                          </div>
                         </div>
-                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                        <div className="mt-3 h-2.5 overflow-hidden rounded-full border border-white/10 bg-black/40">
                           <div
                             className={`h-full transition-all ${
                               isError
@@ -5987,23 +6016,25 @@ function AiLabContent() {
                             style={{ width: `${Math.max(4, Math.min(100, Math.round(item.progress || 0)))}%` }}
                           />
                         </div>
-                        <div className="mt-1 flex items-center justify-between text-[10px] text-white/55">
-                          <span>{isQueued || isRunning ? `ETA ${formatEta(item.etaSeconds ?? null)}` : item.message || "—"}</span>
-                          <span>{Math.round(item.progress || 0)}%</span>
+                        <div className="mt-1.5 flex items-center justify-between text-[11px] text-white/60">
+                          <span className="truncate">
+                            {isQueued || isRunning ? `ETA ${formatEta(item.etaSeconds ?? null)}` : item.message || "—"}
+                          </span>
+                          <span className="font-[var(--font-jetbrains-mono)]">{Math.round(item.progress || 0)}%</span>
                         </div>
-                        <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+                        <div className="mt-2.5 flex flex-wrap justify-end gap-1.5">
                           <button
                             type="button"
                             onClick={() => handleOpenQueueJob(item)}
                             disabled={!canOpen}
-                            className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                            className="rounded-full border border-cyan-400/45 bg-cyan-500/10 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                           >
                             Открыть
                           </button>
                           <button
                             type="button"
                             onClick={() => handleShowQueueJobLogs(item)}
-                            className="rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/35 hover:text-white"
+                            className="rounded-full border border-white/25 bg-white/[0.03] px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/35 hover:text-white"
                           >
                             Логи
                           </button>
@@ -6011,7 +6042,7 @@ function AiLabContent() {
                             <button
                               type="button"
                               onClick={handleCancelSynthesis}
-                              className="rounded-full border border-amber-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-100 transition hover:border-amber-300"
+                              className="rounded-full border border-amber-400/50 bg-amber-500/10 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-100 transition hover:border-amber-300"
                             >
                               Отменить
                             </button>
@@ -6020,7 +6051,7 @@ function AiLabContent() {
                             <button
                               type="button"
                               onClick={() => void handleRetryQueueJob(item)}
-                              className="rounded-full border border-rose-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300"
+                              className="rounded-full border border-rose-400/50 bg-rose-500/10 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300"
                             >
                               Повторить
                             </button>
@@ -6039,7 +6070,7 @@ function AiLabContent() {
                   className="flex w-full items-center justify-between text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
                 >
                   <span>Система (свернуть/развернуть)</span>
-                  <span className="rounded-full border border-white/20 px-2 py-0.5 text-[9px] text-white/55">
+                  <span className="rounded-full border border-white/20 bg-white/[0.03] px-2 py-0.5 text-[9px] text-white/65">
                     {queueSystemOpen ? "Скрыть" : "Подробнее"}
                   </span>
                 </button>
