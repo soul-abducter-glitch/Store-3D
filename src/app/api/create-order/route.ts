@@ -251,6 +251,13 @@ const resolveQueueMultiplier = () => {
 const resolvePreflightBlockCritical = () =>
   (process.env.PRINT_PREFLIGHT_BLOCK_CRITICAL || "true").trim().toLowerCase() !== "false";
 
+// Block checkout only for broken geometry, not for difficult-print heuristics.
+const PRECHECK_HARD_BLOCK_CODES = new Set([
+  "invalid_dimensions",
+  "invalid_volume",
+  "very_low_density",
+]);
+
 const resolveBedSizeMm = () => {
   const parse = (value: string | undefined, fallback: number) => {
     const parsed = Number.parseFloat((value || "").trim());
@@ -469,15 +476,23 @@ export async function POST(request: NextRequest) {
         if (report.status !== "critical") {
           return null;
         }
+        const blockingIssues = report.issues.filter(
+          (issue) =>
+            issue.severity === "critical" && PRECHECK_HARD_BLOCK_CODES.has(issue.code)
+        );
+        if (blockingIssues.length === 0) {
+          return null;
+        }
         return {
           itemIndex: index,
-          issues: report.issues
-            .filter((issue) => issue.severity === "critical")
-            .map((issue) => issue.message),
+          issues: blockingIssues.map((issue) => issue.message),
+          issueCodes: blockingIssues.map((issue) => issue.code),
         };
       })
       .filter(
-        (item: any): item is { itemIndex: number; issues: string[] } =>
+        (
+          item: any
+        ): item is { itemIndex: number; issues: string[]; issueCodes: string[] } =>
           Boolean(item && item.issues.length)
       );
 
