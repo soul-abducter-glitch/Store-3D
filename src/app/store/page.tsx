@@ -2001,6 +2001,17 @@ export default function Home() {
     return `/services/print?${params.toString()}`;
   }, []);
 
+  const navigateToPrint = useCallback(
+    (url: string) => {
+      if (typeof window !== "undefined") {
+        window.location.assign(url);
+        return;
+      }
+      router.push(url);
+    },
+    [router]
+  );
+
   const handleOrderPrint = useCallback(
     (product: CatalogProduct) => {
       const url = buildPrintUrl(product);
@@ -2008,9 +2019,9 @@ export default function Home() {
         showError("У этой модели нет файла для печати.");
         return;
       }
-      router.push(url);
+      navigateToPrint(url);
     },
-    [buildPrintUrl, router, showError]
+    [buildPrintUrl, navigateToPrint, showError]
   );
   const canPrintCurrent =
     Boolean(currentProduct?.rawModelUrl || currentProduct?.paintedModelUrl) &&
@@ -2023,8 +2034,8 @@ export default function Home() {
       handleOrderPrint(currentProduct);
       return;
     }
-    router.push("/services/print");
-  }, [canPrintCurrent, currentProduct, handleOrderPrint, router]);
+    navigateToPrint("/services/print");
+  }, [canPrintCurrent, currentProduct, handleOrderPrint, navigateToPrint]);
   const isCurrentFavorite = currentProduct ? isFavorite(currentProduct.id) : false;
   const heroRawModelUrl = useMemo(() => {
     if (!currentProduct) return null;
@@ -3601,6 +3612,7 @@ function Header({
   const [cartPopKey, setCartPopKey] = useState(0);
   const prevCartCountRef = useRef(cartCount);
   const logoReturnArmedRef = useRef(false);
+  const logoReturnArmedAtRef = useRef<number>(0);
 
   useEffect(() => {
     if (isSearchOpen) {
@@ -3619,6 +3631,7 @@ function Header({
     const handleScroll = () => {
       if (window.scrollY > 32) {
         logoReturnArmedRef.current = false;
+        logoReturnArmedAtRef.current = 0;
       }
     };
     window.addEventListener("scroll", handleScroll, { passive: true });
@@ -3630,12 +3643,28 @@ function Header({
       router.push("/");
       return;
     }
+    const now = Date.now();
+    const armedRecently =
+      logoReturnArmedRef.current && now - logoReturnArmedAtRef.current <= 1400;
     if (window.scrollY > 32) {
       logoReturnArmedRef.current = true;
+      logoReturnArmedAtRef.current = now;
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
+    if (armedRecently) {
+      logoReturnArmedRef.current = false;
+      logoReturnArmedAtRef.current = 0;
+      router.push("/");
+      return;
+    }
+    logoReturnArmedRef.current = true;
+    logoReturnArmedAtRef.current = now;
+  };
+
+  const handleLogoDoubleClick = () => {
     logoReturnArmedRef.current = false;
+    logoReturnArmedAtRef.current = 0;
     router.push("/");
   };
 
@@ -3674,6 +3703,7 @@ function Header({
             <button
               type="button"
               onClick={handleLogoClick}
+              onDoubleClick={handleLogoDoubleClick}
               className="block text-left transition hover:opacity-80"
               aria-label="На портал"
             >

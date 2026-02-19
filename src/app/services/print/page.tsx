@@ -31,6 +31,10 @@ type SelectedModel = {
   previewUrl?: string;
 };
 
+type RecentModelEntry = SelectedModel & {
+  mediaId?: string;
+};
+
 type Issue = {
   id: string;
   title: string;
@@ -56,47 +60,12 @@ type IssueMarker = ModelIssueMarker;
 
 const STEPS = ["Модель", "Настройка печати", "Подготовка", "Корзина/Оформление"];
 
-const STORE_MODELS: SelectedModel[] = [
-  {
-    id: "store-bust",
-    name: "Modern Bust.glb",
-    units: "mm",
-    baseScale: 1,
-    source: "store",
-    fileUrl: "/models/cup.glb",
-    previewUrl: "/models/cup.glb",
-  },
-  {
-    id: "store-mecha",
-    name: "Mini Mecha.glb",
-    units: "mm",
-    baseScale: 1,
-    source: "store",
-    fileUrl: "/models/cup2.glb",
-    previewUrl: "/models/cup2.glb",
-  },
-];
-
-const RECENT_MODELS: SelectedModel[] = [
-  {
-    id: "recent-vase",
-    name: "Vase-v7.glb",
-    units: "mm",
-    baseScale: 1,
-    source: "recent",
-    fileUrl: "/models/cup3.glb",
-    previewUrl: "/models/cup3.glb",
-  },
-  {
-    id: "recent-drone",
-    name: "Drone-shell.glb",
-    units: "mm",
-    baseScale: 1,
-    source: "recent",
-    fileUrl: "/models/cup.glb",
-    previewUrl: "/models/cup.glb",
-  },
-];
+const PRINT_RECENT_MODELS_KEY = "print:recent-models:v1";
+const PRINT_RECENT_MODELS_MAX = 12;
+const PRINT_MAX_QUANTITY = 20;
+const PRINT_MAX_NOTE_LENGTH = 400;
+const PRINT_MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
+const PRINT_ALLOWED_FILE_EXTENSIONS = [".stl", ".obj", ".glb", ".gltf"] as const;
 
 const MATERIALS_BY_TECH: Record<PrintTech, string[]> = {
   SLA: ["Стандартная смола", "Ударопрочная смола", "Литейная смола"],
@@ -161,6 +130,21 @@ const formatEta = (minutes: number) => {
 
 const formatDims = (x: number, y: number, z: number) =>
   `${x.toFixed(1)} x ${y.toFixed(1)} x ${z.toFixed(1)} mm`;
+
+const hasSupportedModelExtension = (fileName: string) => {
+  const lower = fileName.toLowerCase();
+  return PRINT_ALLOWED_FILE_EXTENSIONS.some((ext) => lower.endsWith(ext));
+};
+
+const validateModelUploadFile = (file: File) => {
+  if (!hasSupportedModelExtension(file.name)) {
+    return "Поддерживаются только файлы STL, OBJ, GLB и GLTF.";
+  }
+  if (file.size > PRINT_MAX_UPLOAD_BYTES) {
+    return "Файл превышает 100MB. Уменьшите размер и попробуйте снова.";
+  }
+  return null;
+};
 
 const buildCartThumbnail = (label: string) => {
   const shortLabel = label.trim().slice(0, 2).toUpperCase() || "3D";
@@ -339,6 +323,7 @@ function PrintOnDemandContent() {
   const [cartCount, setCartCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
   const [sourceTab, setSourceTab] = useState<SourceKind>("upload");
+  const [recentModels, setRecentModels] = useState<RecentModelEntry[]>([]);
   const [sourceName, setSourceName] = useState<string | null>(null);
   const [sourceThumb, setSourceThumb] = useState<string | null>(null);
   const [uploadedMedia, setUploadedMedia] = useState<{ id: string; url?: string; filename?: string } | null>(
@@ -473,7 +458,7 @@ function PrintOnDemandContent() {
       setQualityPreset(prefill.quality);
     }
     if (typeof prefill.note === "string") {
-      setNote(prefill.note);
+      setNote(prefill.note.slice(0, PRINT_MAX_NOTE_LENGTH));
     }
     if (prefill.packaging) {
       setPackaging(prefill.packaging);
@@ -482,7 +467,7 @@ function PrintOnDemandContent() {
       setHollowEnabled(tech === "SLA" ? prefill.hollow : false);
     }
     if (typeof prefill.quantity === "number" && Number.isFinite(prefill.quantity)) {
-      setQuantity(Math.min(20, Math.max(1, Math.trunc(prefill.quantity))));
+      setQuantity(Math.min(PRINT_MAX_QUANTITY, Math.max(1, Math.trunc(prefill.quantity))));
     }
     if (typeof prefill.heightMm === "number" && Number.isFinite(prefill.heightMm)) {
       setHeightMm(Math.max(20, Math.min(selectedPrinter.maxHeightMm, Math.round(prefill.heightMm))));
@@ -579,6 +564,84 @@ function PrintOnDemandContent() {
     setNotice(text);
   };
 
+  const rememberRecentModel = useCallback(
+    (args: { name: string; fileUrl?: string; source: SourceKind; mediaId?: string }) => {
+      if (typeof window === "undefined") return;
+      if (!args.fileUrl) return;
+      const normalizedUrl = args.fileUrl.trim();
+      if (!normalizedUrl || normalizedUrl.startsWith("blob:")) return;
+
+      const previewUrl = /\.(glb|gltf)$/i.test(args.name) ? normalizedUrl : undefined;
+      const idBase = args.mediaId
+        ? `media-${args.mediaId}`
+        : `${args.source}:${args.name}:${normalizedUrl}`.toLowerCase();
+
+      const nextEntry: RecentModelEntry = {
+        id: idBase,
+        name: args.name,
+        units: "mm",
+        baseScale: 1,
+        source: args.source,
+        fileUrl: normalizedUrl,
+        previewUrl,
+        mediaId: args.mediaId,
+      };
+
+      setRecentModels((prev) => {
+        const deduped = prev.filter((item) => {
+          if (args.mediaId && item.mediaId && item.mediaId === args.mediaId) return false;
+          return !(item.name === nextEntry.name && item.fileUrl === nextEntry.fileUrl);
+        });
+        const next = [nextEntry, ...deduped].slice(0, PRINT_RECENT_MODELS_MAX);
+        window.localStorage.setItem(PRINT_RECENT_MODELS_KEY, JSON.stringify(next));
+        return next;
+      });
+    },
+    []
+  );
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const raw = window.localStorage.getItem(PRINT_RECENT_MODELS_KEY);
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return;
+      const normalized: RecentModelEntry[] = [];
+      for (const item of parsed) {
+        if (!item || typeof item !== "object") continue;
+        const name = typeof item.name === "string" ? item.name : "";
+        const fileUrl = typeof item.fileUrl === "string" ? item.fileUrl : undefined;
+        if (!name || !fileUrl) continue;
+        const source: SourceKind =
+          item.source === "store" || item.source === "recent" ? item.source : "upload";
+        normalized.push({
+          id: typeof item.id === "string" && item.id ? item.id : `${source}:${name}`,
+          name,
+          units: "mm",
+          baseScale: 1,
+          source,
+          fileUrl,
+          previewUrl:
+            typeof item.previewUrl === "string"
+              ? item.previewUrl
+              : /\.(glb|gltf)$/i.test(name)
+                ? fileUrl
+                : undefined,
+          mediaId: typeof item.mediaId === "string" ? item.mediaId : undefined,
+        });
+      }
+      setRecentModels(normalized.slice(0, PRINT_RECENT_MODELS_MAX));
+    } catch {
+      // ignore malformed local storage
+    }
+  }, []);
+
+  const storeHistoryModels = useMemo(
+    () => recentModels.filter((item) => item.source === "store"),
+    [recentModels]
+  );
+
   const handleTechControlModeChange = (mode: TechControlMode) => {
     setTechControlMode(mode);
     if (mode === "auto") {
@@ -652,7 +715,7 @@ function PrintOnDemandContent() {
   }, []);
 
   const uploadFileToDatabase = useCallback(
-    async (file: File, preferredMediaId?: string) => {
+    async (file: File, preferredMediaId?: string, source: SourceKind = "upload") => {
       setUploadStatus("uploading");
       setUploadError(null);
 
@@ -665,6 +728,12 @@ function PrintOnDemandContent() {
             filename: existingById.filename || file.name,
           });
           setUploadStatus("ready");
+          rememberRecentModel({
+            name: existingById.filename || file.name,
+            fileUrl: existingById.url,
+            source,
+            mediaId: String(existingById.id),
+          });
           setNoticeWith("Модель уже загружена. Можно добавить в корзину.");
           return;
         }
@@ -678,6 +747,12 @@ function PrintOnDemandContent() {
           filename: existing.filename || file.name,
         });
         setUploadStatus("ready");
+        rememberRecentModel({
+          name: existing.filename || file.name,
+          fileUrl: existing.url,
+          source,
+          mediaId: String(existing.id),
+        });
         setNoticeWith("Модель уже загружена. Можно добавить в корзину.");
         return;
       }
@@ -715,9 +790,15 @@ function PrintOnDemandContent() {
         filename: data.doc.filename || file.name,
       });
       setUploadStatus("ready");
+      rememberRecentModel({
+        name: data.doc.filename || file.name,
+        fileUrl: data.doc.url,
+        source,
+        mediaId: String(data.doc.id),
+      });
       setNoticeWith("Модель загружена. Можно добавить в корзину.");
     },
-    [fetchMediaById, resolveExistingUpload]
+    [fetchMediaById, rememberRecentModel, resolveExistingUpload]
   );
 
   const loadModelFromUrl = useCallback(
@@ -741,9 +822,13 @@ function PrintOnDemandContent() {
       const file = new File([blob], fileName, {
         type: blob.type || "application/octet-stream",
       });
+      const validationError = validateModelUploadFile(file);
+      if (validationError) {
+        throw new Error(validationError);
+      }
 
       prepareModelPreview(file, source, mediaId ? `media-${mediaId}` : undefined);
-      await uploadFileToDatabase(file, mediaId);
+      await uploadFileToDatabase(file, mediaId, source);
     },
     [uploadFileToDatabase]
   );
@@ -751,6 +836,14 @@ function PrintOnDemandContent() {
   const handleUploadChange = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
+    const validationError = validateModelUploadFile(file);
+    if (validationError) {
+      setUploadStatus("idle");
+      setUploadError(validationError);
+      setNoticeWith(validationError);
+      event.target.value = "";
+      return;
+    }
 
     setSourceName(file.name);
     setSourceThumb(null);
@@ -761,37 +854,50 @@ function PrintOnDemandContent() {
         ? `Модель загружена: ${file.name}`
         : `Модель загружена: ${file.name}. Предпросмотр пока поддерживает только GLB/GLTF.`
     );
-    void uploadFileToDatabase(file);
+    void uploadFileToDatabase(file, undefined, "upload");
 
     event.target.value = "";
   };
 
-  const handlePickStoreModel = (modelId: string) => {
-    const next = STORE_MODELS.find((item) => item.id === modelId) ?? STORE_MODELS[0];
+  const handlePickStoreModel = (modelId?: string) => {
+    const next =
+      (modelId ? storeHistoryModels.find((item) => item.id === modelId) : null) ??
+      storeHistoryModels[0];
     setSourceTab("store");
+    if (!next) {
+      setNoticeWith("Выберите модель в магазине и нажмите «Печать на заказ».");
+      router.push("/store");
+      return;
+    }
     setSourceName(next.name);
     setSourceThumb(null);
     if (!next.fileUrl) {
       setNoticeWith(`Выбрано из магазина: ${next.name}`);
       return;
     }
-    void loadModelFromUrl(next.fileUrl, next.name, "store").catch((error) => {
+    void loadModelFromUrl(next.fileUrl, next.name, "store", next.mediaId).catch((error) => {
       setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель.");
       setUploadStatus("idle");
       setNoticeWith("Не удалось загрузить модель из магазина.");
     });
   };
 
-  const handlePickRecentModel = (modelId: string) => {
-    const next = RECENT_MODELS.find((item) => item.id === modelId) ?? RECENT_MODELS[0];
+  const handlePickRecentModel = (modelId?: string) => {
+    const next =
+      (modelId ? recentModels.find((item) => item.id === modelId) : null) ??
+      recentModels[0];
     setSourceTab("recent");
+    if (!next) {
+      setNoticeWith("Недавние модели пока отсутствуют.");
+      return;
+    }
     setSourceName(next.name);
     setSourceThumb(null);
     if (!next.fileUrl) {
       setNoticeWith(`Выбрано из недавних: ${next.name}`);
       return;
     }
-    void loadModelFromUrl(next.fileUrl, next.name, "recent").catch((error) => {
+    void loadModelFromUrl(next.fileUrl, next.name, "recent", next.mediaId).catch((error) => {
       setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель.");
       setUploadStatus("idle");
       setNoticeWith("Не удалось загрузить модель из недавних.");
@@ -832,6 +938,7 @@ function PrintOnDemandContent() {
     if (!modelParam) return;
 
     prefillRef.current = true;
+    const sourceParam = (searchParams.get("source") || "").toLowerCase();
     const mediaIdParam = searchParams.get("mediaId") || undefined;
     const nameParam = searchParams.get("name") || "model.glb";
     const techParam = (searchParams.get("tech") || "").toLowerCase();
@@ -844,6 +951,13 @@ function PrintOnDemandContent() {
     const hollowParam = (searchParams.get("hollow") || "").toLowerCase();
     const quantityParam = Number(searchParams.get("quantity"));
     const heightParam = Number(searchParams.get("height"));
+
+    const prefillSource: SourceKind =
+      sourceParam.includes("store") || sourceParam.includes("digital")
+        ? "store"
+        : sourceParam.includes("recent")
+          ? "recent"
+          : "upload";
 
     const qualityPresetParam: QualityPreset | undefined =
       qualityParam === "draft"
@@ -872,7 +986,7 @@ function PrintOnDemandContent() {
           : hollowParam === "1" || hollowParam === "true" || hollowParam === "yes",
       quantity:
         Number.isFinite(quantityParam) && quantityParam > 0
-          ? Math.min(20, Math.max(1, Math.trunc(quantityParam)))
+          ? Math.min(PRINT_MAX_QUANTITY, Math.max(1, Math.trunc(quantityParam)))
           : undefined,
       heightMm:
         Number.isFinite(heightParam) && heightParam > 0
@@ -905,7 +1019,8 @@ function PrintOnDemandContent() {
       setSourceThumb(resolvedThumb);
     }
 
-    void loadModelFromUrl(modelParam, nameParam, "upload", mediaIdParam).catch((error) => {
+    setSourceTab(prefillSource);
+    void loadModelFromUrl(modelParam, nameParam, prefillSource, mediaIdParam).catch((error) => {
       prefillRef.current = false;
       setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель по ссылке.");
       setUploadStatus("idle");
@@ -1055,6 +1170,12 @@ function PrintOnDemandContent() {
       return "Перед добавлением в корзину модель должна быть загружена в базу.";
     }
     if (quantity < 1) return "Количество должно быть не меньше 1.";
+    if (quantity > PRINT_MAX_QUANTITY) {
+      return `Количество не может быть больше ${PRINT_MAX_QUANTITY}.`;
+    }
+    if (note.trim().length > PRINT_MAX_NOTE_LENGTH) {
+      return `Комментарий не должен превышать ${PRINT_MAX_NOTE_LENGTH} символов.`;
+    }
     if (hasPreviewGeometry && !scaledDimensionsMm) {
       return "Габариты 3D-модели еще рассчитываются. Подождите.";
     }
@@ -1065,6 +1186,7 @@ function PrintOnDemandContent() {
   }, [
     fitsPrinterVolume,
     hasPreviewGeometry,
+    note,
     quantity,
     scaledDimensionsMm,
     selectedModel,
@@ -1263,46 +1385,55 @@ function PrintOnDemandContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => handlePickStoreModel(STORE_MODELS[0].id)}
+                  onClick={() => handlePickStoreModel()}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
                   Из магазина
                 </button>
                 <button
                   type="button"
-                  onClick={() => handlePickRecentModel(RECENT_MODELS[0].id)}
+                  onClick={() => handlePickRecentModel()}
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs font-semibold text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
                 >
                   Недавние
                 </button>
               </div>
 
-              {sourceTab === "store" && (
+              {sourceTab === "store" && storeHistoryModels.length > 0 && (
                 <select
-                  value={selectedModel?.source === "store" ? selectedModel.id : STORE_MODELS[0].id}
+                  value={selectedModel?.source === "store" ? selectedModel.id : storeHistoryModels[0].id}
                   onChange={(event) => handlePickStoreModel(event.target.value)}
                   className="mt-3 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
                 >
-                  {STORE_MODELS.map((item) => (
+                  {storeHistoryModels.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>
                   ))}
                 </select>
               )}
+              {sourceTab === "store" && storeHistoryModels.length === 0 && (
+                <p className="mt-3 text-xs text-white/50">
+                  История моделей из магазина пока пуста. Выберите модель в магазине и нажмите
+                  «Печать на заказ».
+                </p>
+              )}
 
-              {sourceTab === "recent" && (
+              {sourceTab === "recent" && recentModels.length > 0 && (
                 <select
-                  value={selectedModel?.source === "recent" ? selectedModel.id : RECENT_MODELS[0].id}
+                  value={selectedModel?.source === "recent" ? selectedModel.id : recentModels[0].id}
                   onChange={(event) => handlePickRecentModel(event.target.value)}
                   className="mt-3 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
                 >
-                  {RECENT_MODELS.map((item) => (
+                  {recentModels.map((item) => (
                     <option key={item.id} value={item.id}>
                       {item.name}
                     </option>
                   ))}
                 </select>
+              )}
+              {sourceTab === "recent" && recentModels.length === 0 && (
+                <p className="mt-3 text-xs text-white/50">Недавние модели пока отсутствуют.</p>
               )}
 
               <p className="mt-3 text-xs text-white/65">{selectedInfo}</p>
@@ -1428,8 +1559,10 @@ function PrintOnDemandContent() {
                 <span className="min-w-10 text-center text-sm font-semibold">{quantity}</span>
                 <button
                   type="button"
-                  onClick={() => setQuantity((prev) => prev + 1)}
-                  className="rounded-lg border border-white/20 px-3 py-1 text-sm transition hover:border-white/45"
+                  onClick={() => setQuantity((prev) => Math.min(PRINT_MAX_QUANTITY, prev + 1))}
+                  disabled={quantity >= PRINT_MAX_QUANTITY}
+                  title={quantity >= PRINT_MAX_QUANTITY ? `Максимум ${PRINT_MAX_QUANTITY}` : undefined}
+                  className="rounded-lg border border-white/20 px-3 py-1 text-sm transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   +
                 </button>
@@ -1440,7 +1573,7 @@ function PrintOnDemandContent() {
               <h3 className="text-base font-semibold text-white">Заметки (опционально)</h3>
               <textarea
                 value={note}
-                onChange={(event) => setNote(event.target.value.slice(0, 400))}
+                onChange={(event) => setNote(event.target.value.slice(0, PRINT_MAX_NOTE_LENGTH))}
                 placeholder="Комментарий для мастерской"
                 className="mt-2 min-h-24 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
               />

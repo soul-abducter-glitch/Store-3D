@@ -240,6 +240,7 @@ const paymentOptions = [
   { value: "sbp", label: "СБП" },
   { value: "cash", label: "Наличными при получении" },
 ];
+const paymentMethodSet = new Set(paymentOptions.map((option) => option.value));
 
 const citySuggestions = KNOWN_CITIES;
 const streetSuggestionsByCity: Record<string, string[]> = {
@@ -267,6 +268,8 @@ const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const CITY_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'.-]{1,49}$/;
 const ADDRESS_REGEX = /^[A-Za-zА-Яа-яЁё0-9\s.,\\-\\/№]{3,120}$/;
 const PHONE_REGEX = /^[+0-9()\s-]{6,20}$/;
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
+const ZIP_CODE_REGEX = /^\d{4,10}$/;
 
 const normalizeAddressInput = (value: string) =>
   value
@@ -1040,13 +1043,17 @@ const CheckoutPage = () => {
     address?: string;
     zipCode?: string;
     shippingMethod?: string;
+    paymentMethod?: string;
     consent?: string;
   }>({});
   const nameRef = useRef<HTMLInputElement>(null);
   const emailRef = useRef<HTMLInputElement>(null);
   const phoneRef = useRef<HTMLInputElement>(null);
+  const shippingMethodRef = useRef<HTMLDivElement>(null);
   const cityRef = useRef<HTMLInputElement>(null);
   const addressRef = useRef<HTMLTextAreaElement>(null);
+  const zipCodeRef = useRef<HTMLInputElement>(null);
+  const paymentMethodRef = useRef<HTMLDivElement>(null);
   const consentRef = useRef<HTMLInputElement>(null);
   const apiBase = "";
   const cartStorageKey = useMemo(
@@ -1654,6 +1661,7 @@ const CheckoutPage = () => {
     const phone = form.phone.trim();
     const city = form.city.trim();
     const address = normalizeAddressInput(form.address);
+    const zipCode = form.zipCode.trim();
 
     if (!name || !email) {
       submitError = "Заполните имя и email.";
@@ -1671,6 +1679,13 @@ const CheckoutPage = () => {
       submitError = "Имя может содержать только буквы, пробелы, дефис и апостроф.";
       errors.name = "Разрешены только буквы, пробел, дефис и апостроф.";
       firstErrorField = "name";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    if (!EMAIL_REGEX.test(email.toLowerCase())) {
+      submitError = "Проверьте email.";
+      errors.email = "Некорректный email.";
+      firstErrorField = "email";
       return { errors, submitError, firstErrorField, isValid: false };
     }
 
@@ -1702,6 +1717,12 @@ const CheckoutPage = () => {
     }
 
     if (hasPhysical) {
+      if (!shippingMethodSet.has(form.shippingMethod)) {
+        submitError = "Выберите корректную службу доставки.";
+        errors.shippingMethod = "Выберите службу доставки.";
+        firstErrorField = "shippingMethod";
+        return { errors, submitError, firstErrorField, isValid: false };
+      }
       if (!CITY_REGEX.test(city)) {
         submitError = "Город может содержать только буквы, пробелы, точку и дефис.";
         errors.city = "Разрешены только буквы, пробел, точка и дефис.";
@@ -1729,6 +1750,26 @@ const CheckoutPage = () => {
         firstErrorField = "address";
         return { errors, submitError, firstErrorField, isValid: false };
       }
+      if (zipCode && !ZIP_CODE_REGEX.test(zipCode)) {
+        submitError = "Почтовый индекс должен содержать только цифры (4-10).";
+        errors.zipCode = "Используйте 4-10 цифр.";
+        firstErrorField = "zipCode";
+        return { errors, submitError, firstErrorField, isValid: false };
+      }
+    }
+
+    if (hasDigital && !hasPhysical && paymentMethod !== "card") {
+      submitError = "Для цифровых товаров доступна только оплата картой.";
+      errors.paymentMethod = "Для цифровых товаров выберите оплату картой.";
+      firstErrorField = "paymentMethod";
+      return { errors, submitError, firstErrorField, isValid: false };
+    }
+
+    if (!paymentMethodSet.has(paymentMethod)) {
+      submitError = "Выберите корректный способ оплаты.";
+      errors.paymentMethod = "Выберите способ оплаты.";
+      firstErrorField = "paymentMethod";
+      return { errors, submitError, firstErrorField, isValid: false };
     }
 
     if (!legalConsent) {
@@ -1739,7 +1780,7 @@ const CheckoutPage = () => {
     }
 
     return { errors, submitError, firstErrorField, isValid: true };
-  }, [form, hasPhysical, legalConsent]);
+  }, [form, hasDigital, hasPhysical, legalConsent, paymentMethod]);
 
   const canCheckout =
     cartItems.length > 0 &&
@@ -1799,8 +1840,14 @@ const CheckoutPage = () => {
           ? emailRef
           : field === "phone"
             ? phoneRef
+            : field === "shippingMethod"
+              ? shippingMethodRef
+              : field === "paymentMethod"
+                ? paymentMethodRef
           : field === "city"
             ? cityRef
+            : field === "zipCode"
+              ? zipCodeRef
             : field === "consent"
               ? consentRef
             : addressRef;
@@ -1811,7 +1858,10 @@ const CheckoutPage = () => {
   const handleInputChange = (field: keyof typeof form) => (
     event: ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
   ) => {
-    setForm((prev) => ({ ...prev, [field]: event.target.value }));
+    const rawValue = event.target.value;
+    const nextValue =
+      field === "zipCode" ? rawValue.replace(/\D+/g, "").slice(0, 10) : rawValue;
+    setForm((prev) => ({ ...prev, [field]: nextValue }));
     if (submitError) {
       setSubmitError(null);
     }
@@ -1822,6 +1872,35 @@ const CheckoutPage = () => {
       );
     }
   };
+
+  const handleShippingMethodSelect = useCallback(
+    (id: string) => {
+      setForm((prev) => ({
+        ...prev,
+        shippingMethod: id,
+      }));
+      if (submitError) {
+        setSubmitError(null);
+      }
+      setFieldErrors((prev) =>
+        prev.shippingMethod ? { ...prev, shippingMethod: undefined } : prev
+      );
+    },
+    [submitError]
+  );
+
+  const handlePaymentMethodChange = useCallback(
+    (value: string) => {
+      setPaymentMethod(value);
+      if (submitError) {
+        setSubmitError(null);
+      }
+      setFieldErrors((prev) =>
+        prev.paymentMethod ? { ...prev, paymentMethod: undefined } : prev
+      );
+    },
+    [submitError]
+  );
 
   const requestPaymentIntent = useCallback(
     async (orderId: string) => {
@@ -2492,7 +2571,7 @@ const CheckoutPage = () => {
                     <p className="text-xs uppercase tracking-[0.3em] text-white/50">
                       {shippingLabels.sectionTitle}
                     </p>
-                    <div className="space-y-3">
+                    <div ref={shippingMethodRef} tabIndex={-1} className="space-y-3 outline-none">
                       <p className="text-sm text-white/70">Выберите службу доставки</p>
                       <div className="grid gap-3 sm:grid-cols-2">
                         {deliveryOptions.map((option) => (
@@ -2500,15 +2579,13 @@ const CheckoutPage = () => {
                             key={option.id}
                             option={option}
                             selected={form.shippingMethod === option.id}
-                            onSelect={(id) =>
-                              setForm((prev) => ({
-                                ...prev,
-                                shippingMethod: id,
-                              }))
-                            }
+                            onSelect={handleShippingMethodSelect}
                           />
                         ))}
                       </div>
+                      {fieldErrors.shippingMethod && (
+                        <p className="text-xs text-rose-300">{fieldErrors.shippingMethod}</p>
+                      )}
                     </div>
                     {selectedDeliveryOption && (
                       <p className="rounded-2xl border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-3 text-sm text-[#BFF4FF]">
@@ -2599,13 +2676,25 @@ const CheckoutPage = () => {
                         </span>
                       </label>
                       <input
+                        ref={zipCodeRef}
                         type="text"
                         inputMode="numeric"
                         value={form.zipCode}
                         onChange={handleInputChange("zipCode")}
                         placeholder="Например, 644000"
-                        className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
+                        aria-invalid={Boolean(fieldErrors.zipCode)}
+                        aria-describedby={fieldErrors.zipCode ? "checkout-zip-error" : undefined}
+                        className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
+                          fieldErrors.zipCode
+                            ? "border-rose-400/60 ring-1 ring-rose-400/40"
+                            : "border-white/10"
+                        }`}
                       />
+                      {fieldErrors.zipCode && (
+                        <p id="checkout-zip-error" className="text-xs text-rose-300">
+                          {fieldErrors.zipCode}
+                        </p>
+                      )}
                       <p className="text-xs text-white/45">
                         Необязательно, но помогает точнее рассчитать доставку.
                       </p>
@@ -2681,7 +2770,11 @@ const CheckoutPage = () => {
                 </div>
                 <div className="space-y-3 rounded-[22px] border border-white/10 bg-white/[0.03] p-5">
                   <p className="text-xs uppercase tracking-[0.3em] text-white/50">Оплата</p>
-                  <div className="grid gap-2 sm:grid-cols-2">
+                  <div
+                    ref={paymentMethodRef}
+                    tabIndex={-1}
+                    className="grid gap-2 outline-none sm:grid-cols-2"
+                  >
                     {availablePaymentOptions.map((option) => (
                       <label
                         key={option.value}
@@ -2695,12 +2788,15 @@ const CheckoutPage = () => {
                           type="radio"
                           className="hidden h-4 w-4 accent-[#2ED1FF] sm:inline-block"
                           checked={paymentMethod === option.value}
-                          onChange={() => setPaymentMethod(option.value)}
+                          onChange={() => handlePaymentMethodChange(option.value)}
                         />
                         {option.label}
                       </label>
                     ))}
                   </div>
+                  {fieldErrors.paymentMethod && (
+                    <p className="text-xs text-rose-300">{fieldErrors.paymentMethod}</p>
+                  )}
                   {hasDigital && !hasPhysical && (
                     <p className="text-xs text-white/50">
                       Для цифровых файлов доступна только оплата картой.
@@ -2895,7 +2991,7 @@ const CheckoutPage = () => {
                                   key={option.value}
                                   type="button"
                                   className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 transition hover:border-white/30 hover:text-white"
-                                  onClick={() => setPaymentMethod(option.value)}
+                                  onClick={() => handlePaymentMethodChange(option.value)}
                                   disabled={paymentLoading}
                                 >
                                   {option.label}
