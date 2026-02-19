@@ -1726,6 +1726,23 @@ function AiLabContent() {
     return () => window.clearTimeout(timer);
   }, [rightPanelQueryInput]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey || event.metaKey || event.altKey) return;
+      const target = event.target as HTMLElement | null;
+      const tag = (target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || target?.isContentEditable) return;
+      const key = event.key.toLowerCase();
+      if (key === "1" || key === "g") setRightPanelMainBlock("create");
+      if (key === "2" || key === "c") setRightPanelMainBlock("check");
+      if (key === "3" || key === "r") setRightPanelMainBlock("repair");
+      if (key === "4" || key === "m") setRightPanelMainBlock("appearance");
+      if (key === "5" || key === "e") setRightPanelMainBlock("export");
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
   const pushUiError = useCallback(
     (raw: unknown) => {
       const message = toUiErrorMessage(raw);
@@ -5052,40 +5069,386 @@ function AiLabContent() {
             isDesktopPanelHidden ? "lg:hidden" : "lg:flex"
           }`}
         >
-          <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/35 p-2">
-            {([
-              ["create", FlaskConical, "Создать"],
-              ["check", Box, "Проверить"],
-              ["repair", Scissors, "Исправить"],
-              ["appearance", Wand2, "Внешний вид"],
-              ["export", Rocket, "Экспорт"],
-            ] as Array<[RightPanelMainBlock, typeof FlaskConical, string]>).map(([id, Icon, label]) => (
-              <button
-                key={id}
-                type="button"
-                onClick={() => setRightPanelMainBlock(id)}
-                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
-                  rightPanelMainBlock === id
-                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
-                    : "border-white/15 bg-white/[0.03] text-white/70 hover:border-white/35 hover:text-white"
-                }`}
-                title={label}
-              >
-                <Icon className="h-4 w-4" />
-              </button>
-            ))}
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-black/25 p-3 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/60">
-            <p>Навигация AI Lab</p>
-            <p className="mt-2 text-white/40">Иконки слева переключают блоки правой панели.</p>
-            <button
-              type="button"
-              onClick={handleStartNewGeneration}
-              disabled={serverJobLoading || isSynthRunning}
-              className="mt-3 w-full rounded-xl border border-white/15 bg-white/[0.03] px-3 py-2 text-[9px] text-white/70 transition hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-            >
-              Новая генерация
-            </button>
+          <div className="grid grid-cols-[42px_minmax(0,1fr)] gap-3">
+            <div className="flex flex-col items-center gap-2 rounded-2xl border border-white/10 bg-black/35 p-2">
+              {([
+                ["create", FlaskConical, "Создать"],
+                ["check", Box, "Проверить"],
+                ["repair", Scissors, "Исправить"],
+                ["appearance", Wand2, "Материалы"],
+                ["export", Rocket, "Экспорт"],
+              ] as Array<[RightPanelMainBlock, typeof FlaskConical, string]>).map(([id, Icon, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setRightPanelMainBlock(id)}
+                  className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
+                    rightPanelMainBlock === id
+                      ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
+                      : "border-white/15 bg-white/[0.03] text-white/70 hover:border-white/35 hover:text-white"
+                  }`}
+                  title={label}
+                >
+                  <Icon className="h-4 w-4" />
+                </button>
+              ))}
+            </div>
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
+                <span>
+                  {rightPanelMainBlock === "create"
+                    ? "Создать"
+                    : rightPanelMainBlock === "check"
+                      ? "Проверить"
+                      : rightPanelMainBlock === "repair"
+                        ? "Исправить"
+                        : rightPanelMainBlock === "appearance"
+                          ? "Материалы"
+                          : "Экспорт"}
+                </span>
+                <div className="inline-flex rounded-full border border-white/10 bg-black/30 p-0.5 text-[8px]">
+                  <button
+                    type="button"
+                    onClick={() => setPanelUxMode("basic")}
+                    className={`rounded-full px-2 py-0.5 transition ${
+                      panelUxMode === "basic" ? "bg-cyan-500/20 text-cyan-100" : "text-white/55"
+                    }`}
+                  >
+                    BASIC
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setPanelUxMode("pro")}
+                    className={`rounded-full px-2 py-0.5 transition ${
+                      panelUxMode === "pro" ? "bg-violet-500/20 text-violet-100" : "text-white/55"
+                    }`}
+                  >
+                    PRO
+                  </button>
+                </div>
+              </div>
+
+              {rightPanelMainBlock === "create" && (
+                <div className="space-y-3">
+                  <div className="grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
+                    <button
+                      type="button"
+                      onClick={() => setMode("image")}
+                      className={`rounded-xl border px-3 py-2 transition ${
+                        mode === "image"
+                          ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                          : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                      }`}
+                    >
+                      Изображение в 3D
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setMode("text")}
+                      className={`rounded-xl border px-3 py-2 transition ${
+                        mode === "text"
+                          ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
+                          : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                      }`}
+                    >
+                      Текст в 3D
+                    </button>
+                  </div>
+                  <div
+                    className={`relative flex min-h-[170px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
+                      dragActive
+                        ? "border-[#2ED1FF]/70 bg-[#0b1014]/70 shadow-[0_0_24px_rgba(46,209,255,0.35)]"
+                        : "border-white/20 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.06),transparent_60%)] hover:border-white/40"
+                    }`}
+                    onClick={handleBrowse}
+                    onDragOver={(event) => {
+                      event.preventDefault();
+                      setDragActive(true);
+                    }}
+                    onDragLeave={(event) => {
+                      event.preventDefault();
+                      setDragActive(false);
+                    }}
+                    onDrop={handleDrop}
+                    role="button"
+                    tabIndex={0}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handleBrowse();
+                      }
+                    }}
+                  >
+                    <input
+                      ref={uploadInputRef}
+                      type="file"
+                      accept="image/*,.glb,.gltf"
+                      multiple
+                      className="hidden"
+                      onChange={(event) => {
+                        void handleFiles(event.target.files);
+                        event.currentTarget.value = "";
+                      }}
+                    />
+                    {uploadPreview ? (
+                      <img src={uploadPreview} alt="Preview" className="h-full w-full rounded-xl border border-white/10 object-cover" />
+                    ) : (
+                      <>
+                        <UploadCloud className="h-8 w-8 text-[#2ED1FF]" />
+                        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/50">
+                          Перетащите изображение или кликните
+                        </p>
+                      </>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
+                    <button
+                      type="button"
+                      onClick={() => setCreateRefsOpen((prev) => !prev)}
+                      className="flex w-full items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/55"
+                    >
+                      <span>Референсы {validInputReferences.length} / {MAX_INPUT_REFERENCES}</span>
+                      <ChevronDown className={`h-4 w-4 transition ${createRefsOpen ? "rotate-180" : ""}`} />
+                    </button>
+                    {createRefsOpen && (
+                      <div className="mt-2 space-y-2">
+                        {validInputReferences.length === 0 ? (
+                          <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/35">
+                            Нет загруженных референсов
+                          </p>
+                        ) : (
+                          validInputReferences.map((ref) => (
+                            <div key={ref.id} className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/65">
+                              {ref.name}
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                  <textarea
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value)}
+                    placeholder="Опишите желаемый результат: форма, стиль, назначение."
+                    className="min-h-[120px] w-full resize-none rounded-2xl border border-white/10 bg-black/30 px-4 py-3 text-sm text-white/80 placeholder:text-white/40 focus:border-[#2ED1FF]/60 focus:outline-none"
+                  />
+                  <div className="grid grid-cols-3 gap-2">
+                    {(["draft", "standard", "pro"] as const).map((value) => {
+                      const proLocked = value === "pro" && !canUseProQuality;
+                      return (
+                        <button
+                          key={value}
+                          type="button"
+                          disabled={proLocked}
+                          title={proLocked ? "PRO доступен только с активной подпиской M/L" : undefined}
+                          onClick={() => setQualityPreset(value)}
+                          className={`rounded-lg border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] ${
+                            qualityPreset === value
+                              ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                              : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                          } disabled:cursor-not-allowed disabled:opacity-45`}
+                        >
+                          {QUALITY_PRESET_LABEL[value]}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      void handleStartServerSynthesis();
+                    }}
+                    disabled={serverJobLoading || isSynthRunning || tokensLoading}
+                    className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {serverJobLoading ? "Генерация..." : isSynthRunning ? `В работе ${Math.round(displayProgress)}%` : `Generate • ${estimatedTokenCost}`}
+                  </button>
+                </div>
+              )}
+
+              {rightPanelMainBlock === "check" && (
+                <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-2">
+                    <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100/80">Printability Score</p>
+                    <p className={`mt-1 text-[11px] font-semibold ${activePrintabilityTone}`}>
+                      {activePrintabilityScore === null ? "--" : `${activePrintabilityScore}/100`}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void handleAnalyzeActiveAsset(activeAssetVersion)}
+                      disabled={!activeAssetVersion || isAssetPipelineBusy}
+                      title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                      className="rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Анализ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleShowAssetIssues(activeAssetVersion);
+                        setViewerThicknessPreview(false);
+                      }}
+                      disabled={!activeAssetVersion}
+                      title={!activeAssetVersion ? noActiveModelTooltip : undefined}
+                      className="rounded-lg border border-white/25 bg-white/[0.02] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      Показать проблемы
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60">
+                    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">X: {viewportBounds ? viewportBounds.boxSize[0].toFixed(2) : "--"}</div>
+                    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Y: {viewportBounds ? viewportBounds.boxSize[1].toFixed(2) : "--"}</div>
+                    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Z: {viewportBounds ? viewportBounds.boxSize[2].toFixed(2) : "--"}</div>
+                    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Scale: {modelScale.toFixed(2)}x</div>
+                  </div>
+                </div>
+              )}
+
+              {rightPanelMainBlock === "repair" && (
+                <div className="space-y-2 rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                    className="w-full rounded-lg border border-amber-400/45 bg-amber-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Quick Fix
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                    className="w-full rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Fix for Print
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSplitActiveAsset(activeAssetVersion)}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                    className="w-full rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Split for Print
+                  </button>
+                  {panelUxMode === "pro" && (
+                    <div className="flex flex-wrap gap-1.5 pt-1">
+                      {(["web", "game", "print"] as const).map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => void handleRemeshPreset(preset)}
+                          disabled={!activeAssetVersion || isAssetPipelineBusy}
+                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                          className="rounded-full border border-violet-300/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                          Remesh {preset}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {rightPanelMainBlock === "appearance" && (
+                <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <div className="grid grid-cols-5 gap-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.12em]">
+                    {([
+                      ["clay", "Clay"],
+                      ["original", "Original"],
+                      ["resin", "Resin"],
+                      ["plastic", "Plastic"],
+                      ["hologram", "Holo"],
+                    ] as Array<[typeof appearancePreset, string]>).map(([preset, label]) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => setAppearancePreset(preset)}
+                        disabled={!activeAssetVersion}
+                        title={!activeAssetVersion ? noActiveModelTooltip : undefined}
+                        className={`rounded-md border px-1 py-1 transition ${
+                          appearancePreset === preset
+                            ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                            : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                        } disabled:cursor-not-allowed disabled:opacity-45`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleTextureFromImage}
+                    disabled={
+                      !activeAssetVersion ||
+                      isAssetPipelineBusy ||
+                      (!uploadPreview && validInputReferences.length === 0 && !activeHistoryJob?.inputRefs?.length)
+                    }
+                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                    className="w-full rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Текстуры (из изображения)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleTextureFallbackMaterial}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                    className="w-full rounded-lg border border-white/25 bg-white/[0.02] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Однотонный материал
+                  </button>
+                </div>
+              )}
+
+              {rightPanelMainBlock === "export" && (
+                <div className="space-y-2 rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeAssetVersion) return;
+                      handleDownloadAssetGlb(activeAssetVersion);
+                    }}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                    className="w-full rounded-lg border border-[#2ED1FF]/45 bg-[#2ED1FF]/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Скачать GLB
+                  </button>
+                  <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/30 px-3 py-2">
+                    <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/60">
+                      Blender
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activeAssetVersion) return;
+                        void queueBlenderJobForAsset(activeAssetVersion);
+                      }}
+                      disabled={!activeAssetVersion || isAssetPipelineBusy}
+                      title={!activeAssetVersion ? noActiveModelTooltip : "Открыть в Blender"}
+                      aria-label="Открыть в Blender"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-full border border-violet-400/45 bg-violet-500/10 text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                      <BlenderBadgeIcon className="h-4.5 w-4.5" />
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleSendAssetToPrint(activeAssetVersion)}
+                    disabled={!activeAssetVersion}
+                    title={!activeAssetVersion ? noActiveModelTooltip : undefined}
+                    className="w-full rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    Отправить в печать
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </aside>
 
@@ -5101,6 +5464,31 @@ function AiLabContent() {
             <div className="absolute left-6 top-6 z-20 flex items-center gap-2 rounded-full border border-white/10 bg-black/40 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-white/70">
               <Cpu className="h-3.5 w-3.5 text-[#2ED1FF]" />
               РАБОЧАЯ ЗОНА
+            </div>
+          )}
+          {!focusMode && (
+            <div className="absolute left-6 top-16 z-20 flex flex-wrap items-center gap-1.5 rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/70">
+              {([
+                ["create", "Gen (G/1)"],
+                ["check", "Check (C/2)"],
+                ["repair", "Fix (R/3)"],
+                ["appearance", "Mat (M/4)"],
+                ["export", "Exp (E/5)"],
+              ] as Array<[RightPanelMainBlock, string]>).map(([id, label]) => (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setRightPanelMainBlock(id)}
+                  className={`rounded-full border px-2 py-1 transition ${
+                    rightPanelMainBlock === id
+                      ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                      : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                  }`}
+                  title="Быстрый переход к группе инструментов"
+                >
+                  {label}
+                </button>
+              ))}
             </div>
           )}
           <div className="absolute right-6 top-6 z-20 flex flex-wrap items-center justify-end gap-2">
@@ -5560,604 +5948,69 @@ function AiLabContent() {
             </div>
           </div>
           {labPanelTab !== "queue" && (
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-cyan-400/35 bg-black/35 p-3">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/65">
-                      Активная модель
-                    </p>
-                    {activeAssetVersion ? (
-                      <>
-                        <p className="mt-1 truncate text-sm font-semibold text-white/90">
-                          {activeAssetVersion.title || activeHistoryJob?.prompt || `Asset ${activeAssetVersion.id}`}
-                        </p>
-                        <p className="mt-1 truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
-                          ID: {activeAssetVersion.id.slice(0, 10)} • {activeAssetVersion.versionLabel || "original"}
-                        </p>
-                      </>
-                    ) : (
-                      <p className="mt-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                        Выберите модель в Истории/Ассетах
+            <div className="rounded-2xl border border-cyan-400/35 bg-black/35 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/65">
+                    Выбранная модель
+                  </p>
+                  {activeAssetVersion ? (
+                    <>
+                      <p className="mt-1 truncate text-sm font-semibold text-white/90">
+                        {activeAssetVersion.title || activeHistoryJob?.prompt || `Asset ${activeAssetVersion.id}`}
                       </p>
-                    )}
-                  </div>
-                  <span
-                    className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${activeModelStatusClass}`}
-                  >
-                    {activeModelStatus}
-                  </span>
+                      <p className="mt-1 truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                        {activeAssetVersion.versionLabel || "original"} • ID {activeAssetVersion.id.slice(0, 10)}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                      Выберите модель в истории или ассетах
+                    </p>
+                  )}
                 </div>
-                <div className="mt-3 flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!activeHistoryJob) return;
-                      setRemixJob(activeHistoryJob);
-                      setRemixPrompt(activeHistoryJob.prompt || "");
-                      setRemixLocalEdit(false);
-                      setRemixTargetZone("ноги");
-                      setRemixIssueReference(null);
-                    }}
-                    disabled={!activeHistoryJob || historyAction?.id === activeHistoryJob?.id}
-                    title={!activeHistoryJob ? noActiveModelTooltip : undefined}
-                    className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {historyAction?.id === activeHistoryJob?.id && historyAction?.type === "variation" ? "..." : "Ремикс"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!activeHistoryJob) return;
-                      void handlePublishJob(activeHistoryJob);
-                    }}
-                    disabled={
-                      !activeHistoryJob ||
-                      historyAction?.id === activeHistoryJob.id ||
-                      Boolean(activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id])
-                    }
-                    title={!activeHistoryJob ? noActiveModelTooltip : undefined}
-                    className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id]
-                      ? "Сохранено"
-                      : historyAction?.id === activeHistoryJob?.id && historyAction?.type === "publish"
-                        ? "..."
-                        : "В библиотеку"}
-                  </button>
-                  <details className="group relative">
-                    <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
-                      ...
-                    </summary>
-                    <div className="absolute right-0 top-8 z-20 min-w-[172px] space-y-1 rounded-xl border border-white/10 bg-[#06090d]/95 p-2 shadow-[0_12px_24px_rgba(0,0,0,0.45)]">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!activeHistoryJob) return;
-                          void handleRetryHistoryJob(activeHistoryJob);
-                        }}
-                        disabled={
-                          !activeHistoryJob ||
-                          historyAction?.id === activeHistoryJob.id ||
-                          (activeHistoryJob.status !== "failed" && activeHistoryJob.status !== "queued")
-                        }
-                        className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Повтор
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!activeHistoryJob) return;
-                          if (!window.confirm("Удалить задачу навсегда?")) return;
-                          void handleDeleteHistoryJob(activeHistoryJob);
-                        }}
-                        disabled={!activeHistoryJob || historyAction?.id === activeHistoryJob?.id}
-                        className="w-full rounded-lg border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        Удалить
-                      </button>
-                    </div>
-                  </details>
-                </div>
+                <span
+                  className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${activeModelStatusClass}`}
+                >
+                  {activeModelStatus}
+                </span>
               </div>
-
-              <div className="rounded-2xl border border-white/10 bg-black/30 p-2">
-                <div className="grid grid-cols-2 gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em]">
-                  <button
-                    type="button"
-                    onClick={() => setPanelUxMode("basic")}
-                    className={`rounded-xl border px-3 py-2 transition ${
-                      panelUxMode === "basic"
-                        ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
-                        : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/30 hover:text-white"
-                    }`}
-                  >
-                    Базовый
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPanelUxMode("pro")}
-                    className={`rounded-xl border px-3 py-2 transition ${
-                      panelUxMode === "pro"
-                        ? "border-violet-300/60 bg-violet-500/12 text-violet-100"
-                        : "border-white/10 bg-white/[0.02] text-white/55 hover:border-white/30 hover:text-white"
-                    }`}
-                  >
-                    PRO
-                  </button>
-                </div>
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!activeHistoryJob) return;
+                    setRemixJob(activeHistoryJob);
+                    setRemixPrompt(activeHistoryJob.prompt || "");
+                    setRemixLocalEdit(false);
+                    setRemixTargetZone("ноги");
+                    setRemixIssueReference(null);
+                  }}
+                  disabled={!activeHistoryJob || historyAction?.id === activeHistoryJob?.id}
+                  title={!activeHistoryJob ? noActiveModelTooltip : undefined}
+                  className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {historyAction?.id === activeHistoryJob?.id && historyAction?.type === "variation" ? "..." : "Ремикс"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!activeHistoryJob) return;
+                    void handlePublishJob(activeHistoryJob);
+                  }}
+                  disabled={
+                    !activeHistoryJob ||
+                    historyAction?.id === activeHistoryJob.id ||
+                    Boolean(activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id])
+                  }
+                  title={!activeHistoryJob ? noActiveModelTooltip : undefined}
+                  className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id] ? "Сохранено" : "В библиотеку"}
+                </button>
               </div>
-
-              <div className="space-y-2">
-                <div className="rounded-2xl border border-white/10 bg-black/30">
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMainBlock("create")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75"
-                  >
-                    <span>Создать</span>
-                    <ChevronDown className={`h-4 w-4 transition ${rightPanelMainBlock === "create" ? "rotate-180" : ""}`} />
-                  </button>
-                  {rightPanelMainBlock === "create" && (
-                    <div className="space-y-3 border-t border-white/10 px-3 py-3">
-                      <div className="grid grid-cols-2 gap-2 rounded-xl border border-white/10 bg-black/25 p-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em]">
-                        <button
-                          type="button"
-                          onClick={() => setMode("image")}
-                          className={`rounded-lg border px-2 py-1 transition ${
-                            mode === "image"
-                              ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
-                              : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
-                          }`}
-                        >
-                          Image to 3D
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setMode("text")}
-                          className={`rounded-lg border px-2 py-1 transition ${
-                            mode === "text"
-                              ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
-                              : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
-                          }`}
-                        >
-                          Text to 3D
-                        </button>
-                      </div>
-                      <div
-                        className={`relative flex min-h-[130px] cursor-pointer flex-col items-center justify-center gap-3 rounded-xl border border-dashed p-4 text-center transition ${
-                          dragActive
-                            ? "border-[#2ED1FF]/70 bg-[#0b1014]/70 shadow-[0_0_20px_rgba(46,209,255,0.28)]"
-                            : "border-white/20 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.06),transparent_60%)] hover:border-white/40"
-                        }`}
-                        onClick={handleBrowse}
-                        onDragOver={(event) => {
-                          event.preventDefault();
-                          setDragActive(true);
-                        }}
-                        onDragLeave={(event) => {
-                          event.preventDefault();
-                          setDragActive(false);
-                        }}
-                        onDrop={handleDrop}
-                      >
-                        <input
-                          ref={uploadInputRef}
-                          type="file"
-                          accept="image/*,.glb,.gltf"
-                          multiple
-                          className="hidden"
-                          onChange={(event) => {
-                            void handleFiles(event.target.files);
-                            event.currentTarget.value = "";
-                          }}
-                        />
-                        {uploadPreview ? (
-                          <img src={uploadPreview} alt="Preview" className="h-full w-full rounded-lg border border-white/10 object-cover" />
-                        ) : (
-                          <>
-                            <UploadCloud className="h-7 w-7 text-[#2ED1FF]" />
-                            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/60">
-                              Upload main image
-                            </p>
-                          </>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setCreateRefsOpen((prev) => !prev)}
-                        className="flex w-full items-center justify-between rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
-                      >
-                        <span>Референсы (опционально): {validInputReferences.length} / {MAX_INPUT_REFERENCES}</span>
-                        <ChevronDown className={`h-4 w-4 transition ${createRefsOpen ? "rotate-180" : ""}`} />
-                      </button>
-                      {createRefsOpen && (
-                        <div className="rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/55">
-                          {validInputReferences.length === 0
-                            ? "Добавьте 1-4 изображения (фронт/бок/тыл/деталь)"
-                            : validInputReferences.map((ref) => ref.name).join(" • ")}
-                        </div>
-                      )}
-                      <textarea
-                        value={prompt}
-                        onChange={(event) => setPrompt(event.target.value)}
-                        placeholder="Опишите желаемый результат: форма, стиль, назначение."
-                        className="min-h-[120px] w-full resize-none rounded-xl border border-white/10 bg-black/25 px-3 py-2 text-sm text-white/80 placeholder:text-white/40 focus:border-[#2ED1FF]/60 focus:outline-none"
-                      />
-                      <div className="space-y-2 rounded-xl border border-white/10 bg-black/25 p-2">
-                        <div>
-                          <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/45">
-                            Качество
-                          </p>
-                          <div className="mt-1 grid grid-cols-3 gap-1.5">
-                            {(["draft", "standard", "pro"] as const).map((value) => {
-                              const proLocked = value === "pro" && !canUseProQuality;
-                              return (
-                                <button
-                                  key={value}
-                                  type="button"
-                                  disabled={proLocked}
-                                  title={proLocked ? "PRO доступен только с активной подпиской M/L" : undefined}
-                                  onClick={() => setQualityPreset(value)}
-                                  className={`rounded-md border px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] ${
-                                    qualityPreset === value
-                                      ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
-                                      : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
-                                  } disabled:cursor-not-allowed disabled:opacity-45`}
-                                >
-                                  {QUALITY_PRESET_LABEL[value]}
-                                </button>
-                              );
-                            })}
-                          </div>
-                        </div>
-                        <div>
-                          <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/45">
-                            Стиль
-                          </p>
-                          <div className="mt-1 grid grid-cols-3 gap-1.5">
-                            {(["realistic", "stylized", "anime"] as const).map((value) => (
-                              <button
-                                key={value}
-                                type="button"
-                                onClick={() => setStylePreset(value)}
-                                className={`rounded-md border px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] ${
-                                  stylePreset === value
-                                    ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
-                                    : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
-                                }`}
-                              >
-                                {STYLE_PRESET_LABEL[value]}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-                        {panelUxMode === "pro" && (
-                          <div>
-                            <p className="text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/45">
-                              Advanced
-                            </p>
-                            <div className="mt-1 grid grid-cols-3 gap-1.5">
-                              {(["balanced", "detail", "speed"] as const).map((value) => (
-                                <button
-                                  key={value}
-                                  type="button"
-                                  onClick={() => setAdvancedPreset(value)}
-                                  className={`rounded-md border px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] ${
-                                    advancedPreset === value
-                                      ? "border-violet-300/60 bg-violet-500/15 text-violet-100"
-                                      : "border-white/10 text-white/55 hover:border-white/25 hover:text-white"
-                                  }`}
-                                >
-                                  {ADVANCED_PRESET_LABEL[value]}
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          void handleStartServerSynthesis();
-                        }}
-                        disabled={serverJobLoading || isSynthRunning || tokensLoading}
-                        className="w-full rounded-xl border border-emerald-400/60 bg-emerald-500/15 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
-                      >
-                        {serverJobLoading ? "Генерация..." : isSynthRunning ? `В работе ${Math.round(displayProgress)}%` : `Generate • ${estimatedTokenCost}`}
-                      </button>
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/30">
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMainBlock("check")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75"
-                  >
-                    <span>Проверить</span>
-                    <ChevronDown className={`h-4 w-4 transition ${rightPanelMainBlock === "check" ? "rotate-180" : ""}`} />
-                  </button>
-                  {rightPanelMainBlock === "check" && (
-                    <div className="space-y-3 border-t border-white/10 px-3 py-3">
-                      <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-2">
-                        <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100/80">
-                          Printability Score
-                        </p>
-                        <p className={`mt-1 text-[11px] font-semibold ${activePrintabilityTone}`}>
-                          {activePrintabilityScore === null ? "--" : `${activePrintabilityScore}/100`}
-                        </p>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleAnalyzeActiveAsset(activeAssetVersion)}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "analyze" ? "..." : "Анализ"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            handleShowAssetIssues(activeAssetVersion);
-                            setViewerThicknessPreview(false);
-                          }}
-                          disabled={!activeAssetVersion}
-                          title={!activeAssetVersion ? noActiveModelTooltip : undefined}
-                          className="rounded-lg border border-white/25 bg-white/[0.02] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Показать проблемы
-                        </button>
-                      </div>
-                      <div className="grid grid-cols-2 gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60">
-                        <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                          X: {viewportBounds ? viewportBounds.boxSize[0].toFixed(2) : "--"}
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                          Y: {viewportBounds ? viewportBounds.boxSize[1].toFixed(2) : "--"}
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                          Z: {viewportBounds ? viewportBounds.boxSize[2].toFixed(2) : "--"}
-                        </div>
-                        <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                          Масштаб: {modelScale.toFixed(2)}x
-                        </div>
-                      </div>
-                      {panelUxMode === "pro" && (
-                        <div className="grid grid-cols-2 gap-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/55">
-                          <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                            Watertight: {activeAssetVersion?.checks?.topology?.watertight || "unknown"}
-                          </div>
-                          <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                            Manifold: {activeAssetVersion?.checks?.diagnostics?.manifold || "unknown"}
-                          </div>
-                          <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                            Normals: {activeAssetVersion?.checks?.diagnostics?.status || "unknown"}
-                          </div>
-                          <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">
-                            Thickness hints: {viewportIssueMarkers.filter((marker) => marker.id.startsWith("thin")).length}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/30">
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMainBlock("repair")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75"
-                  >
-                    <span>Исправить</span>
-                    <ChevronDown className={`h-4 w-4 transition ${rightPanelMainBlock === "repair" ? "rotate-180" : ""}`} />
-                  </button>
-                  {rightPanelMainBlock === "repair" && (
-                    <div className="space-y-3 border-t border-white/10 px-3 py-3">
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-lg border border-amber-400/45 bg-amber-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "fix_safe" ? "..." : "Quick Fix"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Fix for Print
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleSplitActiveAsset(activeAssetVersion)}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "split_auto" ? "..." : "Split for Print"}
-                        </button>
-                      </div>
-                      {panelUxMode === "pro" && (
-                        <div className="flex flex-wrap gap-1.5">
-                          {(["web", "game", "print"] as const).map((preset) => (
-                            <button
-                              key={preset}
-                              type="button"
-                              onClick={() => void handleRemeshPreset(preset)}
-                              disabled={!activeAssetVersion || isAssetPipelineBusy}
-                              title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                              className="rounded-full border border-violet-300/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-45"
-                            >
-                              Remesh {preset}
-                            </button>
-                          ))}
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "strong")}
-                            disabled={!activeAssetVersion || isAssetPipelineBusy}
-                            title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : "Может изменить форму"}
-                            className="rounded-full border border-orange-300/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-orange-100 transition hover:border-orange-200 disabled:cursor-not-allowed disabled:opacity-45"
-                          >
-                            Strong fix
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/30">
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMainBlock("appearance")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75"
-                  >
-                    <span>Внешний вид</span>
-                    <ChevronDown className={`h-4 w-4 transition ${rightPanelMainBlock === "appearance" ? "rotate-180" : ""}`} />
-                  </button>
-                  {rightPanelMainBlock === "appearance" && (
-                    <div className="space-y-3 border-t border-white/10 px-3 py-3">
-                      <div className="grid grid-cols-5 gap-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.12em]">
-                        {([
-                          ["clay", "Clay"],
-                          ["original", "Original"],
-                          ["resin", "Resin"],
-                          ["plastic", "Plastic"],
-                          ["hologram", "Hologram"],
-                        ] as Array<[typeof appearancePreset, string]>).map(([preset, label]) => (
-                          <button
-                            key={preset}
-                            type="button"
-                            onClick={() => setAppearancePreset(preset)}
-                            disabled={!activeAssetVersion}
-                            title={!activeAssetVersion ? noActiveModelTooltip : undefined}
-                            className={`rounded-md border px-1.5 py-1 transition ${
-                              appearancePreset === preset
-                                ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
-                                : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
-                            } disabled:cursor-not-allowed disabled:opacity-45`}
-                          >
-                            {label}
-                          </button>
-                        ))}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <button
-                          type="button"
-                          onClick={handleTextureFromImage}
-                          disabled={
-                            !activeAssetVersion ||
-                            isAssetPipelineBusy ||
-                            (!uploadPreview && validInputReferences.length === 0 && !activeHistoryJob?.inputRefs?.length)
-                          }
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Текстуры (из изображения)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleTextureFallbackMaterial}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-lg border border-white/25 bg-white/[0.02] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Однотонный материал
-                        </button>
-                      </div>
-                      {panelUxMode === "pro" && (
-                        <div className="flex flex-wrap gap-1.5">
-                          <button
-                            type="button"
-                            disabled
-                            className="rounded-full border border-white/15 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.12em] text-white/35"
-                          >
-                            Кисть (V2)
-                          </button>
-                          <button
-                            type="button"
-                            disabled
-                            className="rounded-full border border-white/15 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.12em] text-white/35"
-                          >
-                            PBR каналы
-                          </button>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </div>
-
-                <div className="rounded-2xl border border-white/10 bg-black/30">
-                  <button
-                    type="button"
-                    onClick={() => setRightPanelMainBlock("export")}
-                    className="flex w-full items-center justify-between px-3 py-2 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75"
-                  >
-                    <span>Экспорт</span>
-                    <ChevronDown className={`h-4 w-4 transition ${rightPanelMainBlock === "export" ? "rotate-180" : ""}`} />
-                  </button>
-                  {rightPanelMainBlock === "export" && (
-                    <div className="space-y-2 border-t border-white/10 px-3 py-3">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!activeAssetVersion) return;
-                          handleDownloadAssetGlb(activeAssetVersion);
-                        }}
-                        disabled={!activeAssetVersion || isAssetPipelineBusy}
-                        title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                        className="w-full rounded-lg border border-[#2ED1FF]/45 bg-[#2ED1FF]/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        Скачать GLB
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (!activeAssetVersion) return;
-                          void queueBlenderJobForAsset(activeAssetVersion);
-                        }}
-                        disabled={!activeAssetVersion || isAssetPipelineBusy}
-                        title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                        className="w-full rounded-lg border border-violet-400/45 bg-violet-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        Открыть в Blender
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => handleSendAssetToPrint(activeAssetVersion)}
-                        disabled={!activeAssetVersion}
-                        title={!activeAssetVersion ? noActiveModelTooltip : undefined}
-                        className="w-full rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        Отправить в печать
-                      </button>
-                      {panelUxMode === "pro" && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!activeAssetVersion) return;
-                            handleDownloadAssetPack(activeAssetVersion);
-                          }}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="w-full rounded-lg border border-white/25 bg-white/[0.02] px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/75 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Export pack (.zip)
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/50">
+                Основные инструменты находятся в левой панели под иконками.
               </div>
             </div>
           )}
