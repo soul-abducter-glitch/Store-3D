@@ -1580,6 +1580,7 @@ function AiLabContent() {
   const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
   const [activeHistoryJobId, setActiveHistoryJobId] = useState<string | null>(null);
   const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
+  const [freshGenerationMode, setFreshGenerationMode] = useState(false);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const remixIssueInputRef = useRef<HTMLInputElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2946,15 +2947,17 @@ function AiLabContent() {
   }, [fetchPublishedAssets]);
 
   useEffect(() => {
+    if (freshGenerationMode) return;
     if (activeHistoryJobId) return;
     if (latestCompletedJob?.id) {
       setActiveHistoryJobId(latestCompletedJob.id);
     } else if (jobHistory[0]?.id) {
       setActiveHistoryJobId(jobHistory[0].id);
     }
-  }, [activeHistoryJobId, jobHistory, latestCompletedJob?.id]);
+  }, [activeHistoryJobId, freshGenerationMode, jobHistory, latestCompletedJob?.id]);
 
   useEffect(() => {
+    if (freshGenerationMode) return;
     if (activeVersionId && publishedAssetsById[activeVersionId]) return;
     if (activeHistoryJobId) {
       const linkedAssetId = publishedAssetsByJobId[activeHistoryJobId];
@@ -2967,7 +2970,7 @@ function AiLabContent() {
     if (!activeVersionId && fallback) {
       setActiveVersionId(fallback);
     }
-  }, [activeHistoryJobId, activeVersionId, publishedAssetsById, publishedAssetsByJobId]);
+  }, [activeHistoryJobId, activeVersionId, freshGenerationMode, publishedAssetsById, publishedAssetsByJobId]);
 
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
@@ -3095,6 +3098,7 @@ function AiLabContent() {
     setUploadedModelName(null);
     setPrompt("");
     clearInputReferences();
+    setFreshGenerationMode(true);
     setActiveHistoryJobId(null);
     setActiveVersionId(null);
     setPreviewParam(null);
@@ -3150,6 +3154,7 @@ function AiLabContent() {
           completedServerJobRef.current !== nextJob.id
         ) {
           completedServerJobRef.current = nextJob.id;
+          setFreshGenerationMode(false);
           setLatestCompletedJob(nextJob);
           registerGeneratedAsset({
             name: nextJob.prompt || "AI Model",
@@ -3202,6 +3207,7 @@ function AiLabContent() {
   const activatePublishedAsset = useCallback(
     (asset: AiAssetRecord | null, options?: { jobId?: string | null }) => {
       if (!asset) return;
+      setFreshGenerationMode(false);
       setActiveVersionId(asset.id);
       if (typeof options?.jobId === "string" && options.jobId) {
         setActiveHistoryJobId(options.jobId);
@@ -3219,6 +3225,7 @@ function AiLabContent() {
       showError("Файл модели недоступен. Загрузите модель заново.");
       return;
     }
+    setFreshGenerationMode(false);
     setActiveHistoryJobId(null);
     setActiveVersionId(null);
     setGeneratedPreviewModel(asset.modelUrl);
@@ -3250,6 +3257,7 @@ function AiLabContent() {
   };
 
   const handlePickHistoryJob = (job: AiGenerationJob) => {
+    setFreshGenerationMode(false);
     setActiveHistoryJobId(job.id);
     const linkedAssetId = publishedAssetsByJobId[job.id] || null;
     if (linkedAssetId) {
@@ -5027,21 +5035,28 @@ function AiLabContent() {
                     Открыть ассеты
                   </button>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (!activeAssetVersion) {
-                      showError("Выберите активную модель в истории/ассетах.");
-                      return;
-                    }
-                    void queueBlenderJobForAsset(activeAssetVersion);
-                  }}
-                  disabled={!activeAssetVersion || isAssetPipelineBusy}
-                  className="inline-flex w-full items-center gap-2 rounded-lg border border-violet-400/35 bg-violet-500/10 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
-                >
-                  <BlenderBadgeIcon className="h-3.5 w-3.5" />
-                  <span>{assetAction?.type === "blender" ? "Открытие в Blender..." : "Открыть в Blender"}</span>
-                </button>
+                <div className="flex items-center justify-end">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeAssetVersion) {
+                        showError("Выберите активную модель в истории/ассетах.");
+                        return;
+                      }
+                      void queueBlenderJobForAsset(activeAssetVersion);
+                    }}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    aria-label="Открыть в Blender"
+                    title="Открыть в Blender"
+                    className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-violet-400/45 bg-violet-500/12 text-violet-100 transition hover:border-violet-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    {assetAction?.type === "blender" ? (
+                      <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
+                    ) : (
+                      <BlenderBadgeIcon className="h-5 w-5" />
+                    )}
+                  </button>
+                </div>
               </div>
             )}
               </div>
