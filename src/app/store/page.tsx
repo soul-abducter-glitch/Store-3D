@@ -3638,8 +3638,14 @@ function Header({
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleLogoClick = () => {
+  const handleLogoClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
     if (typeof window === "undefined") {
+      router.push("/");
+      return;
+    }
+    if (event.detail >= 2) {
+      logoReturnArmedRef.current = false;
+      logoReturnArmedAtRef.current = 0;
       router.push("/");
       return;
     }
@@ -3660,12 +3666,6 @@ function Header({
     }
     logoReturnArmedRef.current = true;
     logoReturnArmedAtRef.current = now;
-  };
-
-  const handleLogoDoubleClick = () => {
-    logoReturnArmedRef.current = false;
-    logoReturnArmedAtRef.current = 0;
-    router.push("/");
   };
 
   const toggleSearch = () => {
@@ -3703,9 +3703,9 @@ function Header({
             <button
               type="button"
               onClick={handleLogoClick}
-              onDoubleClick={handleLogoDoubleClick}
               className="block text-left transition hover:opacity-80"
               aria-label="На портал"
+              title="Двойной клик — на портал"
             >
               <h1 className="text-xl font-bold tracking-[0.2em] text-white sm:text-3xl">
                 3D-STORE

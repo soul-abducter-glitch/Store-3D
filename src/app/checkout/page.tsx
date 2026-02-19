@@ -56,6 +56,7 @@ type CustomPrintMeta = {
   uploadId: string;
   uploadUrl?: string;
   uploadName?: string;
+  sourceType?: "upload" | "store" | "recent";
   sourcePrice?: number;
   technology?: string;
   material?: string;
@@ -120,6 +121,10 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     uploadId,
     uploadUrl: typeof raw.uploadUrl === "string" ? raw.uploadUrl : undefined,
     uploadName: typeof raw.uploadName === "string" ? raw.uploadName : undefined,
+    sourceType:
+      raw.source === "store" || raw.source === "recent" || raw.source === "upload"
+        ? raw.source
+        : undefined,
     sourcePrice: typeof raw.sourcePrice === "number" ? raw.sourcePrice : undefined,
     technology: typeof raw.technology === "string" ? raw.technology : undefined,
     material: typeof raw.material === "string" ? raw.material : undefined,
@@ -383,6 +388,7 @@ const buildPrintEditUrl = (item: CartItem) => {
 
   if (custom.uploadId) params.set("mediaId", custom.uploadId);
   if (custom.uploadName) params.set("name", custom.uploadName);
+  if (custom.sourceType) params.set("source", custom.sourceType);
   if (custom.technology) params.set("tech", custom.technology);
   if (custom.material) params.set("material", custom.material);
   if (custom.color) params.set("color", custom.color);
@@ -1788,6 +1794,11 @@ const CheckoutPage = () => {
     !submitLock &&
     !promoLoading &&
     legalConsent;
+  const primaryPrintEditUrl = useMemo(() => {
+    const firstPrintItem = cartItems.find((item) => Boolean(item.customPrint));
+    if (!firstPrintItem) return null;
+    return buildPrintEditUrl(firstPrintItem);
+  }, [cartItems]);
 
   const handleSaveDraftRecord = useCallback(() => {
     if (typeof window === "undefined") {
@@ -2451,6 +2462,14 @@ const CheckoutPage = () => {
                   ? `Сохранено ${lastManualDraftTimeLabel}`
                   : "Сохранить черновик"}
               </button>
+            )}
+            {primaryPrintEditUrl && (
+              <Link
+                href={primaryPrintEditUrl}
+                className="rounded-full border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-[#BFF4FF] transition hover:border-[#7FE7FF]/70 hover:text-white"
+              >
+                Назад к печати
+              </Link>
             )}
             <Link
               href="/store"

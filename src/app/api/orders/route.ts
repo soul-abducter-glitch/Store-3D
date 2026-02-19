@@ -17,9 +17,7 @@ const parsePositiveInt = (value: string | null, fallback: number) => {
 const normalizeId = (value: string | null) => {
   if (!value) return null;
   const trimmed = value.trim();
-  if (!trimmed) return null;
-  const numeric = Number(trimmed);
-  return Number.isFinite(numeric) ? numeric : trimmed;
+  return trimmed || null;
 };
 
 export async function GET(request: NextRequest) {
@@ -29,8 +27,12 @@ export async function GET(request: NextRequest) {
     const limit = parsePositiveInt(searchParams.get("limit"), 20);
     const depth = parsePositiveInt(searchParams.get("depth"), 0);
 
-    const userId = normalizeId(searchParams.get("where[or][0][user][equals]"));
-    const email = searchParams.get("where[or][1][customer.email][equals]");
+    const userId =
+      normalizeId(searchParams.get("where[or][0][user][equals]")) ??
+      normalizeId(searchParams.get("where[user][equals]"));
+    const email =
+      searchParams.get("where[or][1][customer.email][equals]") ??
+      searchParams.get("where[customer.email][equals]");
 
     const where: any = {};
     const or: Array<Record<string, unknown>> = [];

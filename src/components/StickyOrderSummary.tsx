@@ -76,6 +76,14 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                 <p className="truncate text-sm font-semibold text-white">{item.name}</p>
                 <p className="text-xs text-white/60">{item.formatLabel}</p>
                 <p className="text-xs text-white/50">x{item.quantity}</p>
+                {item.editPrintUrl && (
+                  <a
+                    href={item.editPrintUrl}
+                    className="mt-1 inline-flex rounded-full border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-[#BFF4FF] transition hover:border-[#7FE7FF]/70 hover:text-white"
+                  >
+                    Изменить печать
+                  </a>
+                )}
               </div>
               <div className="shrink-0 text-right text-xs font-semibold text-white tabular-nums sm:text-sm">
                 {formatPrice(item.priceValue * item.quantity)}₽
@@ -114,14 +122,6 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                           {item.printDetails.quality && <span>Качество: {item.printDetails.quality}</span>}
                           {item.printDetails.dimensionsLabel && <span>Размер: {item.printDetails.dimensionsLabel}</span>}
                         </div>
-                        {item.editPrintUrl && (
-                          <a
-                            href={item.editPrintUrl}
-                            className="inline-flex rounded-full border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF]/70 hover:text-white"
-                          >
-                            Изменить параметры печати
-                          </a>
-                        )}
                       </div>
                     );
                   })}

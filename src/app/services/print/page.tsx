@@ -9,7 +9,13 @@ import type { OrbitControls as OrbitControlsImpl } from "three-stdlib";
 import { MOUSE } from "three";
 
 import ModelView, { type ModelIssueMarker } from "@/components/ModelView";
-import { getCartStorageKey, readCartStorage, writeCartStorage } from "@/lib/cartStorage";
+import {
+  clearCheckoutSelection,
+  getCartStorageKey,
+  mergeGuestCartIntoUser,
+  readCartStorage,
+  writeCartStorage,
+} from "@/lib/cartStorage";
 
 type SourceKind = "upload" | "store" | "recent";
 type PrintTech = "SLA" | "FDM";
@@ -320,6 +326,7 @@ function PrintOnDemandContent() {
   } | null>(null);
 
   const [notice, setNotice] = useState("Готово: настройте модель и параметры печати.");
+  const [cartActionNotice, setCartActionNotice] = useState<string | null>(null);
   const [cartCount, setCartCount] = useState(0);
   const [selectedModel, setSelectedModel] = useState<SelectedModel | null>(null);
   const [sourceTab, setSourceTab] = useState<SourceKind>("upload");
@@ -335,6 +342,7 @@ function PrintOnDemandContent() {
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [userId, setUserId] = useState<string | null>(null);
+  const [authResolved, setAuthResolved] = useState(false);
   const [isMobileViewport, setIsMobileViewport] = useState(false);
 
   const [tech, setTech] = useState<PrintTech>("SLA");
@@ -413,6 +421,14 @@ function PrintOnDemandContent() {
     () => getCartStorageKey(isLoggedIn ? userId : null),
     [isLoggedIn, userId]
   );
+  const canDownloadModel = useMemo(
+    () => {
+      const fileUrl = selectedModel?.fileUrl;
+      if (!fileUrl) return false;
+      return selectedModel?.source === "upload" && fileUrl.startsWith("blob:");
+    },
+    [selectedModel]
+  );
 
   const syncCartCount = useCallback(() => {
     const cart = readCartStorage(cartStorageKey, { migrateLegacy: true });
@@ -477,6 +493,14 @@ function PrintOnDemandContent() {
   }, [selectedPrinter.maxHeightMm, tech]);
 
   useEffect(() => {
+    if (!cartActionNotice) return;
+    const timeoutId = window.setTimeout(() => {
+      setCartActionNotice(null);
+    }, 3600);
+    return () => window.clearTimeout(timeoutId);
+  }, [cartActionNotice]);
+
+  useEffect(() => {
     const controller = new AbortController();
     const run = async () => {
       try {
@@ -497,11 +521,19 @@ function PrintOnDemandContent() {
       } catch {
         setIsLoggedIn(false);
         setUserId(null);
+      } finally {
+        setAuthResolved(true);
       }
     };
     run();
     return () => controller.abort();
   }, []);
+
+  useEffect(() => {
+    if (!authResolved || !isLoggedIn || !userId) return;
+    mergeGuestCartIntoUser(userId);
+    syncCartCount();
+  }, [authResolved, isLoggedIn, syncCartCount, userId]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -916,6 +948,14 @@ function PrintOnDemandContent() {
   };
 
   const handleDownloadModel = () => {
+    if (!selectedModel) {
+      setNoticeWith("Нет файла модели для скачивания.");
+      return;
+    }
+    if (!canDownloadModel) {
+      setNoticeWith("Скачивание отключено: в услуге печати доступна только печать модели.");
+      return;
+    }
     if (!selectedModel?.fileUrl) {
       setNoticeWith("Нет файла модели для скачивания.");
       return;
@@ -1163,6 +1203,7 @@ function PrintOnDemandContent() {
 
   const addToCartValidationError = useMemo(() => {
     if (!selectedModel) return "Сначала выберите и загрузите модель.";
+    if (!authResolved) return "Проверяем доступ к корзине. Подождите.";
     if (uploadStatus === "pending") return "Файл модели выбран. Дождитесь загрузки в базу.";
     if (uploadStatus === "uploading") return "Идет загрузка. Подождите.";
     if (uploadError) return uploadError;
@@ -1190,13 +1231,14 @@ function PrintOnDemandContent() {
     quantity,
     scaledDimensionsMm,
     selectedModel,
+    authResolved,
     uploadError,
     uploadedMedia?.id,
     uploadStatus,
     volumeLabel,
   ]);
 
-  const checkoutValidationError = cartCount > 0 ? null : addToCartValidationError;
+  const checkoutValidationError = addToCartValidationError;
 
   const measureLabel = scaledDimensionsMm
     ? `X:${scaledDimensionsMm.x.toFixed(1)} Y:${scaledDimensionsMm.y.toFixed(1)} Z:${scaledDimensionsMm.z.toFixed(1)} mm`
@@ -1207,11 +1249,13 @@ function PrintOnDemandContent() {
   const addCurrentModelToCart = () => {
     if (addToCartValidationError) {
       setNoticeWith(addToCartValidationError);
+      setCartActionNotice(addToCartValidationError);
       return false;
     }
 
     if (!selectedModel || !uploadedMedia?.id) {
       setNoticeWith("Перед добавлением в корзину модель должна быть загружена в базу.");
+      setCartActionNotice("Модель еще не готова к добавлению.");
       return false;
     }
 
@@ -1231,6 +1275,7 @@ function PrintOnDemandContent() {
         uploadId: uploadedMedia.id,
         uploadUrl: uploadedMedia.url ?? selectedModel.fileUrl,
         uploadName: uploadedMedia.filename ?? selectedModel.name,
+        source: selectedModel.source,
         sourcePrice: Math.max(0, Math.round(price)),
         technology: tech === "SLA" ? "SLA смола" : "FDM пластик",
         material,
@@ -1259,7 +1304,10 @@ function PrintOnDemandContent() {
     }
 
     writeCartStorage(cartStorageKey, items);
-    setNoticeWith(`Добавлено ${quantity} шт. в корзину.`);
+    clearCheckoutSelection(cartStorageKey);
+    const successMessage = `Добавлено ${quantity} шт. в корзину.`;
+    setNoticeWith(successMessage);
+    setCartActionNotice(successMessage);
     syncCartCount();
     return true;
   };
@@ -1271,13 +1319,12 @@ function PrintOnDemandContent() {
   const handleContinueCheckout = () => {
     if (checkoutValidationError) {
       setNoticeWith(checkoutValidationError);
+      setCartActionNotice(checkoutValidationError);
       return;
     }
-    if (cartCount < 1) {
-      const added = addCurrentModelToCart();
-      if (!added) return;
-    }
-    router.push("/checkout");
+    const added = addCurrentModelToCart();
+    if (!added) return;
+    router.push("/checkout?from=print");
   };
 
   const handleCartOpen = () => {
@@ -1458,8 +1505,14 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={handleDownloadModel}
-                  disabled={!selectedModel?.fileUrl}
-                  title={!selectedModel?.fileUrl ? "Сначала выберите модель" : undefined}
+                  disabled={!selectedModel?.fileUrl || !canDownloadModel}
+                  title={
+                    !selectedModel?.fileUrl
+                      ? "Сначала выберите модель"
+                      : !canDownloadModel
+                        ? "Скачивание недоступно для услуги печати"
+                        : undefined
+                  }
                   className="rounded-lg border border-white/20 px-3 py-1.5 text-xs text-white/75 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Скачать
@@ -2078,6 +2131,9 @@ function PrintOnDemandContent() {
                     Перейти к оформлению
                   </button>
                 </div>
+                {cartActionNotice && (
+                  <p className="mt-2 text-xs text-[#BFF4FF]">{cartActionNotice}</p>
+                )}
               </section>
             </div>
           </aside>
