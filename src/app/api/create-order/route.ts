@@ -135,6 +135,30 @@ const normalizePrintSpecs = (value: any) => {
   return normalized;
 };
 
+const normalizeItemPrintSpecs = (value: any) => {
+  const normalized = normalizePrintSpecs(value);
+  if (!normalized) {
+    return undefined;
+  }
+  const { color: _legacyColor, ...rest } = normalized;
+  return rest;
+};
+
+const isMissingOrderItemColorColumnError = (error: unknown) => {
+  const directMessage = error instanceof Error ? error.message : "";
+  const causeMessage =
+    error && typeof error === "object" && "cause" in error
+      ? String((error as { cause?: { message?: unknown } }).cause?.message ?? "")
+      : "";
+  const combined = `${directMessage}\n${causeMessage}`.toLowerCase();
+  return (
+    combined.includes("orders_items.print_specs_color") ||
+    (combined.includes("column") &&
+      combined.includes("print_specs_color") &&
+      combined.includes("does not exist"))
+  );
+};
+
 const normalizeOrderStatus = (value?: string) => {
   if (!value) return "accepted";
   const raw = String(value);
@@ -342,7 +366,7 @@ export async function POST(request: NextRequest) {
           const customerUpload = normalizeRelationshipId(
             item?.customerUpload ?? item?.customerUploadId ?? item?.customPrint?.uploadId
           );
-          const printSpecs = normalizePrintSpecs(item?.printSpecs ?? item?.customPrint);
+          const printSpecs = normalizeItemPrintSpecs(item?.printSpecs ?? item?.customPrint);
 
           return {
             product: productId,
@@ -571,20 +595,29 @@ export async function POST(request: NextRequest) {
         dedupeWhere.and.push({ or: ownerConditions });
       }
 
-      const existingOrderResult = await payload.find({
-        collection: "orders",
-        depth: 0,
-        limit: 1,
-        overrideAccess: true,
-        sort: "-createdAt",
-        where: dedupeWhere,
-      });
+      try {
+        const existingOrderResult = await payload.find({
+          collection: "orders",
+          depth: 0,
+          limit: 1,
+          overrideAccess: true,
+          sort: "-createdAt",
+          where: dedupeWhere,
+        });
 
-      if (existingOrderResult?.docs?.[0]) {
-        const existingOrder = existingOrderResult.docs[0];
-        return NextResponse.json(
-          { success: true, doc: existingOrder, deduplicated: true },
-          { status: 200 }
+        if (existingOrderResult?.docs?.[0]) {
+          const existingOrder = existingOrderResult.docs[0];
+          return NextResponse.json(
+            { success: true, doc: existingOrder, deduplicated: true },
+            { status: 200 }
+          );
+        }
+      } catch (error) {
+        if (!isMissingOrderItemColorColumnError(error)) {
+          throw error;
+        }
+        console.warn(
+          "[create-order] skip dedupe query because orders_items.print_specs_color is missing"
         );
       }
     }

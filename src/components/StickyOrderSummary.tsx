@@ -1,7 +1,7 @@
 ﻿'use client';
 
 import React, { useState } from 'react';
-import { Package, Truck, CreditCard, ChevronDown } from 'lucide-react';
+import { Package, Truck, CreditCard, ChevronDown, Trash2 } from 'lucide-react';
 
 interface CartItem {
   id: string;
@@ -86,18 +86,22 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                     Изменить печать
                   </a>
                 )}
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-xs font-semibold text-white tabular-nums sm:text-sm">
+                  {formatPrice(item.priceValue * item.quantity)}₽
+                </div>
                 {onRemoveItem && (
                   <button
                     type="button"
                     onClick={() => onRemoveItem(item.id)}
-                    className="mt-1 inline-flex rounded-full border border-rose-400/35 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300/70 hover:text-rose-100"
+                    title="Удалить товар"
+                    aria-label={`Удалить ${item.name}`}
+                    className="mt-1 inline-flex h-7 w-7 items-center justify-center rounded-full border border-rose-400/35 bg-rose-500/10 text-rose-200 transition hover:border-rose-300/70 hover:text-rose-100"
                   >
-                    Удалить
+                    <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 )}
-              </div>
-              <div className="shrink-0 text-right text-xs font-semibold text-white tabular-nums sm:text-sm">
-                {formatPrice(item.priceValue * item.quantity)}₽
               </div>
             </div>
           ))}

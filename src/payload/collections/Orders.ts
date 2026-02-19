@@ -541,10 +541,6 @@ export const Orders: CollectionConfig = {
               type: "text",
             },
             {
-              name: "color",
-              type: "text",
-            },
-            {
               name: "quality",
               type: "text",
             },

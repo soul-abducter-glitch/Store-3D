@@ -1424,7 +1424,7 @@ function PrintOnDemandContent() {
         />
 
         <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)] xl:overflow-y-auto">
+          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
             <h2 className="mb-3 text-lg font-semibold tracking-wide">ЛЕВАЯ КОЛОНКА: МОДЕЛЬ</h2>
 
             <section className="rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
@@ -1668,10 +1668,10 @@ function PrintOnDemandContent() {
             </section>
           </aside>
 
-          <section className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:h-[calc(100vh-158px)] xl:overflow-y-auto">
+          <section className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
             <h2 className="text-lg font-semibold tracking-wide">ЦЕНТР: 3D ВЬЮПОРТ</h2>
 
-            <div className="mt-3 flex h-[560px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3 xl:h-full">
+            <div className="mt-3 flex min-h-[560px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-white/65">Окно предпросмотра</p>
                 {issueMarkers.length > 0 && (
@@ -1838,11 +1838,11 @@ function PrintOnDemandContent() {
             </div>
           </section>
 
-          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:sticky xl:top-[142px] xl:h-[calc(100vh-158px)]">
+          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
             <h2 className="text-lg font-semibold tracking-wide">ПРАВАЯ КОЛОНКА: НАСТРОЙКА ПЕЧАТИ</h2>
 
-            <div className="mt-3 flex h-[560px] flex-col gap-3 xl:h-full">
-              <div className="flex-1 space-y-2 overflow-y-auto pr-1">
+            <div className="mt-3 flex min-h-[560px] flex-col gap-3">
+              <div className="space-y-2">
                 <button
                   type="button"
                   onClick={() => toggleSection("size")}
