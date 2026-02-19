@@ -1800,6 +1800,34 @@ const CheckoutPage = () => {
     return buildPrintEditUrl(firstPrintItem);
   }, [cartItems]);
 
+  const handleRemoveCartItem = useCallback(
+    (itemId: string) => {
+      const parsed = readCartStorage(cartStorageKey, { migrateLegacy: true });
+      const normalized = parsed
+        .map((item) => normalizeStoredItem(item))
+        .filter((item): item is CartItem => Boolean(item));
+      const nextItems = normalized.filter((item) => item.id !== itemId);
+      if (nextItems.length > 0) {
+        writeCartStorage(cartStorageKey, nextItems);
+      } else {
+        removeCartStorage(cartStorageKey);
+      }
+      clearCheckoutSelection(cartStorageKey);
+      setCartItems(nextItems);
+      setSubmitError(null);
+    },
+    [cartStorageKey]
+  );
+
+  const handleCheckoutCta = useCallback(() => {
+    if (!userId) {
+      setSubmitError("Войдите или зарегистрируйтесь, чтобы перейти к оплате.");
+      router.push("/profile?from=checkout");
+      return;
+    }
+    formRef.current?.requestSubmit();
+  }, [router, userId]);
+
   const handleSaveDraftRecord = useCallback(() => {
     if (typeof window === "undefined") {
       return;
@@ -2886,7 +2914,8 @@ const CheckoutPage = () => {
                   discount={promoDiscount}
                   promoCode={showAppliedPromoCode ? promoApplied?.code : undefined}
                   total={grandTotal}
-                  onCheckout={() => formRef.current?.requestSubmit()}
+                  onCheckout={handleCheckoutCta}
+                  onRemoveItem={handleRemoveCartItem}
                   canCheckout={canCheckout}
                   isProcessing={isProcessing}
                   ctaLabel={checkoutCtaLabel}

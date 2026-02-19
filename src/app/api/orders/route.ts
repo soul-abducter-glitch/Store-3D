@@ -17,8 +17,22 @@ const parsePositiveInt = (value: string | null, fallback: number) => {
 const normalizeId = (value: string | null) => {
   if (!value) return null;
   const trimmed = value.trim();
-  return trimmed || null;
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    return Number.parseInt(trimmed, 10);
+  }
+  return trimmed;
 };
+
+const emptyOrdersResult = (limit: number) => ({
+  docs: [],
+  totalDocs: 0,
+  limit,
+  page: 1,
+  totalPages: 1,
+  hasNextPage: false,
+  hasPrevPage: false,
+});
 
 export async function GET(request: NextRequest) {
   try {
@@ -34,41 +48,83 @@ export async function GET(request: NextRequest) {
       searchParams.get("where[or][1][customer.email][equals]") ??
       searchParams.get("where[customer.email][equals]");
 
+    const emailTrimmed = typeof email === "string" ? email.trim() : "";
     const where: any = {};
     const or: Array<Record<string, unknown>> = [];
     if (userId !== null) {
       or.push({ user: { equals: userId } });
     }
-    if (email && email.trim()) {
-      or.push({ "customer.email": { equals: email.trim() } });
+    if (emailTrimmed) {
+      or.push({ "customer.email": { equals: emailTrimmed } });
     }
     if (or.length) {
       where.or = or;
     }
 
     if (!where.or?.length) {
-      return NextResponse.json(
-        {
-          docs: [],
-          totalDocs: 0,
-          limit,
-          page: 1,
-          totalPages: 1,
-          hasNextPage: false,
-          hasPrevPage: false,
-        },
-        { status: 200 }
-      );
+      return NextResponse.json(emptyOrdersResult(limit), { status: 200 });
     }
 
-    const result = await payload.find({
-      collection: "orders",
-      depth,
+    const findOrders = async (nextWhere: any) => {
+      try {
+        return await payload.find({
+          collection: "orders",
+          depth,
+          limit,
+          overrideAccess: true,
+          where: nextWhere,
+          sort: "-createdAt",
+        });
+      } catch (error) {
+        console.warn("[orders] find fallback triggered", { nextWhere, error });
+        return null;
+      }
+    };
+
+    const primary = await findOrders(where);
+    if (primary) {
+      return NextResponse.json(primary, { status: 200 });
+    }
+
+    const mergedDocs: any[] = [];
+    if (userId !== null) {
+      const byUser = await findOrders({ user: { equals: userId } });
+      if (byUser?.docs?.length) {
+        mergedDocs.push(...byUser.docs);
+      }
+    }
+    if (emailTrimmed) {
+      const byEmail = await findOrders({ "customer.email": { equals: emailTrimmed } });
+      if (byEmail?.docs?.length) {
+        mergedDocs.push(...byEmail.docs);
+      }
+    }
+
+    if (mergedDocs.length === 0) {
+      return NextResponse.json(emptyOrdersResult(limit), { status: 200 });
+    }
+
+    const deduped = Array.from(
+      new Map(
+        mergedDocs.map((doc) => [String(doc?.id ?? `${doc?.createdAt}-${Math.random()}`), doc])
+      ).values()
+    )
+      .sort((a: any, b: any) => {
+        const aTs = new Date(a?.createdAt || 0).getTime();
+        const bTs = new Date(b?.createdAt || 0).getTime();
+        return bTs - aTs;
+      })
+      .slice(0, limit);
+
+    const result = {
+      docs: deduped,
+      totalDocs: deduped.length,
       limit,
-      overrideAccess: true,
-      where,
-      sort: "-createdAt",
-    });
+      page: 1,
+      totalPages: 1,
+      hasNextPage: false,
+      hasPrevPage: false,
+    };
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {

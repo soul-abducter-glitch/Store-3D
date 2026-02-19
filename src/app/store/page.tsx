@@ -3613,6 +3613,7 @@ function Header({
   const prevCartCountRef = useRef(cartCount);
   const logoReturnArmedRef = useRef(false);
   const logoReturnArmedAtRef = useRef<number>(0);
+  const logoSingleClickTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isSearchOpen) {
@@ -3639,34 +3640,56 @@ function Header({
   }, []);
 
   const handleLogoClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
+    if (event.detail >= 2) {
+      return;
+    }
     if (typeof window === "undefined") {
       router.push("/");
       return;
     }
-    if (event.detail >= 2) {
-      logoReturnArmedRef.current = false;
-      logoReturnArmedAtRef.current = 0;
-      router.push("/");
-      return;
+    if (logoSingleClickTimerRef.current) {
+      window.clearTimeout(logoSingleClickTimerRef.current);
+      logoSingleClickTimerRef.current = null;
     }
-    const now = Date.now();
-    const armedRecently =
-      logoReturnArmedRef.current && now - logoReturnArmedAtRef.current <= 1400;
-    if (window.scrollY > 32) {
+    logoSingleClickTimerRef.current = window.setTimeout(() => {
+      const now = Date.now();
+      const armedRecently =
+        logoReturnArmedRef.current && now - logoReturnArmedAtRef.current <= 1400;
+      if (window.scrollY > 32) {
+        logoReturnArmedRef.current = true;
+        logoReturnArmedAtRef.current = now;
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+      if (armedRecently) {
+        logoReturnArmedRef.current = false;
+        logoReturnArmedAtRef.current = 0;
+        router.push("/");
+        return;
+      }
       logoReturnArmedRef.current = true;
       logoReturnArmedAtRef.current = now;
-      window.scrollTo({ top: 0, behavior: "smooth" });
-      return;
-    }
-    if (armedRecently) {
-      logoReturnArmedRef.current = false;
-      logoReturnArmedAtRef.current = 0;
-      router.push("/");
-      return;
-    }
-    logoReturnArmedRef.current = true;
-    logoReturnArmedAtRef.current = now;
+    }, 180);
   };
+
+  const handleLogoDoubleClick = () => {
+    if (logoSingleClickTimerRef.current) {
+      window.clearTimeout(logoSingleClickTimerRef.current);
+      logoSingleClickTimerRef.current = null;
+    }
+    logoReturnArmedRef.current = false;
+    logoReturnArmedAtRef.current = 0;
+    router.push("/");
+  };
+
+  useEffect(() => {
+    return () => {
+      if (logoSingleClickTimerRef.current) {
+        window.clearTimeout(logoSingleClickTimerRef.current);
+        logoSingleClickTimerRef.current = null;
+      }
+    };
+  }, []);
 
   const toggleSearch = () => {
     setIsSearchOpen((prev) => {
@@ -3703,6 +3726,7 @@ function Header({
             <button
               type="button"
               onClick={handleLogoClick}
+              onDoubleClick={handleLogoDoubleClick}
               className="block text-left transition hover:opacity-80"
               aria-label="На портал"
               title="Двойной клик — на портал"

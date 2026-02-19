@@ -28,6 +28,7 @@ interface StickyOrderSummaryProps {
   promoCode?: string;
   total: number;
   onCheckout: () => void;
+  onRemoveItem?: (itemId: string) => void;
   canCheckout?: boolean;
   isProcessing?: boolean;
   ctaLabel?: string;
@@ -41,6 +42,7 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
   promoCode,
   total,
   onCheckout,
+  onRemoveItem,
   canCheckout = true,
   isProcessing = false,
   ctaLabel,
@@ -83,6 +85,15 @@ const StickyOrderSummary: React.FC<StickyOrderSummaryProps> = ({
                   >
                     Изменить печать
                   </a>
+                )}
+                {onRemoveItem && (
+                  <button
+                    type="button"
+                    onClick={() => onRemoveItem(item.id)}
+                    className="mt-1 inline-flex rounded-full border border-rose-400/35 bg-rose-500/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300/70 hover:text-rose-100"
+                  >
+                    Удалить
+                  </button>
                 )}
               </div>
               <div className="shrink-0 text-right text-xs font-semibold text-white tabular-nums sm:text-sm">

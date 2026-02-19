@@ -1317,6 +1317,13 @@ function PrintOnDemandContent() {
   };
 
   const handleContinueCheckout = () => {
+    if (!isLoggedIn) {
+      const authMessage = "Для оформления заказа войдите в профиль или зарегистрируйтесь.";
+      setNoticeWith(authMessage);
+      setCartActionNotice(authMessage);
+      router.push("/profile?from=checkout");
+      return;
+    }
     if (checkoutValidationError) {
       setNoticeWith(checkoutValidationError);
       setCartActionNotice(checkoutValidationError);
