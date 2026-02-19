@@ -149,11 +149,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
-    console.error("[orders] fetch failed", error);
     if (isMissingOrderItemColorColumnError(error)) {
       const fallbackLimit = parsePositiveInt(new URL(request.url).searchParams.get("limit"), 20);
+      console.warn("[orders] legacy schema mismatch detected, return empty list fallback");
       return NextResponse.json(emptyOrdersResult(fallbackLimit), { status: 200 });
     }
+    console.error("[orders] fetch failed", error);
     return NextResponse.json(
       { error: "Failed to fetch orders." },
       { status: 500 }
