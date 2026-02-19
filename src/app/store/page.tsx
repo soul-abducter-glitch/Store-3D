@@ -3613,7 +3613,6 @@ function Header({
   const prevCartCountRef = useRef(cartCount);
   const logoReturnArmedRef = useRef(false);
   const logoReturnArmedAtRef = useRef<number>(0);
-  const logoSingleClickTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (isSearchOpen) {
@@ -3639,57 +3638,30 @@ function Header({
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const handleLogoClick = (event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (event.detail >= 2) {
-      return;
-    }
+  const handleLogoClick = (_event: ReactMouseEvent<HTMLButtonElement>) => {
     if (typeof window === "undefined") {
       router.push("/");
       return;
     }
-    if (logoSingleClickTimerRef.current) {
-      window.clearTimeout(logoSingleClickTimerRef.current);
-      logoSingleClickTimerRef.current = null;
+    const now = Date.now();
+    const armedRecently =
+      logoReturnArmedRef.current && now - logoReturnArmedAtRef.current <= 2500;
+    if (armedRecently) {
+      logoReturnArmedRef.current = false;
+      logoReturnArmedAtRef.current = 0;
+      router.push("/");
+      return;
     }
-    logoSingleClickTimerRef.current = window.setTimeout(() => {
-      const now = Date.now();
-      const armedRecently =
-        logoReturnArmedRef.current && now - logoReturnArmedAtRef.current <= 1400;
-      if (window.scrollY > 32) {
-        logoReturnArmedRef.current = true;
-        logoReturnArmedAtRef.current = now;
-        window.scrollTo({ top: 0, behavior: "smooth" });
-        return;
-      }
-      if (armedRecently) {
-        logoReturnArmedRef.current = false;
-        logoReturnArmedAtRef.current = 0;
-        router.push("/");
-        return;
-      }
+    if (window.scrollY > 32) {
       logoReturnArmedRef.current = true;
       logoReturnArmedAtRef.current = now;
-    }, 180);
-  };
-
-  const handleLogoDoubleClick = () => {
-    if (logoSingleClickTimerRef.current) {
-      window.clearTimeout(logoSingleClickTimerRef.current);
-      logoSingleClickTimerRef.current = null;
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
     }
     logoReturnArmedRef.current = false;
     logoReturnArmedAtRef.current = 0;
     router.push("/");
   };
-
-  useEffect(() => {
-    return () => {
-      if (logoSingleClickTimerRef.current) {
-        window.clearTimeout(logoSingleClickTimerRef.current);
-        logoSingleClickTimerRef.current = null;
-      }
-    };
-  }, []);
 
   const toggleSearch = () => {
     setIsSearchOpen((prev) => {
@@ -3726,10 +3698,9 @@ function Header({
             <button
               type="button"
               onClick={handleLogoClick}
-              onDoubleClick={handleLogoDoubleClick}
               className="block text-left transition hover:opacity-80"
               aria-label="На портал"
-              title="Двойной клик — на портал"
+              title="Клик: вверх при скролле, повторный клик: на портал"
             >
               <h1 className="text-xl font-bold tracking-[0.2em] text-white sm:text-3xl">
                 3D-STORE

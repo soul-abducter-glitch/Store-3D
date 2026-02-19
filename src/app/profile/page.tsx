@@ -2261,7 +2261,13 @@ export default function ProfilePage() {
             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
               Личный кабинет
             </p>
-            <h1 className="mt-3 text-3xl font-semibold text-white">Профиль 3D-STORE</h1>
+            <Link
+              href="/store"
+              aria-label="Перейти в магазин"
+              className="mt-3 inline-flex text-3xl font-semibold text-white transition hover:text-cyan-100"
+            >
+              Профиль 3D-STORE
+            </Link>
           </div>
           <div className="flex gap-3">
             <Link
