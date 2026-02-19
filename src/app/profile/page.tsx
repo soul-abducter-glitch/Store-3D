@@ -3013,23 +3013,6 @@ export default function ProfilePage() {
           {activeTab === "settings" && (
             <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
               <div className="space-y-6">
-                <div className="rounded-2xl border border-white/10 bg-black/30 p-5">
-                  <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                    AI Billing
-                  </p>
-                  <h3 className="mt-2 text-xl font-semibold text-white">Управление перенесено в AI Lab</h3>
-                  <p className="mt-2 text-sm text-white/60">
-                    Токены, подписка и пополнения доступны только в разделе AI Lab.
-                  </p>
-                  <button
-                    type="button"
-                    onClick={() => router.push("/ai-lab")}
-                    className="mt-4 rounded-full border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-2 text-[10px] uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:bg-[#2ED1FF]/20 hover:text-white"
-                  >
-                    Открыть AI Lab
-                  </button>
-                </div>
-
                 <form className="space-y-6" onSubmit={handleSettingsSubmit}>
                 {settingsError && (
                   <div className="rounded-2xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-200">

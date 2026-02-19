@@ -13,7 +13,6 @@ import {
   Cpu,
   ExternalLink,
   FlaskConical,
-  FolderGit2,
   ImageIcon,
   LogOut,
   Rocket,
@@ -4912,18 +4911,6 @@ function AiLabContent() {
                     >
                       <UserCog className="h-3.5 w-3.5" />
                       Профиль
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setTopupTab("subscription");
-                        setTopupOpen(true);
-                        setUserMenuOpen(false);
-                      }}
-                      className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/30 hover:text-white"
-                    >
-                      <FolderGit2 className="h-3.5 w-3.5" />
-                      Подписка и оплата
                     </button>
                     <button
                       type="button"
