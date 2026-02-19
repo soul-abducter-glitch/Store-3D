@@ -96,6 +96,11 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     return null;
   }
 
+  const parsePositiveNumber = (input: unknown) => {
+    const parsed = Number(input);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
+
   const raw = source.customPrint && typeof source.customPrint === "object" ? source.customPrint : source;
   const uploadId =
     typeof raw.uploadId === "string"
@@ -110,11 +115,13 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
 
   const dimensions =
     raw.dimensions && typeof raw.dimensions === "object"
-      ? {
-          x: Number(raw.dimensions.x) || 0,
-          y: Number(raw.dimensions.y) || 0,
-          z: Number(raw.dimensions.z) || 0,
-        }
+      ? (() => {
+          const x = parsePositiveNumber(raw.dimensions.x);
+          const y = parsePositiveNumber(raw.dimensions.y);
+          const z = parsePositiveNumber(raw.dimensions.z);
+          if (!x || !y || !z) return undefined;
+          return { x, y, z };
+        })()
       : undefined;
 
   return {
@@ -134,7 +141,7 @@ const normalizeCustomPrint = (source: any): CustomPrintMeta | null => {
     packaging: typeof raw.packaging === "string" ? raw.packaging : undefined,
     isHollow: typeof raw.isHollow === "boolean" ? raw.isHollow : undefined,
     dimensions,
-    volumeCm3: typeof raw.volumeCm3 === "number" ? raw.volumeCm3 : undefined,
+    volumeCm3: parsePositiveNumber(raw.volumeCm3),
   };
 };
 

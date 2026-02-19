@@ -45,15 +45,20 @@ const normalizePrintSpecs = (value: any) => {
     return undefined;
   }
 
+  const parsePositiveNumber = (input: unknown) => {
+    const parsed = Number(input);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+  };
+
   const dimensionsRaw = value.dimensions;
-  const dimensions =
-    dimensionsRaw && typeof dimensionsRaw === "object"
-      ? {
-          x: Number(dimensionsRaw.x) || 0,
-          y: Number(dimensionsRaw.y) || 0,
-          z: Number(dimensionsRaw.z) || 0,
-        }
-      : undefined;
+  const dimensions = (() => {
+    if (!dimensionsRaw || typeof dimensionsRaw !== "object") return undefined;
+    const x = parsePositiveNumber(dimensionsRaw.x);
+    const y = parsePositiveNumber(dimensionsRaw.y);
+    const z = parsePositiveNumber(dimensionsRaw.z);
+    if (!x || !y || !z) return undefined;
+    return { x, y, z };
+  })();
 
   const normalized: {
     technology?: string;
@@ -84,11 +89,11 @@ const normalizePrintSpecs = (value: any) => {
     note: typeof value.note === "string" ? value.note.slice(0, 400) : undefined,
     packaging: typeof value.packaging === "string" ? value.packaging.slice(0, 64) : undefined,
     dimensions,
-    volumeCm3: typeof value.volumeCm3 === "number" ? value.volumeCm3 : undefined,
+    volumeCm3: parsePositiveNumber(value.volumeCm3),
     isHollow: typeof value.isHollow === "boolean" ? value.isHollow : undefined,
     infillPercent:
       typeof value.infillPercent === "number" && Number.isFinite(value.infillPercent)
-        ? value.infillPercent
+        ? Math.min(100, Math.max(0, value.infillPercent))
         : undefined,
     orientationPreset:
       value.orientationPreset && typeof value.orientationPreset === "object"
