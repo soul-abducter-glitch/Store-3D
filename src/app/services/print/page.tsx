@@ -1423,8 +1423,8 @@ function PrintOnDemandContent() {
           className="hidden"
         />
 
-        <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)_360px]">
-          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
+        <div className="grid gap-4 xl:grid-cols-[300px_minmax(0,1fr)] 2xl:grid-cols-[300px_minmax(0,1fr)_340px]">
+          <aside className="min-w-0 rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
             <h2 className="mb-3 text-lg font-semibold tracking-wide">ЛЕВАЯ КОЛОНКА: МОДЕЛЬ</h2>
 
             <section className="rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
@@ -1668,10 +1668,10 @@ function PrintOnDemandContent() {
             </section>
           </aside>
 
-          <section className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
+          <section className="min-w-0 rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
             <h2 className="text-lg font-semibold tracking-wide">ЦЕНТР: 3D ВЬЮПОРТ</h2>
 
-            <div className="mt-3 flex min-h-[560px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
+            <div className="mt-3 flex min-h-[500px] flex-col rounded-xl border border-white/10 bg-[#050a0f]/72 p-3">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-sm text-white/65">Окно предпросмотра</p>
                 {issueMarkers.length > 0 && (
@@ -1689,7 +1689,7 @@ function PrintOnDemandContent() {
                 )}
               </div>
 
-              <div className="relative mt-3 flex-1 overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,#0c141f_0%,#070d15_100%)]">
+              <div className="relative mt-3 h-[clamp(300px,44vh,520px)] overflow-hidden rounded-xl border border-white/10 bg-[linear-gradient(180deg,#0c141f_0%,#070d15_100%)]">
                 <Canvas
                   frameloop={isMobileViewport ? "demand" : "always"}
                   shadows={!isMobileViewport}
@@ -1838,7 +1838,7 @@ function PrintOnDemandContent() {
             </div>
           </section>
 
-          <aside className="rounded-2xl border border-white/15 bg-[#060a10]/82 p-3">
+          <aside className="min-w-0 rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:col-span-2 2xl:col-span-1">
             <h2 className="text-lg font-semibold tracking-wide">ПРАВАЯ КОЛОНКА: НАСТРОЙКА ПЕЧАТИ</h2>
 
             <div className="mt-3 flex min-h-[560px] flex-col gap-3">

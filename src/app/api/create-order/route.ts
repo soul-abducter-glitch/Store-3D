@@ -8,6 +8,7 @@ import {
   normalizeCityInput,
   normalizeNameInput,
 } from "@/lib/cities";
+import { ensureOrdersSchema } from "@/lib/ensureOrdersSchema";
 import { computePrintPrice } from "@/lib/printPricing";
 import { applyPromoDiscountToItems, validatePromoCode } from "@/lib/promocodes";
 import { evaluateStlPreflight } from "@/lib/stlPreflight";
@@ -318,6 +319,7 @@ const buildFallbackIdempotencyKey = (args: {
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
+    await ensureOrdersSchema(payload as any);
     const smartPricingEnabled = resolveSmartPricingEnabled();
     const queueMultiplier = resolveQueueMultiplier();
     let authUser: any = null;

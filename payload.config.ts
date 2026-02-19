@@ -17,6 +17,7 @@ import { AiSubscriptions } from "./src/payload/collections/AiSubscriptions.ts";
 import { ProcessedWebhooks } from "./src/payload/collections/ProcessedWebhooks.ts";
 import { SupportTickets } from "./src/payload/collections/SupportTickets.ts";
 import { ensureAiLabSchema } from "./src/lib/ensureAiLabSchema.ts";
+import { ensureOrdersSchema } from "./src/lib/ensureOrdersSchema.ts";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -335,6 +336,11 @@ export default buildConfig({
       await ensureAiLabSchema(payload as any);
     } catch (error) {
       payload.logger?.error({ err: error, msg: "Failed to ensure AI schema" });
+    }
+    try {
+      await ensureOrdersSchema(payload as any);
+    } catch (error) {
+      payload.logger?.error({ err: error, msg: "Failed to ensure orders schema" });
     }
 
     if (!enableBootstrapSeed) {

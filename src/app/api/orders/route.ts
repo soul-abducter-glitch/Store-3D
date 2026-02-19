@@ -2,6 +2,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../payload.config";
+import { ensureOrdersSchema } from "@/lib/ensureOrdersSchema";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -37,6 +38,7 @@ const emptyOrdersResult = (limit: number) => ({
 export async function GET(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
+    await ensureOrdersSchema(payload as any);
     const { searchParams } = new URL(request.url);
     const limit = parsePositiveInt(searchParams.get("limit"), 20);
     const depth = parsePositiveInt(searchParams.get("depth"), 0);
