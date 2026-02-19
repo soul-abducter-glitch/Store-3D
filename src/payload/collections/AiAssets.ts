@@ -87,6 +87,22 @@ export const AiAssets: CollectionConfig = {
       },
     },
     {
+      name: "versionLabel",
+      type: "select",
+      required: true,
+      defaultValue: "original",
+      options: [
+        { label: "Original", value: "original" },
+        { label: "Fixed Safe", value: "fixed_safe" },
+        { label: "Fixed Strong", value: "fixed_strong" },
+        { label: "Split Set", value: "split_set" },
+        { label: "Blender Edit", value: "blender_edit" },
+      ],
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "status",
       type: "select",
       required: true,
@@ -171,6 +187,20 @@ export const AiAssets: CollectionConfig = {
       type: "json",
       admin: {
         description: "History of auto-fix/rollback operations for this asset.",
+      },
+    },
+    {
+      name: "splitPartSet",
+      type: "json",
+      admin: {
+        description: "Optional part set metadata produced by split operation.",
+      },
+    },
+    {
+      name: "pipelineJobs",
+      type: "json",
+      admin: {
+        description: "Recent analyze/fix/split/dcc jobs for this asset version.",
       },
     },
   ],

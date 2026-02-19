@@ -238,6 +238,7 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "previous_asset_id" integer,
         "family_id" varchar,
         "version" integer NOT NULL DEFAULT 1,
+        "version_label" varchar NOT NULL DEFAULT 'original',
         "status" varchar NOT NULL DEFAULT 'ready',
         "provider" varchar DEFAULT 'mock',
         "title" varchar NOT NULL DEFAULT '',
@@ -250,6 +251,8 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "precheck_logs" jsonb,
         "checks" jsonb,
         "repair_logs" jsonb,
+        "split_part_set" jsonb,
+        "pipeline_jobs" jsonb,
         "updated_at" timestamptz DEFAULT now(),
         "created_at" timestamptz DEFAULT now()
       )
@@ -275,6 +278,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "version" integer DEFAULT 1`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "version_label" varchar DEFAULT 'original'`
+  );
+  await executeRaw(
+    payload,
+    `UPDATE ${aiAssetsTable} SET "version_label" = 'original' WHERE "version_label" IS NULL`
   );
   await executeRaw(
     payload,
@@ -317,6 +328,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "split_part_set" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "pipeline_jobs" jsonb`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${aiAssetsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
   );
   await executeRaw(
@@ -339,6 +358,10 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_assets_family_id_idx" ON ${aiAssetsTable} ("family_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_assets_version_label_idx" ON ${aiAssetsTable} ("version_label")`
   );
   await executeRaw(
     payload,

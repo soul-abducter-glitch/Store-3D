@@ -3,6 +3,7 @@ import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../../payload.config";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { normalizePipelineJobs, normalizeVersionLabel } from "@/lib/aiAssetPipeline";
 import {
   buildAiAssetVersionDiff,
   normalizeAssetFormat,
@@ -52,7 +53,11 @@ const serializeAsset = (asset: any) => ({
   })(),
   familyId: resolveAiAssetFamilyId(asset),
   version: normalizeAssetVersion(asset?.version, 1),
+  versionLabel: normalizeVersionLabel(asset?.versionLabel),
   checks: asset?.checks && typeof asset.checks === "object" ? asset.checks : null,
+  splitPartSet:
+    asset?.splitPartSet && typeof asset.splitPartSet === "object" ? asset.splitPartSet : null,
+  pipelineJobs: normalizePipelineJobs(asset?.pipelineJobs),
   createdAt: asset?.createdAt,
   updatedAt: asset?.updatedAt,
 });
@@ -199,6 +204,7 @@ export async function POST(
         previousAsset: normalizeRelationshipId(latestAsset?.id) as any,
         familyId,
         version: nextVersion,
+        versionLabel: "original",
         status: "ready",
         provider: `${toNonEmptyString(asset?.provider) || "mock"}-rollback`,
         title: createdTitle,

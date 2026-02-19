@@ -100,11 +100,28 @@ type AiAssetRecord = {
   previousAssetId?: string | null;
   familyId?: string;
   version?: number;
+  versionLabel?: "original" | "fixed_safe" | "fixed_strong" | "split_set" | "blender_edit" | string;
   title: string;
   modelUrl: string;
   previewUrl: string;
   format: string;
   status: string;
+  splitPartSet?: {
+    id?: string;
+    mode?: "auto" | "plane" | string;
+    parts?: Array<{
+      partId?: string;
+      name?: string;
+      fileUrl?: string;
+    }>;
+  } | null;
+  pipelineJobs?: Array<{
+    id?: string;
+    type?: string;
+    status?: string;
+    progress?: number;
+    message?: string;
+  }>;
   fixAvailable?: boolean;
   checks?: {
     topology?: {
@@ -112,6 +129,15 @@ type AiAssetRecord = {
       riskScore?: number;
       watertight?: "yes" | "no" | "unknown";
       issues?: Array<{ message?: string }>;
+    };
+    diagnostics?: {
+      status?: "ok" | "warning" | "critical";
+      issues?: Array<{ message?: string }>;
+      manifold?: "yes" | "no" | "unknown";
+      openEdgesCount?: number | null;
+      componentsCount?: number | null;
+      polycount?: number | null;
+      scaleSanity?: "ok" | "warning" | "critical" | "unknown";
     };
   } | null;
 };
@@ -171,8 +197,20 @@ const MODEL_STAGE_TARGET_SIZE = 2.2;
 const AI_GENERATE_API_URL = "/api/ai/generate";
 const AI_ASSETS_API_URL = "/api/ai/assets";
 const AI_BACKGROUND_REMOVE_API_URL = "/api/ai/background-remove";
-const AI_ASSET_REPAIR_API = (assetId: string) =>
-  `/api/ai/assets/${encodeURIComponent(assetId)}/repair`;
+const ASSET_ANALYZE_API = (assetId: string) =>
+  `/api/assets/${encodeURIComponent(assetId)}/analyze`;
+const ASSET_FIX_API = (assetId: string) =>
+  `/api/assets/${encodeURIComponent(assetId)}/fix`;
+const ASSET_SPLIT_API = (assetId: string) =>
+  `/api/assets/${encodeURIComponent(assetId)}/split`;
+const ASSET_EXPORT_API = (assetId: string, versionId: string, format: "glb" | "zip", parts = false) =>
+  `/api/assets/${encodeURIComponent(assetId)}/export?versionId=${encodeURIComponent(versionId)}&format=${encodeURIComponent(
+    format
+  )}${parts ? "&parts=1" : ""}`;
+const DCC_BLENDER_JOBS_API = "/api/dcc/blender/jobs";
+const BLENDER_BRIDGE_ENABLED = ["1", "true", "yes", "on"].includes(
+  String(process.env.NEXT_PUBLIC_BLENDER_BRIDGE_ENABLED || "").trim().toLowerCase()
+);
 const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
 const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
@@ -1506,8 +1544,9 @@ function AiLabContent() {
   const [labPanelTab, setLabPanelTab] = useState<LabPanelTab>("history");
   const [assetAction, setAssetAction] = useState<{
     assetId: string;
-    type: "analyze" | "repair";
+    type: "analyze" | "fix_safe" | "fix_strong" | "split_auto" | "blender";
   } | null>(null);
+  const [blenderInstallOpen, setBlenderInstallOpen] = useState(false);
   const [remixJob, setRemixJob] = useState<AiGenerationJob | null>(null);
   const [remixPrompt, setRemixPrompt] = useState("");
   const [remixLocalEdit, setRemixLocalEdit] = useState(false);
@@ -3424,6 +3463,36 @@ function AiLabContent() {
     [fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
   );
 
+  const waitForPipelineJob = useCallback(
+    async (jobId: string, timeoutMs = 15000) => {
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < timeoutMs) {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
+          method: "GET",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch job status.");
+        }
+        const status = typeof data?.status === "string" ? data.status : "";
+        if (status === "done") return data;
+        if (status === "error") {
+          throw new Error(
+            typeof data?.error === "string"
+              ? data.error
+              : typeof data?.message === "string"
+                ? data.message
+                : "Asset operation failed."
+          );
+        }
+        await new Promise((resolve) => setTimeout(resolve, 700));
+      }
+      throw new Error("Job timeout. Please retry.");
+    },
+    []
+  );
+
   const handleAnalyzePublishedAsset = useCallback(
     async (job: AiGenerationJob) => {
       const assetId = publishedAssetsByJobId[job.id];
@@ -3432,33 +3501,37 @@ function AiLabContent() {
         return;
       }
       if (assetAction) return;
+      const linkedAsset = publishedAssetsById[assetId] || null;
+      const versionId = linkedAsset?.id || assetId;
       setAssetAction({ assetId, type: "analyze" });
       try {
-        const response = await fetch(AI_ASSET_REPAIR_API(assetId), {
+        const response = await fetch(ASSET_ANALYZE_API(assetId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ mode: "analyze" }),
+          body: JSON.stringify({ versionId }),
         });
         const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success) {
+        if (!response.ok || !data?.success || !data?.jobId) {
           throw new Error(typeof data?.error === "string" ? data.error : "Analyze failed.");
         }
-        const analysis = data?.analysis as
-          | {
-              riskScore?: number;
-              fixAvailable?: boolean;
-              issues?: Array<{ message?: string }>;
-            }
-          | undefined;
-        const issue =
-          Array.isArray(analysis?.issues) && analysis.issues[0]?.message
-            ? String(analysis.issues[0].message)
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const stats = (settled?.result?.stats || data?.result?.stats || {}) as {
+          status?: "ok" | "warning" | "critical";
+          riskScore?: number;
+          issues?: Array<{ message?: string }>;
+        };
+        const status = stats?.status || "ok";
+        const firstIssue =
+          Array.isArray(stats?.issues) && stats.issues[0]?.message
+            ? String(stats.issues[0].message)
             : "";
         showSuccess(
-          analysis?.fixAvailable
-            ? `Analyze: найден риск (Q:${analysis?.riskScore ?? "?"}). ${issue}`.trim()
-            : `Analyze: критичных дефектов не найдено (Q:${analysis?.riskScore ?? "?"}).`
+          status === "critical"
+            ? `Диагностика: critical (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
+            : status === "warning"
+              ? `Диагностика: warning (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
+              : `Диагностика: mesh OK (Q:${stats?.riskScore ?? "?"}).`
         );
         void fetchPublishedAssets(true);
       } catch (error) {
@@ -3467,10 +3540,77 @@ function AiLabContent() {
         setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
       }
     },
-    [assetAction, fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
+    [
+      assetAction,
+      fetchPublishedAssets,
+      publishedAssetsById,
+      publishedAssetsByJobId,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
   );
 
-  const handleRepairPublishedAsset = useCallback(
+  const handleQuickFixPublishedAsset = useCallback(
+    async (job: AiGenerationJob, preset: "safe" | "strong" = "safe") => {
+      const assetId = publishedAssetsByJobId[job.id];
+      if (!assetId) {
+        showError("Сначала сохраните результат в библиотеку профиля.");
+        return;
+      }
+      if (assetAction) return;
+      const linkedAsset = publishedAssetsById[assetId] || null;
+      const versionId = linkedAsset?.id || assetId;
+      setAssetAction({ assetId, type: preset === "strong" ? "fix_strong" : "fix_safe" });
+      try {
+        const response = await fetch(ASSET_FIX_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ versionId, preset }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Quick Fix failed.");
+        }
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const result = (settled?.result || data?.result || {}) as {
+          noChanges?: boolean;
+          newVersionId?: string;
+        };
+        if (result?.noChanges) {
+          showSuccess("Quick Fix: No changes. Новая версия не создана.");
+        } else {
+          showSuccess(
+            preset === "strong"
+              ? `Quick Fix Strong: готово (version ${result?.newVersionId || "new"}).`
+              : `Quick Fix: готово (version ${result?.newVersionId || "new"}).`
+          );
+        }
+        void fetchPublishedAssets(true);
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ai-assets-updated"));
+        }
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Quick Fix failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [
+      assetAction,
+      fetchPublishedAssets,
+      publishedAssetsById,
+      publishedAssetsByJobId,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
+  );
+
+  const handleSplitPublishedAsset = useCallback(
     async (job: AiGenerationJob) => {
       const assetId = publishedAssetsByJobId[job.id];
       if (!assetId) {
@@ -3478,36 +3618,137 @@ function AiLabContent() {
         return;
       }
       if (assetAction) return;
-      setAssetAction({ assetId, type: "repair" });
+      const linkedAsset = publishedAssetsById[assetId] || null;
+      const versionId = linkedAsset?.id || assetId;
+      setAssetAction({ assetId, type: "split_auto" });
       try {
-        const response = await fetch(AI_ASSET_REPAIR_API(assetId), {
+        const response = await fetch(ASSET_SPLIT_API(assetId), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({ mode: "repair" }),
+          body: JSON.stringify({ versionId, mode: "auto" }),
         });
         const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Auto-Fix failed.");
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Split failed.");
         }
-        showSuccess(
-          `Auto-Fix: создана версия ${
-            typeof data?.repairedAsset?.version === "number"
-              ? `v${data.repairedAsset.version}`
-              : "v+1"
-          }.`
-        );
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const result = (settled?.result || data?.result || {}) as {
+          noChanges?: boolean;
+          partSetId?: string;
+        };
+        if (result?.noChanges) {
+          showSuccess("Split: модель уже состоит из 1 части, изменений нет.");
+        } else {
+          showSuccess(`Split готов: partSet ${result?.partSetId || "created"}.`);
+        }
         void fetchPublishedAssets(true);
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("ai-assets-updated"));
         }
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Auto-Fix failed.");
+        pushUiError(error instanceof Error ? error.message : "Split failed.");
       } finally {
         setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
       }
     },
-    [assetAction, fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
+    [
+      assetAction,
+      fetchPublishedAssets,
+      publishedAssetsById,
+      publishedAssetsByJobId,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
+  );
+
+  const handleOpenInBlenderPublishedAsset = useCallback(
+    async (job: AiGenerationJob) => {
+      const assetId = publishedAssetsByJobId[job.id];
+      if (!assetId) {
+        showError("Сначала сохраните результат в библиотеку профиля.");
+        return;
+      }
+      if (!BLENDER_BRIDGE_ENABLED) {
+        setBlenderInstallOpen(true);
+        return;
+      }
+      if (assetAction) return;
+      const linkedAsset = publishedAssetsById[assetId] || null;
+      const versionId = linkedAsset?.id || assetId;
+      setAssetAction({ assetId, type: "blender" });
+      try {
+        const response = await fetch(DCC_BLENDER_JOBS_API, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            assetId,
+            versionId,
+            format: "glb",
+            options: {
+              scale: "meters",
+              importMode: "new_collection",
+            },
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to queue Blender job.");
+        }
+        showSuccess("Open in Blender: queued. Waiting for Blender Bridge pickup.");
+        void fetchPublishedAssets(true);
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to queue Blender job.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [
+      assetAction,
+      fetchPublishedAssets,
+      publishedAssetsById,
+      publishedAssetsByJobId,
+      pushUiError,
+      showError,
+      showSuccess,
+    ]
+  );
+
+  const handleDownloadAssetGlb = useCallback(
+    (asset: AiAssetRecord) => {
+      if (typeof window === "undefined") return;
+      const href = ASSET_EXPORT_API(asset.id, asset.id, "glb");
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = `${(asset.title || "ai-model").replace(/[^a-zA-Z0-9_-]+/g, "-")}.glb`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+    },
+    []
+  );
+
+  const handleShowAssetIssues = useCallback(
+    (asset: AiAssetRecord | null) => {
+      if (!asset) {
+        showError("Нет данных диагностики.");
+        return;
+      }
+      const issues = asset?.checks?.diagnostics?.issues || asset?.checks?.topology?.issues || [];
+      if (!Array.isArray(issues) || issues.length === 0) {
+        showSuccess("Show issues: проблем не обнаружено.");
+        return;
+      }
+      const message = issues
+        .slice(0, 3)
+        .map((issue) => (typeof issue?.message === "string" ? issue.message : "Issue"))
+        .join(" | ");
+      showSuccess(`Issues: ${message}`);
+    },
+    [showError, showSuccess]
   );
 
   const filteredJobHistory = useMemo(() => {
@@ -5179,6 +5420,16 @@ function AiLabContent() {
                   const fixAvailable = Boolean(
                     linkedAsset?.fixAvailable || linkedAsset?.checks?.topology?.fixAvailable
                   );
+                  const diagnosticsStatus = linkedAsset?.checks?.diagnostics?.status || "unknown";
+                  const versionLabel = linkedAsset?.versionLabel || "original";
+                  const blenderQueued = Boolean(
+                    Array.isArray(linkedAsset?.pipelineJobs) &&
+                      linkedAsset?.pipelineJobs?.some(
+                        (pipelineJob) =>
+                          pipelineJob?.type === "dcc_blender" &&
+                          (pipelineJob?.status === "queued" || pipelineJob?.status === "running")
+                      )
+                  );
                   return (
                   <div
                     key={job.id}
@@ -5211,6 +5462,8 @@ function AiLabContent() {
                           job.queuePosition > 0 &&
                           ` • Q#${job.queuePosition}`}
                         {fixAvailable ? " • доступен фикс" : ""}
+                        {linkedAsset ? ` • diag:${diagnosticsStatus}` : ""}
+                        {linkedAsset ? ` • ${versionLabel}` : ""}
                       </p>
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
@@ -5280,14 +5533,65 @@ function AiLabContent() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void handleRepairPublishedAsset(job)}
+                              onClick={() => void handleQuickFixPublishedAsset(job, "safe")}
                               disabled={!linkedAssetId || Boolean(assetAction)}
                               className="w-full rounded-lg border border-amber-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={linkedAssetId ? "Создать исправленную версию" : "Сначала сохраните ассет"}
+                              title={linkedAssetId ? "Безопасный авто-фикс" : "Сначала сохраните ассет"}
                             >
-                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "repair"
+                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "fix_safe"
                                 ? "..."
-                                : "АВТО-ФИКС"}
+                                : "QUICK FIX"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleQuickFixPublishedAsset(job, "strong")}
+                              disabled={!linkedAssetId || Boolean(assetAction)}
+                              className="w-full rounded-lg border border-orange-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-orange-200 transition hover:border-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              title={linkedAssetId ? "Агрессивный авто-фикс (может менять детали)" : "Сначала сохраните ассет"}
+                            >
+                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "fix_strong"
+                                ? "..."
+                                : "QUICK FIX STRONG"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleSplitPublishedAsset(job)}
+                              disabled={!linkedAssetId || Boolean(assetAction)}
+                              className="w-full rounded-lg border border-cyan-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              title={linkedAssetId ? "Разделить модель на части (auto separate shells)" : "Сначала сохраните ассет"}
+                            >
+                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "split_auto"
+                                ? "..."
+                                : "SPLIT AUTO"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void handleOpenInBlenderPublishedAsset(job)}
+                              disabled={!linkedAssetId || Boolean(assetAction)}
+                              className="w-full rounded-lg border border-violet-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-violet-200 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
+                              title={linkedAssetId ? "Отправить текущую версию в Blender Bridge" : "Сначала сохраните ассет"}
+                            >
+                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "blender"
+                                ? "..."
+                                : blenderQueued
+                                  ? "BLENDER QUEUED"
+                                  : "OPEN IN BLENDER"}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleShowAssetIssues(linkedAsset)}
+                              disabled={!linkedAsset}
+                              className="w-full rounded-lg border border-white/30 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              SHOW ISSUES
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => linkedAsset && handleDownloadAssetGlb(linkedAsset)}
+                              disabled={!linkedAsset}
+                              className="w-full rounded-lg border border-[#2ED1FF]/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-50"
+                            >
+                              DOWNLOAD GLB
                             </button>
                             <button
                               type="button"
@@ -5301,6 +5605,52 @@ function AiLabContent() {
                         </details>
                       </div>
                     </div>
+                    {linkedAsset && (
+                      <div className="mt-2 rounded-xl border border-white/10 bg-black/25 p-2">
+                        <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
+                          Actions
+                        </p>
+                        <div className="mt-2 flex flex-wrap gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => void handleQuickFixPublishedAsset(job, "safe")}
+                            disabled={Boolean(assetAction)}
+                            className="rounded-full border border-amber-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {assetAction?.assetId === linkedAsset.id && assetAction?.type === "fix_safe" ? "..." : "Quick Fix"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleOpenInBlenderPublishedAsset(job)}
+                            disabled={Boolean(assetAction)}
+                            className="rounded-full border border-violet-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-violet-200 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {assetAction?.assetId === linkedAsset.id && assetAction?.type === "blender"
+                              ? "..."
+                              : blenderQueued
+                                ? "Queued"
+                                : "Open in Blender"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void handleSplitPublishedAsset(job)}
+                            disabled={Boolean(assetAction)}
+                            className="rounded-full border border-cyan-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {assetAction?.assetId === linkedAsset.id && assetAction?.type === "split_auto"
+                              ? "..."
+                              : "Split into parts"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDownloadAssetGlb(linkedAsset)}
+                            className="rounded-full border border-[#2ED1FF]/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                          >
+                            Download GLB
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   );
                 })
@@ -5867,6 +6217,40 @@ function AiLabContent() {
                 {historyAction?.id === remixJob.id && historyAction?.type === "variation"
                   ? "Создаем..."
                   : "Запустить remix"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {blenderInstallOpen && (
+        <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-[560px] rounded-[28px] border border-violet-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+            <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-violet-100">
+              <span className="h-2 w-2 rounded-full bg-violet-300 shadow-[0_0_12px_rgba(167,139,250,0.7)]" />
+              [ BLENDER BRIDGE ]
+            </div>
+            <p className="mt-4 text-sm text-white/75">
+              Open in Blender недоступен, пока Bridge не настроен. Установите аддон и подключите token.
+            </p>
+            <ol className="mt-4 space-y-2 text-sm text-white/70">
+              <li>
+                1. Установите Blender Bridge addon в Blender (Edit -&gt; Preferences -&gt;
+                Add-ons -&gt; Install).
+              </li>
+              <li>2. Вставьте API token сервера (BLENDER_BRIDGE_TOKEN) в настройках аддона.</li>
+              <li>3. Нажмите Test connection, затем Fetch jobs и Import latest.</li>
+            </ol>
+            <p className="mt-4 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+              Для локальной проверки включите NEXT_PUBLIC_BLENDER_BRIDGE_ENABLED=1.
+            </p>
+            <div className="mt-5 flex justify-end">
+              <button
+                type="button"
+                onClick={() => setBlenderInstallOpen(false)}
+                className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.3em] text-white/70 transition hover:border-white/40 hover:text-white"
+              >
+                Закрыть
               </button>
             </div>
           </div>

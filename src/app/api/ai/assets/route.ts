@@ -3,6 +3,7 @@ import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { normalizePipelineJobs, normalizeVersionLabel } from "@/lib/aiAssetPipeline";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -182,10 +183,14 @@ const serializeAsset = (
   })(),
   familyId: toNonEmptyString(asset?.familyId),
   version: normalizeVersion(asset?.version, 1),
+  versionLabel: normalizeVersionLabel(asset?.versionLabel),
   checks:
     asset?.checks && typeof asset.checks === "object" ? asset.checks : null,
   fixAvailable: Boolean(asset?.checks?.topology?.fixAvailable),
   repairLogs: Array.isArray(asset?.repairLogs) ? asset.repairLogs : [],
+  splitPartSet:
+    asset?.splitPartSet && typeof asset.splitPartSet === "object" ? asset.splitPartSet : null,
+  pipelineJobs: normalizePipelineJobs(asset?.pipelineJobs),
   lastRepairAt: (() => {
     const logs = Array.isArray(asset?.repairLogs) ? asset.repairLogs : [];
     const latest = logs.length > 0 ? logs[logs.length - 1] : null;
@@ -422,6 +427,7 @@ export async function POST(request: NextRequest) {
           previousAsset: previousAsset ? (previousAsset.id as any) : undefined,
           familyId: familyId || undefined,
           version,
+          versionLabel: "original",
         },
       });
 
@@ -496,6 +502,7 @@ export async function POST(request: NextRequest) {
         previousAsset: previousAsset ? (previousAsset.id as any) : undefined,
         familyId: familyId || undefined,
         version,
+        versionLabel: "original",
       },
     });
 
