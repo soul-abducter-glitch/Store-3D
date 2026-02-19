@@ -2383,13 +2383,12 @@ const CheckoutPage = () => {
         </div>
       </header>
 
-      <div className="fixed inset-x-0 top-16 z-30 border-b border-white/10 bg-[#04080d]/90 backdrop-blur-xl">
-        <div className="mx-auto max-w-[1280px] px-4 py-3 sm:px-6">
-          <CheckoutStepper steps={stepperSteps} variant="compact" />
+      <div className="relative z-10 mx-auto max-w-[1280px] px-4 pb-24 pt-20 sm:px-6">
+        <div className="sticky top-16 z-30 -mx-4 border-b border-white/10 bg-[#04080d]/90 backdrop-blur-xl sm:-mx-6">
+          <div className="mx-auto max-w-[1280px] px-4 py-3 sm:px-6">
+            <CheckoutStepper steps={stepperSteps} variant="compact" />
+          </div>
         </div>
-      </div>
-
-      <div className="relative z-10 mx-auto max-w-[1280px] px-4 pb-24 pt-[142px] sm:px-6">
 
         <AnimatePresence mode="wait">
           {step === "form" ? (
@@ -2402,7 +2401,7 @@ const CheckoutPage = () => {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -12 }}
               transition={{ duration: 0.35 }}
-              className="mt-4 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]"
+              className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]"
             >
               <div className="min-w-0 space-y-6 rounded-[28px] border border-white/10 bg-white/[0.04] p-5 backdrop-blur-xl">
                 <div className="flex items-center gap-3">
@@ -2513,7 +2512,7 @@ const CheckoutPage = () => {
                     </div>
                     {selectedDeliveryOption && (
                       <p className="rounded-2xl border border-[#2ED1FF]/30 bg-[#2ED1FF]/10 px-4 py-3 text-sm text-[#BFF4FF]">
-                        {`ETA: ${selectedDeliveryOption.estimatedTime} • Стоимость: ${formatPrice(deliveryCost)} ₽`}
+                        {`Срок доставки: ${selectedDeliveryOption.estimatedTime} • Стоимость: ${formatPrice(deliveryCost)} ₽`}
                       </p>
                     )}
                     <div className="space-y-2">
@@ -2528,6 +2527,7 @@ const CheckoutPage = () => {
                         onChange={handleInputChange("city")}
                         required={hasPhysical}
                         autoComplete="address-level2"
+                        placeholder="Например, Омск"
                         aria-invalid={Boolean(fieldErrors.city)}
                         aria-describedby={fieldErrors.city ? "checkout-city-error" : undefined}
                         className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
@@ -2557,7 +2557,7 @@ const CheckoutPage = () => {
                         onChange={handleInputChange("address")}
                         required={hasPhysical}
                         rows={3}
-                        placeholder="Улица, дом, квартира"
+                        placeholder="Например, Суханова 1, кв. 12"
                         aria-invalid={Boolean(fieldErrors.address)}
                         aria-describedby={fieldErrors.address ? "checkout-address-error" : undefined}
                         className={`w-full rounded-2xl border bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60 ${
@@ -2593,7 +2593,7 @@ const CheckoutPage = () => {
                     </div>
                     <div className="space-y-2">
                       <label className="flex items-center justify-between text-xs uppercase tracking-[0.2em] text-white/50">
-                        <span>zip_code</span>
+                        <span>Почтовый индекс</span>
                         <span className="text-[10px] tracking-[0.25em] text-white/40">
                           {shippingLabels.zipHelper}
                         </span>
@@ -2603,8 +2603,12 @@ const CheckoutPage = () => {
                         inputMode="numeric"
                         value={form.zipCode}
                         onChange={handleInputChange("zipCode")}
+                        placeholder="Например, 644000"
                         className="w-full rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white outline-none transition focus:border-[#2ED1FF]/60"
                       />
+                      <p className="text-xs text-white/45">
+                        Необязательно, но помогает точнее рассчитать доставку.
+                      </p>
                     </div>
                   </div>
                 )}
