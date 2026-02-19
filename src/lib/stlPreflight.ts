@@ -76,7 +76,7 @@ export const evaluateStlPreflight = (input: StlPreflightInput): StlPreflightRepo
   if (!dimsRaw) {
     issues.push({
       code: "missing_dimensions",
-      severity: "critical",
+      severity: "risk",
       message: "Не удалось определить габариты модели (X/Y/Z).",
     });
   } else if (!x || !y || !z) {
@@ -91,7 +91,7 @@ export const evaluateStlPreflight = (input: StlPreflightInput): StlPreflightRepo
   if (input.volumeCm3 === undefined || input.volumeCm3 === null) {
     issues.push({
       code: "missing_volume",
-      severity: "critical",
+      severity: "risk",
       message: "Не удалось определить объем модели.",
     });
   } else if (!volumeCm3) {
@@ -197,4 +197,3 @@ export const evaluateStlPreflight = (input: StlPreflightInput): StlPreflightRepo
     summary: buildSummary(status, issues.length),
   };
 };
-
