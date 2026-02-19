@@ -12,10 +12,11 @@ export type AssetVersionLabel =
   | "fixed_safe"
   | "fixed_strong"
   | "split_set"
-  | "blender_edit";
+  | "blender_edit"
+  | "textured_v1";
 
-export type PipelineJobType = "analyze" | "mesh_fix" | "split" | "dcc_blender";
-export type PipelineJobStatus = "queued" | "running" | "done" | "error";
+export type PipelineJobType = "analyze" | "mesh_fix" | "split" | "dcc_blender" | "texture";
+export type PipelineJobStatus = "queued" | "running" | "done" | "error" | "canceled";
 
 export type PipelineJobRecord = {
   id: string;
@@ -73,13 +74,13 @@ const asInt = (value: unknown) => {
 
 const normalizeJobType = (value: unknown): PipelineJobType => {
   const raw = toNonEmptyString(value).toLowerCase();
-  if (raw === "mesh_fix" || raw === "split" || raw === "dcc_blender") return raw;
+  if (raw === "mesh_fix" || raw === "split" || raw === "dcc_blender" || raw === "texture") return raw;
   return "analyze";
 };
 
 const normalizeJobStatus = (value: unknown): PipelineJobStatus => {
   const raw = toNonEmptyString(value).toLowerCase();
-  if (raw === "running" || raw === "done" || raw === "error") return raw;
+  if (raw === "running" || raw === "done" || raw === "error" || raw === "canceled") return raw;
   return "queued";
 };
 
@@ -106,7 +107,8 @@ export const normalizeVersionLabel = (
     raw === "fixed_safe" ||
     raw === "fixed_strong" ||
     raw === "split_set" ||
-    raw === "blender_edit"
+    raw === "blender_edit" ||
+    raw === "textured_v1"
   ) {
     return raw;
   }

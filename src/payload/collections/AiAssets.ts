@@ -97,6 +97,7 @@ export const AiAssets: CollectionConfig = {
         { label: "Fixed Strong", value: "fixed_strong" },
         { label: "Split Set", value: "split_set" },
         { label: "Blender Edit", value: "blender_edit" },
+        { label: "Textured V1", value: "textured_v1" },
       ],
       admin: {
         position: "sidebar",

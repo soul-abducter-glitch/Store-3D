@@ -39,7 +39,7 @@ import {
   type PointLight,
 } from "three";
 
-import ModelView from "@/components/ModelView";
+import ModelView, { type ModelIssueMarker } from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import { resolveGenerationEtaMinutes, resolveGenerationTokenCost } from "@/lib/aiGenerationProfile";
 
@@ -100,7 +100,14 @@ type AiAssetRecord = {
   previousAssetId?: string | null;
   familyId?: string;
   version?: number;
-  versionLabel?: "original" | "fixed_safe" | "fixed_strong" | "split_set" | "blender_edit" | string;
+  versionLabel?:
+    | "original"
+    | "fixed_safe"
+    | "fixed_strong"
+    | "split_set"
+    | "blender_edit"
+    | "textured_v1"
+    | string;
   createdAt?: string;
   updatedAt?: string;
   title: string;
@@ -135,6 +142,7 @@ type AiAssetRecord = {
     diagnostics?: {
       status?: "ok" | "warning" | "critical";
       issues?: Array<{ message?: string }>;
+      riskScore?: number | null;
       manifold?: "yes" | "no" | "unknown";
       openEdgesCount?: number | null;
       componentsCount?: number | null;
@@ -153,6 +161,7 @@ type LeftTool = "generate" | "references" | "model" | "cleanup" | "materials" | 
 
 type QueueJobItem = {
   id: string;
+  queueJobId: string;
   type: string;
   label: string;
   status: "queued" | "running" | "done" | "error" | "canceled";
@@ -221,6 +230,8 @@ const ASSET_FIX_API = (assetId: string) =>
   `/api/assets/${encodeURIComponent(assetId)}/fix`;
 const ASSET_SPLIT_API = (assetId: string) =>
   `/api/assets/${encodeURIComponent(assetId)}/split`;
+const ASSET_TEXTURE_API = (assetId: string) =>
+  `/api/assets/${encodeURIComponent(assetId)}/texture`;
 const ASSET_EXPORT_API = (assetId: string, versionId: string, format: "glb" | "zip", parts = false) =>
   `/api/assets/${encodeURIComponent(assetId)}/export?versionId=${encodeURIComponent(versionId)}&format=${encodeURIComponent(
     format
@@ -1464,6 +1475,47 @@ function FloorPulse({ active }: { active: boolean }) {
   );
 }
 
+function ViewportIssueMarkers({
+  markers,
+  thinOnly = false,
+}: {
+  markers: ModelIssueMarker[];
+  thinOnly?: boolean;
+}) {
+  const visibleMarkers = useMemo(
+    () =>
+      (Array.isArray(markers) ? markers : []).filter((marker) =>
+        thinOnly ? marker.id.startsWith("thin") : true
+      ),
+    [markers, thinOnly]
+  );
+
+  if (visibleMarkers.length === 0) return null;
+
+  return (
+    <group>
+      {visibleMarkers.map((marker) => (
+        <group key={marker.id} position={marker.position}>
+          <mesh>
+            <sphereGeometry args={[0.045, 16, 16]} />
+            <meshBasicMaterial color={marker.color} transparent opacity={0.95} />
+          </mesh>
+          <mesh rotation={[Math.PI / 2, 0, 0]} position={[0, -0.01, 0]}>
+            <ringGeometry args={[0.07, 0.12, 24]} />
+            <meshBasicMaterial
+              color={marker.color}
+              transparent
+              opacity={0.72}
+              blending={AdditiveBlending}
+              depthWrite={false}
+            />
+          </mesh>
+        </group>
+      ))}
+    </group>
+  );
+}
+
 function AiLabContent() {
   type ManualMaskMode = "erase" | "restore" | "wand";
 
@@ -1534,7 +1586,7 @@ function AiLabContent() {
   const [stylePreset, setStylePreset] = useState<"realistic" | "stylized" | "anime">("stylized");
   const [advancedPreset, setAdvancedPreset] = useState<"balanced" | "detail" | "speed">("balanced");
   const [viewportShowGrid, setViewportShowGrid] = useState(true);
-  const [viewportRenderMode, setViewportRenderMode] = useState<"final" | "wireframe">("final");
+  const [viewportRenderMode, setViewportRenderMode] = useState<"final" | "wireframe" | "base">("final");
   const [viewportControlMode, setViewportControlMode] = useState<"orbit" | "pan" | "zoom">("orbit");
   const [viewportAutoRotate, setViewportAutoRotate] = useState(false);
   const [viewportViewsOpen, setViewportViewsOpen] = useState(false);
@@ -1546,6 +1598,18 @@ function AiLabContent() {
   const [viewportViewPreset, setViewportViewPreset] = useState<
     "orbit" | "front" | "back" | "left" | "right" | "top" | "bottom"
   >("orbit");
+  const [viewerIssuesOverlay, setViewerIssuesOverlay] = useState(false);
+  const [viewerMeasureOverlay, setViewerMeasureOverlay] = useState(false);
+  const [viewerThicknessPreview, setViewerThicknessPreview] = useState(false);
+  const [viewportIssueMarkers, setViewportIssueMarkers] = useState<ModelIssueMarker[]>([]);
+  const [viewportStats, setViewportStats] = useState<{ polyCount: number; meshCount: number } | null>(null);
+  const [viewportBounds, setViewportBounds] = useState<{
+    size: number;
+    boxSize: [number, number, number];
+    radius: number;
+  } | null>(null);
+  const [texturePanelOpen, setTexturePanelOpen] = useState(false);
+  const [remeshPanelOpen, setRemeshPanelOpen] = useState(false);
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -1573,7 +1637,6 @@ function AiLabContent() {
   const [jobHistoryLoading, setJobHistoryLoading] = useState(false);
   const [jobHistoryFilter, setJobHistoryFilter] = useState<JobHistoryFilter>("all");
   const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
-  const [queueSystemOpen, setQueueSystemOpen] = useState(false);
   const [historyAction, setHistoryAction] = useState<{
     id: string;
     type: "retry" | "variation" | "delete" | "publish";
@@ -1581,7 +1644,7 @@ function AiLabContent() {
   const [labPanelTab, setLabPanelTab] = useState<LabPanelTab>("history");
   const [assetAction, setAssetAction] = useState<{
     assetId: string;
-    type: "analyze" | "fix_safe" | "fix_strong" | "split_auto" | "blender";
+    type: "analyze" | "fix_safe" | "fix_strong" | "split_auto" | "blender" | "texture";
   } | null>(null);
   const [blenderInstallOpen, setBlenderInstallOpen] = useState(false);
   const [remixJob, setRemixJob] = useState<AiGenerationJob | null>(null);
@@ -3724,9 +3787,11 @@ function AiLabContent() {
       }
       const issues = asset?.checks?.diagnostics?.issues || asset?.checks?.topology?.issues || [];
       if (!Array.isArray(issues) || issues.length === 0) {
+        setViewerIssuesOverlay(false);
         showSuccess("Show issues: проблем не обнаружено.");
         return;
       }
+      setViewerIssuesOverlay(true);
       const message = issues
         .slice(0, 3)
         .map((issue) => (typeof issue?.message === "string" ? issue.message : "Issue"))
@@ -3964,8 +4029,140 @@ function AiLabContent() {
     ]
   );
 
+  const handlePrintabilityCheck = useCallback(
+    async (asset: AiAssetRecord | null) => {
+      if (!asset) {
+        showError("Сначала выберите модель в истории или ассетах.");
+        return;
+      }
+      await handleAnalyzeActiveAsset(asset, true);
+      setViewerIssuesOverlay(true);
+    },
+    [handleAnalyzeActiveAsset, showError]
+  );
+
+  const handleTextureActiveAsset = useCallback(
+    async (asset: AiAssetRecord | null, mode: "image" | "flat" = "image") => {
+      if (!asset) {
+        showError("Сначала выберите модель в истории или ассетах.");
+        return;
+      }
+      if (assetAction) return;
+      const assetId = asset.id;
+      const versionId = asset.id;
+      setAssetAction({ assetId, type: "texture" });
+      try {
+        const response = await fetch(ASSET_TEXTURE_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            versionId,
+            mode,
+            params: mode === "flat" ? { color: "#aab0ba" } : undefined,
+          }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Texture failed.");
+        }
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const result = (settled?.result || data?.result || {}) as {
+          noChanges?: boolean;
+          newVersionId?: string;
+          tintHex?: string;
+        };
+        if (result?.noChanges) {
+          showSuccess("Текстуры: изменений не найдено.");
+        } else {
+          showSuccess(
+            `Текстуры: готово (${mode === "image" ? "из изображения" : "однотонный материал"}). Auto-UV включен.`
+          );
+        }
+        const snapshot = await fetchPublishedAssets(true);
+        if (result?.newVersionId && snapshot?.byId?.[result.newVersionId]) {
+          activatePublishedAsset(snapshot.byId[result.newVersionId], {
+            jobId: activeHistoryJob?.id || snapshot.byId[result.newVersionId].jobId || null,
+          });
+          setViewportRenderMode("base");
+        } else if (snapshot?.byId?.[assetId]) {
+          activatePublishedAsset(snapshot.byId[assetId], {
+            jobId: activeHistoryJob?.id || snapshot.byId[assetId].jobId || null,
+          });
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ai-assets-updated"));
+        }
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Texture failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [
+      activatePublishedAsset,
+      activeHistoryJob?.id,
+      assetAction,
+      fetchPublishedAssets,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
+  );
+
+  const handleTextureFromImage = useCallback(() => {
+    void handleTextureActiveAsset(activeAssetVersion, "image");
+  }, [activeAssetVersion, handleTextureActiveAsset]);
+
+  const handleTextureFallbackMaterial = useCallback(() => {
+    void handleTextureActiveAsset(activeAssetVersion, "flat");
+  }, [activeAssetVersion, handleTextureActiveAsset]);
+
+  const handleRemeshPreset = useCallback(
+    async (preset: "web" | "game" | "print") => {
+      if (!activeAssetVersion) {
+        showError("Сначала выберите модель в истории или ассетах.");
+        return;
+      }
+      if (preset === "web") {
+        showSuccess("Remesh preset Web: запускаем консервативный cleanup.");
+        await handleQuickFixActiveAsset(activeAssetVersion, "safe");
+        return;
+      }
+      if (preset === "game") {
+        showSuccess("Remesh preset Game: запускаем strong cleanup.");
+        await handleQuickFixActiveAsset(activeAssetVersion, "strong");
+        return;
+      }
+      showSuccess("Remesh preset Print: запускаем strong cleanup.");
+      await handleQuickFixActiveAsset(activeAssetVersion, "strong");
+    },
+    [activeAssetVersion, handleQuickFixActiveAsset, showError, showSuccess]
+  );
+
   const isAssetPipelineBusy = Boolean(assetAction);
   const activeDiagnosticsStatus = activeAssetVersion?.checks?.diagnostics?.status || "unknown";
+  const activeDiagnosticsRiskScoreRaw = Number(activeAssetVersion?.checks?.diagnostics?.riskScore);
+  const activePrintabilityScore = Number.isFinite(activeDiagnosticsRiskScoreRaw)
+    ? Math.max(0, Math.min(100, Math.round(100 - activeDiagnosticsRiskScoreRaw)))
+    : null;
+  const activeIssuesList = useMemo(() => {
+    const issues = activeAssetVersion?.checks?.diagnostics?.issues || activeAssetVersion?.checks?.topology?.issues || [];
+    if (!Array.isArray(issues)) return [];
+    return issues
+      .map((item) => (typeof item?.message === "string" ? item.message.trim() : ""))
+      .filter(Boolean)
+      .slice(0, 6);
+  }, [activeAssetVersion?.checks?.diagnostics?.issues, activeAssetVersion?.checks?.topology?.issues]);
+  const activePrintabilityTone =
+    activePrintabilityScore === null
+      ? "text-white/65"
+      : activePrintabilityScore >= 85
+        ? "text-emerald-200"
+        : activePrintabilityScore >= 65
+          ? "text-amber-200"
+          : "text-rose-200";
   const activeDiagnosticsBadgeClass =
     activeDiagnosticsStatus === "ok"
       ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
@@ -3990,6 +4187,7 @@ function AiLabContent() {
       const outputVersionId = publishedAssetsByJobId[job.id] || null;
       items.push({
         id: `gen:${job.id}`,
+        queueJobId: job.id,
         type: job.parentJobId ? "Ремикс" : "Генерация",
         label: job.prompt || `Job ${job.id}`,
         status,
@@ -4022,6 +4220,8 @@ function AiLabContent() {
             ? "Анализ"
             : rawType === "mesh_fix" || rawType === "fix"
               ? "Быстрый фикс"
+              : rawType === "texture"
+                ? "Текстуры"
               : rawType === "split"
                 ? "Разделить"
                 : rawType === "dcc_blender"
@@ -4031,6 +4231,7 @@ function AiLabContent() {
                     : "Задача";
         items.push({
           id: `pipe:${String(pipeline.id || `${asset.id}:${rawType}`)}`,
+          queueJobId: String(pipeline.id || ""),
           type: typeLabel,
           label: asset.title || `Asset ${asset.id}`,
           status,
@@ -4163,6 +4364,17 @@ function AiLabContent() {
   }, [resultAsset, resultJob, router, showError]);
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
+  const activeTextureTint = useMemo(() => {
+    const raw = String((activeAssetVersion?.checks as any)?.texture?.tintHex || "")
+      .trim()
+      .toLowerCase();
+    return /^#[0-9a-f]{6}$/.test(raw) ? raw : "#aab0ba";
+  }, [activeAssetVersion?.checks]);
+  const effectiveViewportRenderMode = useMemo<"final" | "wireframe" | "base">(() => {
+    if (viewportRenderMode === "wireframe") return "wireframe";
+    if (activeAssetVersion?.versionLabel === "textured_v1") return "base";
+    return viewportRenderMode;
+  }, [activeAssetVersion?.versionLabel, viewportRenderMode]);
   const [modelScale, setModelScale] = useState(1);
 
   useEffect(() => {
@@ -4173,12 +4385,24 @@ function AiLabContent() {
 
   useEffect(() => {
     setModelScale(1);
+    setViewportIssueMarkers([]);
+    setViewportStats(null);
+    setViewportBounds(null);
+    setTexturePanelOpen(false);
+    setRemeshPanelOpen(false);
   }, [activePreviewModel]);
 
-  const handleBounds = useCallback((bounds: { size: number }) => {
+  const handleBounds = useCallback((bounds: { size: number; boxSize: [number, number, number]; radius: number }) => {
     if (!bounds?.size || !Number.isFinite(bounds.size)) return;
+    setViewportBounds(bounds);
     const nextScale = Math.min(1.25, Math.max(0.6, MODEL_STAGE_TARGET_SIZE / bounds.size));
     setModelScale(nextScale);
+  }, []);
+  const handleViewportStats = useCallback((stats: { polyCount: number; meshCount: number }) => {
+    setViewportStats(stats);
+  }, []);
+  const handleViewportIssueMarkers = useCallback((markers: ModelIssueMarker[]) => {
+    setViewportIssueMarkers(Array.isArray(markers) ? markers : []);
   }, []);
   const isDesktopPanelHidden = focusMode || panelCollapsed;
   const viewportCameraPosition = useMemo<[number, number, number]>(() => {
@@ -4319,6 +4543,28 @@ function AiLabContent() {
     [showSuccess]
   );
 
+  const handleCancelQueueJob = useCallback(
+    async (item: QueueJobItem) => {
+      const jobId = String(item.queueJobId || "").trim();
+      if (!jobId) return;
+      try {
+        const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}/cancel`, {
+          method: "POST",
+          credentials: "include",
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Failed to cancel job.");
+        }
+        showSuccess("Задача отменена.");
+        await Promise.all([fetchJobHistory(true), fetchPublishedAssets(true)]);
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Failed to cancel job.");
+      }
+    },
+    [fetchJobHistory, fetchPublishedAssets, pushUiError, showSuccess]
+  );
+
   const handleRetryQueueJob = useCallback(
     async (item: QueueJobItem) => {
       if (item.source === "generation" && item.historyJobId) {
@@ -4343,6 +4589,10 @@ function AiLabContent() {
         await handleSplitActiveAsset(asset);
         return;
       }
+      if (rawType.includes("текстур")) {
+        await handleTextureActiveAsset(asset, "image");
+        return;
+      }
       if (rawType.includes("blender")) {
         await queueBlenderJobForAsset(asset);
       }
@@ -4352,6 +4602,7 @@ function AiLabContent() {
       handleQuickFixActiveAsset,
       handleRetryHistoryJob,
       handleSplitActiveAsset,
+      handleTextureActiveAsset,
       jobHistory,
       publishedAssetsById,
       queueBlenderJobForAsset,
@@ -5357,14 +5608,20 @@ function AiLabContent() {
                       rawModelUrl={activePreviewModel}
                       paintedModelUrl={null}
                       finish="Raw"
-                      renderMode={viewportRenderMode}
+                      renderMode={effectiveViewportRenderMode}
                       accentColor="#2ED1FF"
+                      baseColor={activeTextureTint}
                       onBounds={handleBounds}
+                      onStats={handleViewportStats}
+                      onIssueMarkers={handleViewportIssueMarkers}
                     />
                   </group>
                 ) : isSynthRunning ? (
                   <NeuralCore active progress={displayProgress} />
                 ) : null}
+                {(viewerIssuesOverlay || viewerThicknessPreview) && (
+                  <ViewportIssueMarkers markers={viewportIssueMarkers} thinOnly={viewerThicknessPreview} />
+                )}
               </Suspense>
               <OrbitControls
                 enableRotate
@@ -5595,6 +5852,53 @@ function AiLabContent() {
               </button>
               <button
                 type="button"
+                onClick={() => {
+                  const next = !viewerIssuesOverlay;
+                  setViewerIssuesOverlay(next);
+                  if (next) setViewerThicknessPreview(false);
+                }}
+                disabled={!activePreviewModel}
+                title="Подсветить обнаруженные проблемные зоны"
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewerIssuesOverlay
+                    ? "border-rose-300/60 bg-rose-500/15 text-rose-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                } disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                Issues
+              </button>
+              <button
+                type="button"
+                onClick={() => setViewerMeasureOverlay((prev) => !prev)}
+                disabled={!activePreviewModel}
+                title="Линейка и размеры bbox"
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewerMeasureOverlay
+                    ? "border-emerald-300/60 bg-emerald-500/15 text-emerald-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                } disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                Measure
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const next = !viewerThicknessPreview;
+                  setViewerThicknessPreview(next);
+                  if (next) setViewerIssuesOverlay(false);
+                }}
+                disabled={!activePreviewModel}
+                title="Предпросмотр тонких зон"
+                className={`rounded-full border px-2.5 py-1 transition ${
+                  viewerThicknessPreview
+                    ? "border-amber-300/60 bg-amber-500/15 text-amber-100"
+                    : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
+                } disabled:cursor-not-allowed disabled:opacity-45`}
+              >
+                Thickness
+              </button>
+              <button
+                type="button"
                 onClick={handleViewportCapture}
                 title="Сделать скриншот окна просмотра"
                 className="rounded-full border border-white/15 bg-white/[0.02] px-2.5 py-1 transition hover:border-white/35 hover:text-white"
@@ -5622,6 +5926,25 @@ function AiLabContent() {
                 )}
               </div>
             </div>
+            {viewerMeasureOverlay && viewportBounds && (
+              <div className="rounded-2xl border border-emerald-400/35 bg-emerald-500/10 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100/85">
+                <p>
+                  BBox: {viewportBounds.boxSize[0].toFixed(2)} x {viewportBounds.boxSize[1].toFixed(2)} x{" "}
+                  {viewportBounds.boxSize[2].toFixed(2)}
+                </p>
+                <p className="mt-1">
+                  Radius: {viewportBounds.radius.toFixed(2)}
+                  {viewportStats ? ` • Poly: ${viewportStats.polyCount} • Mesh: ${viewportStats.meshCount}` : ""}
+                </p>
+              </div>
+            )}
+            {(viewerIssuesOverlay || viewerThicknessPreview) && (
+              <div className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-rose-100/85">
+                {viewerThicknessPreview
+                  ? `Тонкие зоны: ${viewportIssueMarkers.filter((marker) => marker.id.startsWith("thin")).length}`
+                  : `Проблемные зоны: ${viewportIssueMarkers.length}`}
+              </div>
+            )}
           </div>
         </section>
 
@@ -5767,30 +6090,6 @@ function AiLabContent() {
                     </button>
                     <button
                       type="button"
-                      onClick={() => void handleAnalyzeActiveAsset(activeAssetVersion, true)}
-                      disabled={!activeAssetVersion || isAssetPipelineBusy}
-                      className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Обновить анализ
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "strong")}
-                      disabled={!activeAssetVersion || isAssetPipelineBusy}
-                      className="w-full rounded-lg border border-orange-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-orange-200 transition hover:border-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Quick Fix Strong
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleShowAssetIssues(activeAssetVersion)}
-                      disabled={!activeAssetVersion}
-                      className="w-full rounded-lg border border-white/30 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      Показать проблемы
-                    </button>
-                    <button
-                      type="button"
                       onClick={() => {
                         if (!activeHistoryJob) return;
                         if (!window.confirm("Удалить задачу навсегда?")) return;
@@ -5805,11 +6104,23 @@ function AiLabContent() {
                 </details>
               </div>
 
-              <div className="mt-3">
-                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
-                  Инструменты для активной модели
+              <div className="mt-3 rounded-xl border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-2">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100/80">
+                  Printability Score
                 </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
+                <p className={`mt-1 text-[11px] font-semibold ${activePrintabilityTone}`}>
+                  {activePrintabilityScore === null ? "--" : `${activePrintabilityScore}/100`}
+                </p>
+                <p className="mt-1 truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/50">
+                  {activeIssuesList[0] || "Нет активных предупреждений"}
+                </p>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                  Качество
+                </p>
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => void handleAnalyzeActiveAsset(activeAssetVersion)}
@@ -5825,6 +6136,14 @@ function AiLabContent() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => handleShowAssetIssues(activeAssetVersion)}
+                    disabled={!activeAssetVersion}
+                    className="rounded-full border border-white/30 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Show Issues
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
                     disabled={!activeAssetVersion || isAssetPipelineBusy}
                     title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
@@ -5836,6 +6155,128 @@ function AiLabContent() {
                   </button>
                   <button
                     type="button"
+                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "strong")}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-orange-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-orange-200 transition hover:border-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "fix_strong"
+                      ? "..."
+                      : "Быстрый фикс strong"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                  Внешний вид
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setTexturePanelOpen((prev) => !prev)}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    className="rounded-full border border-cyan-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Текстуры
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="rounded-full border border-white/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40"
+                  >
+                    Кисть (V2)
+                  </button>
+                </div>
+                {texturePanelOpen && (
+                  <div className="rounded-xl border border-cyan-300/25 bg-cyan-500/[0.06] p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleTextureFromImage}
+                        disabled={isAssetPipelineBusy}
+                        className="rounded-full border border-cyan-300/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 transition hover:border-cyan-200 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Из исходного изображения
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleTextureFallbackMaterial}
+                        disabled={isAssetPipelineBusy}
+                        className="rounded-full border border-white/25 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/80 transition hover:border-white/45 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        Однотонный материал
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                  Оптимизация
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setRemeshPanelOpen((prev) => !prev)}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    className="rounded-full border border-violet-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Remesh
+                  </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="rounded-full border border-white/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40"
+                  >
+                    LOD (V2)
+                  </button>
+                </div>
+                {remeshPanelOpen && (
+                  <div className="rounded-xl border border-violet-300/25 bg-violet-500/[0.06] p-2">
+                    <div className="flex flex-wrap gap-1.5">
+                      {(["web", "game", "print"] as const).map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => void handleRemeshPreset(preset)}
+                          disabled={isAssetPipelineBusy}
+                          className="rounded-full border border-violet-300/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {preset === "web" ? "Web" : preset === "game" ? "Game" : "Print"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                  Подготовка к печати
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void handlePrintabilityCheck(activeAssetVersion)}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-emerald-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Printability
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-amber-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Fix for Print
+                  </button>
+                  <button
+                    type="button"
                     onClick={() => void handleSplitActiveAsset(activeAssetVersion)}
                     disabled={!activeAssetVersion || isAssetPipelineBusy}
                     title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
@@ -5843,8 +6284,16 @@ function AiLabContent() {
                   >
                     {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "split_auto"
                       ? "..."
-                      : "Разделить"}
+                      : "Split for Print"}
                   </button>
+                </div>
+              </div>
+
+              <div className="mt-3 space-y-2">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                  Экспорт / DCC
+                </p>
+                <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
                     onClick={() => {
@@ -5870,10 +6319,14 @@ function AiLabContent() {
                       ? "..."
                       : "Blender"}
                   </button>
+                  <button
+                    type="button"
+                    disabled
+                    className="rounded-full border border-white/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40"
+                  >
+                    Export Pack (V2)
+                  </button>
                 </div>
-              </div>
-              <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-2.5 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                Экспорт / Blender дублируются в левом инструменте «Экспорт».
               </div>
             </div>
           )}
@@ -5963,10 +6416,7 @@ function AiLabContent() {
                             ? "ОТМЕНЕНО"
                             : "ОШИБКА";
                     const canOpen = Boolean(item.historyJobId || item.versionId);
-                    const canCancel =
-                      item.source === "generation" &&
-                      item.historyJobId === serverJob?.id &&
-                      (serverJob?.status === "queued" || serverJob?.status === "processing");
+                    const canCancel = Boolean(item.queueJobId) && (isQueued || isRunning);
                     const canRetry = isError;
 
                     return (
@@ -5978,7 +6428,7 @@ function AiLabContent() {
                           <div className={`mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border ${iconToneClass}`}>
                             {typeLower.includes("генерац") || typeLower.includes("ремикс") ? (
                               <FlaskConical className="h-4 w-4" />
-                            ) : typeLower.includes("фикс") ? (
+                            ) : typeLower.includes("фикс") || typeLower.includes("текстур") ? (
                               <Wand2 className="h-4 w-4" />
                             ) : typeLower.includes("раздел") ? (
                               <Scissors className="h-4 w-4" />
@@ -6041,7 +6491,7 @@ function AiLabContent() {
                           {canCancel && (
                             <button
                               type="button"
-                              onClick={handleCancelSynthesis}
+                              onClick={() => void handleCancelQueueJob(item)}
                               className="rounded-full border border-amber-400/50 bg-amber-500/10 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-100 transition hover:border-amber-300"
                             >
                               Отменить
@@ -6063,24 +6513,6 @@ function AiLabContent() {
                 )}
               </div>
 
-              <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
-                <button
-                  type="button"
-                  onClick={() => setQueueSystemOpen((prev) => !prev)}
-                  className="flex w-full items-center justify-between text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
-                >
-                  <span>Система (свернуть/развернуть)</span>
-                  <span className="rounded-full border border-white/20 bg-white/[0.03] px-2 py-0.5 text-[9px] text-white/65">
-                    {queueSystemOpen ? "Скрыть" : "Подробнее"}
-                  </span>
-                </button>
-                {queueSystemOpen && (
-                  <p className="mt-2 text-[11px] text-white/50">
-                    Worker: {hasLiveQueueJobs ? "busy" : "idle"} • Queue: {queueSummary.queued} • API: OK •
-                    Latency: 120ms
-                  </p>
-                )}
-              </div>
             </div>
           )}
           {labPanelTab === "history" && (
