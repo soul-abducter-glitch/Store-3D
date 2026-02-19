@@ -152,11 +152,12 @@ const isMissingOrderItemColorColumnError = (error: unknown) => {
       ? String((error as { cause?: { message?: unknown } }).cause?.message ?? "")
       : "";
   const combined = `${directMessage}\n${causeMessage}`.toLowerCase();
+  if (!combined.includes("does not exist")) {
+    return false;
+  }
   return (
-    combined.includes("orders_items.print_specs_color") ||
-    (combined.includes("column") &&
-      combined.includes("print_specs_color") &&
-      combined.includes("does not exist"))
+    combined.includes("orders_items.print_specs_") ||
+    (combined.includes("column") && combined.includes("print_specs_"))
   );
 };
 
@@ -669,9 +670,7 @@ export async function POST(request: NextRequest) {
         if (!isMissingOrderItemColorColumnError(error)) {
           throw error;
         }
-        console.warn(
-          "[create-order] skip dedupe query because orders_items.print_specs_color is missing"
-        );
+        console.warn("[create-order] skip dedupe query because orders_items.print_specs_* column is missing");
       }
     }
 

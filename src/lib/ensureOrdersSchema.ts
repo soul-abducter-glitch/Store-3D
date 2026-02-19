@@ -59,6 +59,20 @@ export const ensureOrdersSchema = async (payload: PayloadLike) => {
     : [];
 
   const schemas = Array.from(new Set([...schemasFromDb, ...(schemaHint ? [schemaHint] : []), "public"]));
+  const legacyPrintSpecColumns: Array<{ name: string; sqlType: string }> = [
+    { name: "print_specs_technology", sqlType: "varchar" },
+    { name: "print_specs_material", sqlType: "varchar" },
+    { name: "print_specs_color", sqlType: "varchar" },
+    { name: "print_specs_quality", sqlType: "varchar" },
+    { name: "print_specs_note", sqlType: "text" },
+    { name: "print_specs_packaging", sqlType: "varchar" },
+    { name: "print_specs_dimensions_x", sqlType: "numeric" },
+    { name: "print_specs_dimensions_y", sqlType: "numeric" },
+    { name: "print_specs_dimensions_z", sqlType: "numeric" },
+    { name: "print_specs_volume_cm3", sqlType: "numeric" },
+    { name: "print_specs_is_hollow", sqlType: "boolean" },
+    { name: "print_specs_infill_percent", sqlType: "numeric" },
+  ];
 
   for (const schema of schemas) {
     const regclassResult = await executeRaw(
@@ -70,17 +84,20 @@ export const ensureOrdersSchema = async (payload: PayloadLike) => {
     }
 
     const ordersItemsTable = qualifiedTable(schema, "orders_items");
-    try {
-      await executeRaw(
-        payload,
-        `ALTER TABLE ${ordersItemsTable} ADD COLUMN IF NOT EXISTS "print_specs_color" varchar`
-      );
-    } catch (error) {
-      payload?.logger?.warn?.({
-        msg: "Failed to ensure legacy orders_items.print_specs_color column",
-        schema,
-        err: error,
-      });
+    for (const column of legacyPrintSpecColumns) {
+      try {
+        await executeRaw(
+          payload,
+          `ALTER TABLE ${ordersItemsTable} ADD COLUMN IF NOT EXISTS "${column.name}" ${column.sqlType}`
+        );
+      } catch (error) {
+        payload?.logger?.warn?.({
+          msg: "Failed to ensure legacy orders_items print_specs column",
+          schema,
+          column: column.name,
+          err: error,
+        });
+      }
     }
   }
 };
