@@ -3664,20 +3664,15 @@ function AiLabContent() {
     ]
   );
 
-  const handleOpenInBlenderPublishedAsset = useCallback(
-    async (job: AiGenerationJob) => {
-      const assetId = publishedAssetsByJobId[job.id];
-      if (!assetId) {
-        showError("Сначала сохраните результат в библиотеку профиля.");
-        return;
-      }
+  const queueBlenderJobForAsset = useCallback(
+    async (asset: AiAssetRecord) => {
+      const assetId = asset.id;
       if (!BLENDER_BRIDGE_ENABLED) {
         setBlenderInstallOpen(true);
         return;
       }
       if (assetAction) return;
-      const linkedAsset = publishedAssetsById[assetId] || null;
-      const versionId = linkedAsset?.id || assetId;
+      const versionId = asset.id;
       setAssetAction({ assetId, type: "blender" });
       try {
         const response = await fetch(DCC_BLENDER_JOBS_API, {
@@ -3709,10 +3704,7 @@ function AiLabContent() {
     [
       assetAction,
       fetchPublishedAssets,
-      publishedAssetsById,
-      publishedAssetsByJobId,
       pushUiError,
-      showError,
       showSuccess,
     ]
   );
@@ -3829,6 +3821,38 @@ function AiLabContent() {
   }, [resultAsset, resultJob, router, showError]);
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
+  const exportTargetAsset = useMemo(() => {
+    if (resultJob?.id) {
+      const resultAssetId = publishedAssetsByJobId[resultJob.id];
+      if (resultAssetId && publishedAssetsById[resultAssetId]) {
+        return publishedAssetsById[resultAssetId];
+      }
+    }
+    const activeModel = (activePreviewModel || "").trim();
+    if (activeModel) {
+      const byModel = Object.values(publishedAssetsById).find(
+        (asset) => (asset.modelUrl || "").trim() === activeModel
+      );
+      if (byModel) return byModel;
+    }
+    const all = Object.values(publishedAssetsById);
+    if (!all.length) return null;
+    return (
+      all.sort((a, b) => {
+        const at = new Date(String((a as any)?.createdAt || 0)).getTime();
+        const bt = new Date(String((b as any)?.createdAt || 0)).getTime();
+        if (Number.isFinite(at) && Number.isFinite(bt)) return bt - at;
+        return 0;
+      })[0] || null
+    );
+  }, [activePreviewModel, publishedAssetsById, publishedAssetsByJobId, resultJob?.id]);
+  const handleOpenBlenderFromExportPanel = useCallback(async () => {
+    if (!exportTargetAsset) {
+      showError("Сначала сохраните модель в ассеты (кнопка ПУБЛИКАЦИЯ).");
+      return;
+    }
+    await queueBlenderJobForAsset(exportTargetAsset);
+  }, [exportTargetAsset, queueBlenderJobForAsset, showError]);
   const [modelScale, setModelScale] = useState(1);
 
   useEffect(() => {
@@ -4780,14 +4804,18 @@ function AiLabContent() {
                   <button
                     type="button"
                     onClick={() => {
-                      const first = gallery[0];
-                      if (!first) {
+                      if (exportTargetAsset) {
+                        handleDownloadAssetGlb(exportTargetAsset);
+                        return;
+                      }
+                      const firstLocal = gallery[0];
+                      if (!firstLocal) {
                         showError("Сначала создайте модель.");
                         return;
                       }
-                      handleDownload(first);
+                      handleDownload(firstLocal);
                     }}
-                    disabled={gallery.length === 0}
+                    disabled={gallery.length === 0 && !exportTargetAsset}
                     className="rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     Экспорт GLB
@@ -4802,11 +4830,13 @@ function AiLabContent() {
                 </div>
                 <button
                   type="button"
-                  disabled
-                  title="Скоро"
-                  className="w-full rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/40 disabled:cursor-not-allowed"
+                  onClick={() => {
+                    void handleOpenBlenderFromExportPanel();
+                  }}
+                  disabled={Boolean(assetAction)}
+                  className="w-full rounded-lg border border-violet-400/35 bg-violet-500/10 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  Отправка в Blender/Unity (скоро)
+                  {assetAction?.type === "blender" ? "Открытие в Blender..." : "Открыть в Blender"}
                 </button>
               </div>
             )}
@@ -5422,14 +5452,6 @@ function AiLabContent() {
                   );
                   const diagnosticsStatus = linkedAsset?.checks?.diagnostics?.status || "unknown";
                   const versionLabel = linkedAsset?.versionLabel || "original";
-                  const blenderQueued = Boolean(
-                    Array.isArray(linkedAsset?.pipelineJobs) &&
-                      linkedAsset?.pipelineJobs?.some(
-                        (pipelineJob) =>
-                          pipelineJob?.type === "dcc_blender" &&
-                          (pipelineJob?.status === "queued" || pipelineJob?.status === "running")
-                      )
-                  );
                   return (
                   <div
                     key={job.id}
@@ -5566,19 +5588,6 @@ function AiLabContent() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void handleOpenInBlenderPublishedAsset(job)}
-                              disabled={!linkedAssetId || Boolean(assetAction)}
-                              className="w-full rounded-lg border border-violet-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-violet-200 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={linkedAssetId ? "Отправить текущую версию в Blender Bridge" : "Сначала сохраните ассет"}
-                            >
-                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "blender"
-                                ? "..."
-                                : blenderQueued
-                                  ? "BLENDER QUEUED"
-                                  : "OPEN IN BLENDER"}
-                            </button>
-                            <button
-                              type="button"
                               onClick={() => handleShowAssetIssues(linkedAsset)}
                               disabled={!linkedAsset}
                               className="w-full rounded-lg border border-white/30 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
@@ -5618,18 +5627,6 @@ function AiLabContent() {
                             className="rounded-full border border-amber-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {assetAction?.assetId === linkedAsset.id && assetAction?.type === "fix_safe" ? "..." : "Quick Fix"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleOpenInBlenderPublishedAsset(job)}
-                            disabled={Boolean(assetAction)}
-                            className="rounded-full border border-violet-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-violet-200 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {assetAction?.assetId === linkedAsset.id && assetAction?.type === "blender"
-                              ? "..."
-                              : blenderQueued
-                                ? "Queued"
-                                : "Open in Blender"}
                           </button>
                           <button
                             type="button"
