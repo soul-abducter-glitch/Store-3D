@@ -47,7 +47,10 @@ const isMissingOrderItemColorColumnError = (error: unknown) => {
   }
   return (
     combined.includes("orders_items.print_specs_") ||
-    (combined.includes("column") && combined.includes("print_specs_"))
+    combined.includes("orders.technical_specs_") ||
+    (combined.includes("relation \"orders\"") && combined.includes("technical_specs_")) ||
+    (combined.includes("column") &&
+      (combined.includes("print_specs_") || combined.includes("technical_specs_")))
   );
 };
 

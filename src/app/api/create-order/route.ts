@@ -157,7 +157,10 @@ const isMissingOrderItemColorColumnError = (error: unknown) => {
   }
   return (
     combined.includes("orders_items.print_specs_") ||
-    (combined.includes("column") && combined.includes("print_specs_"))
+    combined.includes("orders.technical_specs_") ||
+    (combined.includes("relation \"orders\"") && combined.includes("technical_specs_")) ||
+    (combined.includes("column") &&
+      (combined.includes("print_specs_") || combined.includes("technical_specs_")))
   );
 };
 
@@ -670,7 +673,9 @@ export async function POST(request: NextRequest) {
         if (!isMissingOrderItemColorColumnError(error)) {
           throw error;
         }
-        console.warn("[create-order] skip dedupe query because orders_items.print_specs_* column is missing");
+        console.warn(
+          "[create-order] skip dedupe query because orders schema print/technical columns are missing"
+        );
       }
     }
 

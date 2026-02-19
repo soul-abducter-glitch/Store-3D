@@ -46,7 +46,7 @@ export const ensureOrdersSchema = async (payload: PayloadLike) => {
       SELECT n.nspname AS schema_name
       FROM pg_class c
       JOIN pg_namespace n ON n.oid = c.relnamespace
-      WHERE c.relname = 'orders_items'
+      WHERE c.relname IN ('orders_items', 'orders')
         AND c.relkind IN ('r', 'p')
         AND n.nspname NOT IN ('pg_catalog', 'information_schema')
     `
@@ -73,8 +73,43 @@ export const ensureOrdersSchema = async (payload: PayloadLike) => {
     { name: "print_specs_is_hollow", sqlType: "boolean" },
     { name: "print_specs_infill_percent", sqlType: "numeric" },
   ];
+  const legacyTechnicalSpecColumns: Array<{ name: string; sqlType: string }> = [
+    { name: "technical_specs_technology", sqlType: "varchar" },
+    { name: "technical_specs_material", sqlType: "varchar" },
+    { name: "technical_specs_color", sqlType: "varchar" },
+    { name: "technical_specs_quality", sqlType: "varchar" },
+    { name: "technical_specs_note", sqlType: "text" },
+    { name: "technical_specs_packaging", sqlType: "varchar" },
+    { name: "technical_specs_dimensions_x", sqlType: "numeric" },
+    { name: "technical_specs_dimensions_y", sqlType: "numeric" },
+    { name: "technical_specs_dimensions_z", sqlType: "numeric" },
+    { name: "technical_specs_volume_cm3", sqlType: "numeric" },
+  ];
 
   for (const schema of schemas) {
+    const ordersRegclassResult = await executeRaw(
+      payload,
+      `SELECT to_regclass('${schema}.orders') AS rel`
+    );
+    if (ordersRegclassResult?.rows?.[0]?.rel) {
+      const ordersTable = qualifiedTable(schema, "orders");
+      for (const column of legacyTechnicalSpecColumns) {
+        try {
+          await executeRaw(
+            payload,
+            `ALTER TABLE ${ordersTable} ADD COLUMN IF NOT EXISTS "${column.name}" ${column.sqlType}`
+          );
+        } catch (error) {
+          payload?.logger?.warn?.({
+            msg: "Failed to ensure legacy orders technical_specs column",
+            schema,
+            column: column.name,
+            err: error,
+          });
+        }
+      }
+    }
+
     const regclassResult = await executeRaw(
       payload,
       `SELECT to_regclass('${schema}.orders_items') AS rel`
