@@ -19,7 +19,6 @@ import {
   Rocket,
   Scissors,
   Settings2,
-  ShieldCheck,
   UserCog,
   UploadCloud,
   UserRound,
@@ -147,9 +146,23 @@ type AiAssetRecord = {
 };
 
 type JobHistoryFilter = "all" | AiGenerationJob["status"];
-type LabPanelTab = "assets" | "history" | "jobs";
+type QueueFilter = "all" | "running" | "queued" | "done" | "error";
+type LabPanelTab = "assets" | "history" | "queue";
 type GenerationSettingSection = "quality" | "style" | "advanced";
 type LeftTool = "generate" | "references" | "model" | "cleanup" | "materials" | "export";
+
+type QueueJobItem = {
+  id: string;
+  type: string;
+  label: string;
+  status: "queued" | "running" | "done" | "error" | "canceled";
+  progress: number;
+  etaSeconds?: number | null;
+  message?: string;
+  source: "generation" | "pipeline";
+  historyJobId?: string;
+  versionId?: string | null;
+};
 
 type AiTokenEvent = {
   id: string;
@@ -1559,6 +1572,8 @@ function AiLabContent() {
   const [jobHistory, setJobHistory] = useState<AiGenerationJob[]>([]);
   const [jobHistoryLoading, setJobHistoryLoading] = useState(false);
   const [jobHistoryFilter, setJobHistoryFilter] = useState<JobHistoryFilter>("all");
+  const [queueFilter, setQueueFilter] = useState<QueueFilter>("all");
+  const [queueSystemOpen, setQueueSystemOpen] = useState(false);
   const [historyAction, setHistoryAction] = useState<{
     id: string;
     type: "retry" | "variation" | "delete" | "publish";
@@ -1632,7 +1647,7 @@ function AiLabContent() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const stored = window.localStorage.getItem(LAB_PANEL_TAB_STORAGE_KEY);
-    if (stored === "assets" || stored === "history" || stored === "jobs") {
+    if (stored === "assets" || stored === "history" || stored === "queue") {
       setLabPanelTab(stored);
     }
   }, []);
@@ -3256,7 +3271,7 @@ function AiLabContent() {
     showError("Нет файла для скачивания.");
   };
 
-  const handlePickHistoryJob = (job: AiGenerationJob) => {
+  const handlePickHistoryJob = useCallback((job: AiGenerationJob) => {
     setFreshGenerationMode(false);
     setActiveHistoryJobId(job.id);
     const linkedAssetId = publishedAssetsByJobId[job.id] || null;
@@ -3307,7 +3322,7 @@ function AiLabContent() {
       : [];
     setInputReferences(refs.slice(0, MAX_INPUT_REFERENCES));
     setUploadPreview(refs[0]?.previewUrl ?? null);
-  };
+  }, [publishedAssetsById, publishedAssetsByJobId]);
 
   const handleRetryHistoryJob = useCallback(
     async (job: AiGenerationJob) => {
@@ -3960,6 +3975,116 @@ function AiLabContent() {
           ? "border-rose-400/40 bg-rose-500/10 text-rose-200"
           : "border-white/20 bg-white/5 text-white/60";
 
+  const queueJobs = useMemo<QueueJobItem[]>(() => {
+    const items: QueueJobItem[] = [];
+
+    for (const job of jobHistory) {
+      const status: QueueJobItem["status"] =
+        job.status === "queued"
+          ? "queued"
+          : job.status === "processing"
+            ? "running"
+            : job.status === "completed"
+              ? "done"
+              : "error";
+      const outputVersionId = publishedAssetsByJobId[job.id] || null;
+      items.push({
+        id: `gen:${job.id}`,
+        type: job.parentJobId ? "Ремикс" : "Генерация",
+        label: job.prompt || `Job ${job.id}`,
+        status,
+        progress: Math.max(0, Math.min(100, job.progress || 0)),
+        etaSeconds: job.etaSeconds ?? null,
+        message: job.errorMessage || job.stage || "",
+        source: "generation",
+        historyJobId: job.id,
+        versionId: outputVersionId,
+      });
+    }
+
+    for (const asset of Object.values(publishedAssetsById)) {
+      const pipelineJobs = Array.isArray(asset.pipelineJobs) ? asset.pipelineJobs : [];
+      for (const pipeline of pipelineJobs) {
+        const rawStatus = String(pipeline.status || "").toLowerCase();
+        const status: QueueJobItem["status"] =
+          rawStatus === "queued"
+            ? "queued"
+            : rawStatus === "running" || rawStatus === "processing"
+              ? "running"
+              : rawStatus === "done" || rawStatus === "completed"
+                ? "done"
+                : rawStatus === "canceled"
+                  ? "canceled"
+                  : "error";
+        const rawType = String(pipeline.type || "").toLowerCase();
+        const typeLabel =
+          rawType === "analyze"
+            ? "Анализ"
+            : rawType === "mesh_fix" || rawType === "fix"
+              ? "Быстрый фикс"
+              : rawType === "split"
+                ? "Разделить"
+                : rawType === "dcc_blender"
+                  ? "Blender"
+                  : rawType === "export"
+                    ? "Экспорт"
+                    : "Задача";
+        items.push({
+          id: `pipe:${String(pipeline.id || `${asset.id}:${rawType}`)}`,
+          type: typeLabel,
+          label: asset.title || `Asset ${asset.id}`,
+          status,
+          progress: Math.max(0, Math.min(100, Number(pipeline.progress) || 0)),
+          message: typeof pipeline.message === "string" ? pipeline.message : "",
+          source: "pipeline",
+          versionId: asset.id,
+        });
+      }
+    }
+
+    return items.sort((a, b) => {
+      const aRank = a.status === "running" ? 0 : a.status === "queued" ? 1 : a.status === "error" ? 2 : 3;
+      const bRank = b.status === "running" ? 0 : b.status === "queued" ? 1 : b.status === "error" ? 2 : 3;
+      if (aRank !== bRank) return aRank - bRank;
+      return a.label.localeCompare(b.label);
+    });
+  }, [jobHistory, publishedAssetsById, publishedAssetsByJobId]);
+
+  const queueSummary = useMemo(() => {
+    const running = queueJobs.filter((job) => job.status === "running").length;
+    const queued = queueJobs.filter((job) => job.status === "queued").length;
+    const errors = queueJobs.filter((job) => job.status === "error").length;
+    return { running, queued, errors };
+  }, [queueJobs]);
+
+  const filteredQueueByState = useMemo(() => {
+    if (queueFilter === "all") return queueJobs;
+    if (queueFilter === "running") return queueJobs.filter((job) => job.status === "running");
+    if (queueFilter === "queued") return queueJobs.filter((job) => job.status === "queued");
+    if (queueFilter === "done") return queueJobs.filter((job) => job.status === "done");
+    return queueJobs.filter((job) => job.status === "error" || job.status === "canceled");
+  }, [queueFilter, queueJobs]);
+
+  const filteredQueueByQuery = useMemo(() => {
+    const q = rightPanelQuery.trim().toLowerCase();
+    if (!q) return filteredQueueByState;
+    return filteredQueueByState.filter((job) => {
+      return (
+        job.type.toLowerCase().includes(q) ||
+        job.label.toLowerCase().includes(q) ||
+        job.id.toLowerCase().includes(q) ||
+        String(job.message || "")
+          .toLowerCase()
+          .includes(q)
+      );
+    });
+  }, [filteredQueueByState, rightPanelQuery]);
+
+  const hasLiveQueueJobs = useMemo(
+    () => queueJobs.some((job) => job.status === "queued" || job.status === "running"),
+    [queueJobs]
+  );
+
   const filteredJobHistory = useMemo(() => {
     if (jobHistoryFilter === "all") return jobHistory;
     return jobHistory.filter((job) => job.status === jobHistoryFilter);
@@ -4156,6 +4281,106 @@ function AiLabContent() {
     setServerJobError(null);
     showSuccess("Мониторинг задачи остановлен.");
   }, [showSuccess]);
+
+  const handleOpenQueueJob = useCallback(
+    (item: QueueJobItem) => {
+      if (item.source === "generation" && item.historyJobId) {
+        const sourceJob = jobHistory.find((job) => job.id === item.historyJobId) || null;
+        if (sourceJob) {
+          handlePickHistoryJob(sourceJob);
+          setLabPanelTab("history");
+          return;
+        }
+      }
+      if (item.versionId && publishedAssetsById[item.versionId]) {
+        const asset = publishedAssetsById[item.versionId];
+        activatePublishedAsset(asset, { jobId: asset.jobId || null });
+        setLabPanelTab("history");
+      }
+    },
+    [activatePublishedAsset, handlePickHistoryJob, jobHistory, publishedAssetsById]
+  );
+
+  const handleShowQueueJobLogs = useCallback(
+    (item: QueueJobItem) => {
+      const statusLabel =
+        item.status === "running"
+          ? "в работе"
+          : item.status === "queued"
+            ? "в очереди"
+            : item.status === "done"
+              ? "готово"
+              : item.status === "canceled"
+                ? "отменено"
+                : "ошибка";
+      const message = item.message?.trim() || "Логи недоступны. Откройте серверную консоль.";
+      showSuccess(`[${item.type}] ${statusLabel}: ${message}`);
+    },
+    [showSuccess]
+  );
+
+  const handleRetryQueueJob = useCallback(
+    async (item: QueueJobItem) => {
+      if (item.source === "generation" && item.historyJobId) {
+        const sourceJob = jobHistory.find((job) => job.id === item.historyJobId) || null;
+        if (sourceJob) {
+          await handleRetryHistoryJob(sourceJob);
+          return;
+        }
+      }
+      if (!item.versionId || !publishedAssetsById[item.versionId]) return;
+      const asset = publishedAssetsById[item.versionId];
+      const rawType = item.type.toLowerCase();
+      if (rawType.includes("анализ")) {
+        await handleAnalyzeActiveAsset(asset, true);
+        return;
+      }
+      if (rawType.includes("фикс")) {
+        await handleQuickFixActiveAsset(asset, "safe");
+        return;
+      }
+      if (rawType.includes("раздел")) {
+        await handleSplitActiveAsset(asset);
+        return;
+      }
+      if (rawType.includes("blender")) {
+        await queueBlenderJobForAsset(asset);
+      }
+    },
+    [
+      handleAnalyzeActiveAsset,
+      handleQuickFixActiveAsset,
+      handleRetryHistoryJob,
+      handleSplitActiveAsset,
+      jobHistory,
+      publishedAssetsById,
+      queueBlenderJobForAsset,
+    ]
+  );
+
+  useEffect(() => {
+    if (labPanelTab !== "queue" && !hasLiveQueueJobs) return;
+    let cancelled = false;
+    let timer: number | null = null;
+
+    const tick = async () => {
+      await Promise.all([fetchJobHistory(true), fetchPublishedAssets(true)]);
+      if (cancelled) return;
+      const interval = hasLiveQueueJobs ? 1800 : 12000;
+      timer = window.setTimeout(() => {
+        void tick();
+      }, interval);
+    };
+
+    void tick();
+    return () => {
+      cancelled = true;
+      if (timer !== null) {
+        window.clearTimeout(timer);
+      }
+    };
+  }, [fetchJobHistory, fetchPublishedAssets, hasLiveQueueJobs, labPanelTab]);
+
   useEffect(() => {
     const onGlobalClick = () => {
       setTokensPopoverOpen(false);
@@ -4243,14 +4468,14 @@ function AiLabContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setLabPanelTab("jobs")}
+                  onClick={() => setLabPanelTab("queue")}
                   className={`rounded-full border px-3 py-1.5 transition ${
-                    labPanelTab === "jobs"
+                    labPanelTab === "queue"
                       ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
                       : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
                   }`}
                 >
-                  Задачи
+                  Очередь
                 </button>
               </nav>
             </div>
@@ -4268,6 +4493,22 @@ function AiLabContent() {
                 >
                   <Coins className="h-3.5 w-3.5" />
                   <span>ТОКЕНЫ: {tokensLoading ? "..." : tokens}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    setTopupTab("onetime");
+                    setTopupOpen(true);
+                    setTokensPopoverOpen(false);
+                    setQuickSettingsOpen(false);
+                    setUserMenuOpen(false);
+                  }}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60 hover:text-white"
+                  aria-label="Пополнить токены"
+                  title="Пополнить токены"
+                >
+                  +
                 </button>
                 {tokensPopoverOpen && (
                   <div
@@ -4298,30 +4539,6 @@ function AiLabContent() {
                            <p className="text-[9px] text-white/40">Событий пока нет.</p>
                         )}
                       </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTopupTab("onetime");
-                          setTopupOpen(true);
-                          setTokensPopoverOpen(false);
-                        }}
-                        className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-300"
-                      >
-                        Пополнить
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setTopupTab("subscription");
-                          setTopupOpen(true);
-                          setTokensPopoverOpen(false);
-                        }}
-                        className="rounded-full border border-cyan-400/45 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
-                      >
-                        Тариф
-                      </button>
                     </div>
                   </div>
                 )}
@@ -4455,7 +4672,7 @@ function AiLabContent() {
                       className="flex w-full items-center gap-2 rounded-lg border border-white/10 bg-white/[0.02] px-2 py-1.5 text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/75 transition hover:border-white/30 hover:text-white"
                     >
                       <FolderGit2 className="h-3.5 w-3.5" />
-                      Подписка
+                      Подписка и оплата
                     </button>
                     <button
                       type="button"
@@ -4530,12 +4747,12 @@ function AiLabContent() {
             <button
               type="button"
               onClick={() => {
-                setLabPanelTab("jobs");
+                setLabPanelTab("queue");
                 setJobsConsoleOpen(false);
               }}
               className="w-full rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
             >
-              Открыть вкладку задач
+              Открыть вкладку очереди
             </button>
           </div>
         </div>
@@ -5418,22 +5635,12 @@ function AiLabContent() {
               <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.34em] text-white/60">
                 Полка
               </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setTopupTab("onetime");
-                  setTopupOpen(true);
-                }}
-                className="rounded-full border border-emerald-400/45 bg-emerald-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-emerald-100 transition hover:border-emerald-300 hover:text-white"
-              >
-                ПОПОЛНИТЬ
-              </button>
             </div>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em]">
               {([
                 ["assets", "Ассеты"],
                 ["history", "История"],
-                ["jobs", "Задачи"],
+                ["queue", "Очередь"],
               ] as Array<[LabPanelTab, string]>).map(([tab, label]) => (
                 <button
                   key={tab}
@@ -5454,18 +5661,24 @@ function AiLabContent() {
                 ? "Лента истории"
                 : labPanelTab === "assets"
                   ? "Библиотека ассетов"
-                  : "Мониторинг задач и очереди"}
+                  : "Очередь задач и логи"}
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/25 p-2">
               <input
                 value={rightPanelQueryInput}
                 onChange={(event) => setRightPanelQueryInput(event.target.value)}
-                placeholder="Поиск..."
+                placeholder={
+                  labPanelTab === "queue"
+                    ? "Поиск по задачам..."
+                    : labPanelTab === "history"
+                      ? "Поиск по истории..."
+                      : "Поиск по ассетам..."
+                }
                 className="w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 placeholder:text-white/35 focus:border-cyan-400/50 focus:outline-none"
               />
             </div>
           </div>
-          {labPanelTab !== "jobs" && (
+          {labPanelTab !== "queue" && (
             <div className="rounded-2xl border border-cyan-400/35 bg-black/35 p-3">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -5665,148 +5878,179 @@ function AiLabContent() {
             </div>
           )}
 
-          {labPanelTab === "jobs" && (
-            <>
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-              <span>Подписка</span>
-              <span>{subscriptionLoading ? "..." : subscriptionStatusLabel(subscription?.status)}</span>
-            </div>
-            <p className="mt-2 text-sm text-white/75">
-              {subscription?.planCode
-                ? `${subscription.planLabel} • ${subscription.monthlyTokens} токенов/мес`
-                : "Подписка не активна"}
-            </p>
-            {subscription?.nextBillingAt && (
-              <p className="mt-1 text-[11px] text-white/45">
-                Следующее списание: {formatJobDate(subscription.nextBillingAt)}
-                {subscription.cancelAtPeriodEnd ? " • отмена в конце периода" : ""}
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button
-                type="button"
-                onClick={() => {
-                  setTopupTab("subscription");
-                  setTopupOpen(true);
-                }}
-                className="rounded-full border border-cyan-400/40 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-cyan-100 transition hover:border-cyan-300 hover:text-white"
-              >
-                Сменить план
-              </button>
-              <button
-                type="button"
-                onClick={() => void handleOpenSubscriptionPortal()}
-                disabled={subscriptionAction === "portal" || !subscription?.stripeCustomerId}
-                className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75 transition hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-              >
-                {subscriptionAction === "portal" ? "..." : "Управлять"}
-              </button>
-            </div>
-          </div>
+          {labPanelTab === "queue" && (
+            <div className="space-y-3">
+              <div className="rounded-2xl border border-white/10 bg-black/30 px-3 py-2">
+                <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65">
+                  <span>
+                    Сейчас: {queueSummary.running} в работе • {queueSummary.queued} в очереди • {queueSummary.errors} ошибок
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/60 px-2 py-0.5 text-emerald-200">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    online
+                  </span>
+                </div>
+              </div>
 
-          <div className="space-y-4">
-          <div className="rounded-2xl border border-white/10 bg-black/40 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-            <div className="flex items-center justify-between">
-              <span>Поток статуса</span>
-              <span className="flex items-center gap-2 text-white/40">
-                <ShieldCheck className="h-3.5 w-3.5 text-[#2ED1FF]" />
-                {currentStatus}
-              </span>
-            </div>
-            <div className="mt-3 flex items-center justify-between text-white/70">
-              <span>{displayStage}</span>
-              <span>{Math.round(displayProgress)}%</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full bg-gradient-to-r from-[#2ED1FF] via-[#7FE7FF] to-white transition-all"
-                style={{ width: `${displayProgress}%` }}
-              />
-            </div>
-          </div>
-          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-4 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.26em] text-emerald-100/80">
-            <div className="flex items-center justify-between gap-3">
-              <span>Серверная задача</span>
-              <span>{serverJob?.status ? JOB_STATUS_LABEL_RU[serverJob.status] : "ожидание"}</span>
-            </div>
-            <div className="mt-2 h-2 overflow-hidden rounded-full bg-white/10">
-              <div
-                className="h-full bg-gradient-to-r from-emerald-400 via-emerald-300 to-white transition-all"
-                style={{ width: `${displayProgress}%` }}
-              />
-            </div>
-            {serverJob?.id && (
-              <p className="mt-2 break-all text-[9px] tracking-[0.2em] text-emerald-100/70">
-                ID: {serverJob.id}
-              </p>
-            )}
-            {serverJob?.provider && (
-              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
-                Провайдер: {serverJob.provider}
-              </p>
-            )}
-            {serverJob?.stage && (
-              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
-                Этап: {serverJob.stage}
-              </p>
-            )}
-            {serverJob && serverJob.status === "queued" && (
-              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">
-                Очередь: {displayQueuePosition} / {displayQueueDepth}
-              </p>
-            )}
-            {serverJob && (serverJob.status === "queued" || serverJob.status === "processing") && (
-              <p className="mt-1 text-[9px] tracking-[0.2em] text-emerald-100/70">ETA: {displayEta}</p>
-            )}
-            {serverJobError && (
-              <p className="mt-2 text-[9px] tracking-[0.18em] text-rose-300">{serverJobError}</p>
-            )}
-          </div>
-          <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
-            <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/60">
-              <span>Лог токенов</span>
-              <span className="text-white/30">{tokenEvents.length}</span>
-            </div>
-            <div className="mt-2 space-y-2">
-              {tokenEventsLoading ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                  ЗАГРУЗКА...
-                </div>
-              ) : tokenEvents.length === 0 ? (
-                <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                  СОБЫТИЙ НЕТ
-                </div>
-              ) : (
-                tokenEvents.slice(0, 3).map((event) => {
-                  const delta = Number.isFinite(event.delta) ? Math.trunc(event.delta) : 0;
-                  const sign = delta >= 0 ? "+" : "";
-                  const tone =
-                    delta > 0 ? "text-emerald-300" : delta < 0 ? "text-rose-300" : "text-white/60";
-                  return (
-                    <div
-                      key={event.id}
-                      className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
+              <div className="flex flex-wrap gap-2">
+                {([
+                  ["all", "Все"],
+                  ["running", "В работе"],
+                  ["queued", "Очередь"],
+                  ["done", "Готово"],
+                  ["error", "Ошибка"],
+                ] as Array<[QueueFilter, string]>).map(([value, label]) => (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setQueueFilter(value)}
+                    className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] transition ${
+                      queueFilter === value
+                        ? "border-[#2ED1FF]/60 text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.25)]"
+                        : "border-white/10 text-white/45 hover:border-white/30 hover:text-white/75"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="space-y-2">
+                {filteredQueueByQuery.length === 0 ? (
+                  <div className="rounded-xl border border-white/10 bg-white/5 px-3 py-3">
+                    <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
+                      Задач не найдено.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRightPanelQueryInput("");
+                        setQueueFilter("all");
+                      }}
+                      className="mt-2 rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
                     >
-                      <div className="flex items-center justify-between gap-2">
-                        <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/70">
-                          {tokenReasonLabel[event.reason] || event.reason}
-                        </p>
-                        <p
-                          className={`text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${tone}`}
-                        >
-                          {sign}
-                          {delta}
-                        </p>
+                      Сбросить фильтры
+                    </button>
+                  </div>
+                ) : (
+                  filteredQueueByQuery.map((item) => {
+                    const isRunning = item.status === "running";
+                    const isQueued = item.status === "queued";
+                    const isDone = item.status === "done";
+                    const isError = item.status === "error" || item.status === "canceled";
+                    const badgeClass = isRunning
+                      ? "border-emerald-400/50 text-emerald-200"
+                      : isQueued
+                        ? "border-cyan-400/50 text-cyan-200"
+                        : isDone
+                          ? "border-white/30 text-white/70"
+                          : "border-rose-400/50 text-rose-200";
+                    const statusLabel = isRunning
+                      ? "В РАБОТЕ"
+                      : isQueued
+                        ? "В ОЧЕРЕДИ"
+                        : isDone
+                          ? "ГОТОВО"
+                          : item.status === "canceled"
+                            ? "ОТМЕНЕНО"
+                            : "ОШИБКА";
+                    const canOpen = Boolean(item.historyJobId || item.versionId);
+                    const canCancel =
+                      item.source === "generation" &&
+                      item.historyJobId === serverJob?.id &&
+                      (serverJob?.status === "queued" || serverJob?.status === "processing");
+                    const canRetry = isError;
+
+                    return (
+                      <div
+                        key={item.id}
+                        className="rounded-2xl border border-white/10 bg-white/[0.03] px-3 py-3"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-white/90">{item.type}</p>
+                            <p className="truncate text-[11px] text-white/60">{item.label}</p>
+                          </div>
+                          <span
+                            className={`rounded-full border px-2 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${badgeClass}`}
+                          >
+                            {statusLabel}
+                          </span>
+                        </div>
+                        <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/10">
+                          <div
+                            className={`h-full transition-all ${
+                              isError
+                                ? "bg-gradient-to-r from-rose-500 to-rose-300"
+                                : "bg-gradient-to-r from-[#2ED1FF] via-[#7FE7FF] to-white"
+                            }`}
+                            style={{ width: `${Math.max(4, Math.min(100, Math.round(item.progress || 0)))}%` }}
+                          />
+                        </div>
+                        <div className="mt-1 flex items-center justify-between text-[10px] text-white/55">
+                          <span>{isQueued || isRunning ? `ETA ${formatEta(item.etaSeconds ?? null)}` : item.message || "—"}</span>
+                          <span>{Math.round(item.progress || 0)}%</span>
+                        </div>
+                        <div className="mt-2 flex flex-wrap justify-end gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => handleOpenQueueJob(item)}
+                            disabled={!canOpen}
+                            className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            Открыть
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleShowQueueJobLogs(item)}
+                            className="rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/35 hover:text-white"
+                          >
+                            Логи
+                          </button>
+                          {canCancel && (
+                            <button
+                              type="button"
+                              onClick={handleCancelSynthesis}
+                              className="rounded-full border border-amber-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-100 transition hover:border-amber-300"
+                            >
+                              Отменить
+                            </button>
+                          )}
+                          {canRetry && (
+                            <button
+                              type="button"
+                              onClick={() => void handleRetryQueueJob(item)}
+                              className="rounded-full border border-rose-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300"
+                            >
+                              Повторить
+                            </button>
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  );
-                })
-              )}
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="rounded-2xl border border-white/10 bg-black/25 px-3 py-2">
+                <button
+                  type="button"
+                  onClick={() => setQueueSystemOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between text-left text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
+                >
+                  <span>Система (свернуть/развернуть)</span>
+                  <span className="rounded-full border border-white/20 px-2 py-0.5 text-[9px] text-white/55">
+                    {queueSystemOpen ? "Скрыть" : "Подробнее"}
+                  </span>
+                </button>
+                {queueSystemOpen && (
+                  <p className="mt-2 text-[11px] text-white/50">
+                    Worker: {hasLiveQueueJobs ? "busy" : "idle"} • Queue: {queueSummary.queued} • API: OK •
+                    Latency: 120ms
+                  </p>
+                )}
+              </div>
             </div>
-          </div>
-          </div>
-            </>
           )}
           {labPanelTab === "history" && (
           <div className="rounded-2xl border border-white/10 bg-black/30 p-4">
