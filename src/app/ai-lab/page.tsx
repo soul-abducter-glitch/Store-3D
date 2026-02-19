@@ -9,6 +9,7 @@ import { motion } from "framer-motion";
 import {
   Box,
   ChevronDown,
+  Coins,
   Cpu,
   ExternalLink,
   FlaskConical,
@@ -336,6 +337,22 @@ const formatEta = (seconds?: number | null) => {
   }
   return `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 };
+
+function BlenderBadgeIcon({ className = "h-3.5 w-3.5" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} aria-hidden="true">
+      <path
+        d="M4 12a8 8 0 0 1 8-8h5l2 2-2 2h-5a4 4 0 1 0 4 4h4a8 8 0 1 1-16 0z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <circle cx="12" cy="12" r="2.1" fill="currentColor" />
+    </svg>
+  );
+}
 
 const formatMoneyFromCents = (cents?: number) => {
   if (typeof cents !== "number" || !Number.isFinite(cents)) return "0";
@@ -3061,6 +3078,36 @@ function AiLabContent() {
     advancedPreset,
   ]);
 
+  const handleStartNewGeneration = useCallback(() => {
+    if (serverJobLoading || isSynthRunning) {
+      showError("Сначала дождитесь завершения текущей генерации или остановите мониторинг.");
+      return;
+    }
+    setShowResult(false);
+    setResultAsset(null);
+    setServerJob(null);
+    setServerJobError(null);
+    setLatestCompletedJob(null);
+    setGeneratedPreviewModel(null);
+    setGeneratedPreviewLabel(null);
+    setLocalPreviewModel(null);
+    setLocalPreviewLabel(null);
+    setUploadedModelName(null);
+    setPrompt("");
+    clearInputReferences();
+    setActiveHistoryJobId(null);
+    setActiveVersionId(null);
+    setPreviewParam(null);
+    if (typeof window !== "undefined") {
+      const url = new URL(window.location.href);
+      if (url.searchParams.has("preview")) {
+        url.searchParams.delete("preview");
+        window.history.replaceState({}, "", url.toString());
+      }
+    }
+    showSuccess("Новая генерация: рабочая область очищена.");
+  }, [clearInputReferences, isSynthRunning, serverJobLoading, showError, showSuccess]);
+
   useEffect(() => {
     if (!serverJob?.id) return;
     if (serverJob.status === "completed" || serverJob.status === "failed") return;
@@ -4209,9 +4256,10 @@ function AiLabContent() {
                     setQuickSettingsOpen(false);
                     setUserMenuOpen(false);
                   }}
-                  className="rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60"
+                  className="inline-flex items-center gap-1.5 rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60"
                 >
-                  ТОКЕНЫ: {tokensLoading ? "..." : tokens}
+                  <Coins className="h-3.5 w-3.5" />
+                  <span>ТОКЕНЫ: {tokensLoading ? "..." : tokens}</span>
                 </button>
                 {tokensPopoverOpen && (
                   <div
@@ -4220,9 +4268,12 @@ function AiLabContent() {
                   >
                     <div className="flex items-center justify-between">
                       <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70">
-                         Баланс токенов
+                        Баланс токенов
                       </p>
-                      <p className="text-sm font-semibold text-cyan-100">{tokensLoading ? "..." : tokens}</p>
+                      <p className="inline-flex items-center gap-1 text-sm font-semibold text-cyan-100">
+                        <Coins className="h-3.5 w-3.5" />
+                        <span>{tokensLoading ? "..." : tokens}</span>
+                      </p>
                     </div>
                     <div className="rounded-lg border border-white/10 bg-black/30 p-2">
                       <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
@@ -4514,6 +4565,10 @@ function AiLabContent() {
                         showError("Инструмент скоро будет доступен.");
                         return;
                       }
+                      if (item.id === "generate" && leftTool === "generate") {
+                        handleStartNewGeneration();
+                        return;
+                      }
                       setLeftTool(item.id as LeftTool);
                     }}
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition ${
@@ -4763,7 +4818,18 @@ function AiLabContent() {
             <div className="space-y-2">
               <div className="flex items-center justify-between text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
                 <span>AI PROMPT</span>
-                <span className="text-white/30">LEN: {prompt.length}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-white/30">LEN: {prompt.length}</span>
+                  <button
+                    type="button"
+                    onClick={handleStartNewGeneration}
+                    disabled={serverJobLoading || isSynthRunning}
+                    className="rounded-full border border-white/20 bg-white/[0.04] px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/75 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                    title="Очистить текущую сцену и начать новую генерацию"
+                  >
+                    Новая
+                  </button>
+                </div>
               </div>
               <textarea
                 value={prompt}
@@ -4873,13 +4939,21 @@ function AiLabContent() {
                 void handleStartServerSynthesis();
               }}
               disabled={serverJobLoading || isSynthRunning || tokensLoading}
-              className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.26em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+              className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               {serverJobLoading
                 ? "ГЕНЕРАЦИЯ..."
                 : isSynthRunning
                   ? `В РАБОТЕ ${Math.round(displayProgress)}%`
-                  : "ГЕНЕРИРОВАТЬ"}
+                  : (
+                    <span className="inline-flex items-center gap-2">
+                      <span>ГЕНЕРИРОВАТЬ МОДЕЛЬ</span>
+                      <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/55 bg-emerald-400/15 px-2 py-0.5 text-[11px] tracking-[0.12em] text-emerald-50">
+                        <Coins className="h-3.5 w-3.5" />
+                        {estimatedTokenCost}
+                      </span>
+                    </span>
+                  )}
             </button>
             <div className="grid grid-cols-3 gap-2 rounded-2xl border border-white/10 bg-black/25 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55">
               <div>Цена: {estimatedTokenCost}</div>
@@ -4963,9 +5037,10 @@ function AiLabContent() {
                     void queueBlenderJobForAsset(activeAssetVersion);
                   }}
                   disabled={!activeAssetVersion || isAssetPipelineBusy}
-                  className="w-full rounded-lg border border-violet-400/35 bg-violet-500/10 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
+                  className="inline-flex w-full items-center gap-2 rounded-lg border border-violet-400/35 bg-violet-500/10 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  {assetAction?.type === "blender" ? "Открытие в Blender..." : "Открыть в Blender"}
+                  <BlenderBadgeIcon className="h-3.5 w-3.5" />
+                  <span>{assetAction?.type === "blender" ? "Открытие в Blender..." : "Открыть в Blender"}</span>
                 </button>
               </div>
             )}
@@ -5828,7 +5903,7 @@ function AiLabContent() {
                         {JOB_STATUS_LABEL_RU[job.status] || job.status}
                       </p>
                     </div>
-                    <div className="mt-2 flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="mt-2 flex flex-col gap-2 xl:flex-row xl:items-center xl:justify-between">
                       <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
                         {job.stage || SERVER_STAGE_BY_STATUS[job.status]} • {Math.max(0, Math.min(100, job.progress || 0))}%
                         {(job.status === "queued" || job.status === "processing") &&
@@ -5841,7 +5916,7 @@ function AiLabContent() {
                         {linkedAsset ? ` • diag:${diagnosticsStatus}` : ""}
                         {linkedAsset ? ` • ${versionLabel}` : ""}
                       </p>
-                      <div className="flex flex-wrap items-center gap-1.5">
+                      <div className="grid w-full grid-cols-3 gap-1.5 xl:w-auto xl:min-w-[248px]">
                         <button
                           type="button"
                           onClick={(event) => {
@@ -5853,7 +5928,7 @@ function AiLabContent() {
                             setRemixIssueReference(null);
                           }}
                           disabled={historyAction?.id === job.id || job.status !== "completed"}
-                          className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="w-full rounded-full border border-cyan-400/40 px-2 py-1 text-center text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                           title="Создать ремикс (альтернативный вариант)"
                         >
                           {historyAction?.id === job.id && historyAction?.type === "variation" ? "..." : "РЕМИКС"}
@@ -5869,7 +5944,7 @@ function AiLabContent() {
                             job.status !== "completed" ||
                             Boolean(publishedAssetsByJobId[job.id])
                           }
-                          className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                          className="w-full rounded-full border border-amber-400/40 px-2 py-1 text-center text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {publishedAssetsByJobId[job.id]
                             ? "СОХРАНЕНО"
@@ -5877,8 +5952,8 @@ function AiLabContent() {
                               ? "..."
                               : "ПУБЛИКАЦИЯ"}
                         </button>
-                        <details className="group relative" onClick={(event) => event.stopPropagation()}>
-                          <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
+                        <details className="group relative w-full" onClick={(event) => event.stopPropagation()}>
+                          <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-center text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
                             ЕЩЕ
                           </summary>
                           <div className="absolute right-0 top-8 z-20 min-w-[172px] space-y-1 rounded-xl border border-white/10 bg-[#06090d]/95 p-2 shadow-[0_12px_24px_rgba(0,0,0,0.45)]">
