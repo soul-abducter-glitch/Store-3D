@@ -204,6 +204,15 @@ const resolveCartProductId = (item: CartItem) => {
   return candidate;
 };
 
+const LEGACY_PRINT_SERVICE_PRODUCT_IDS = new Set([
+  "service-print",
+  "custom-print",
+  "custom-print-service",
+]);
+
+const isLegacyPrintServiceProductId = (value: string) =>
+  LEGACY_PRINT_SERVICE_PRODUCT_IDS.has(value.trim().toLowerCase());
+
 const shippingMethodOptions = [
   { value: "cdek", label: "СДЭК" },
   { value: "yandex", label: "Яндекс.Доставка" },
@@ -1373,9 +1382,23 @@ const CheckoutPage = () => {
             .filter((id: string | null): id is string => Boolean(id))
         );
         
-        const invalidProducts = items.filter(
-          (item) => !validIds.has(resolveCartProductId(item))
-        );
+        const invalidProducts = items.filter((item) => {
+          const productId = resolveCartProductId(item);
+          if (!productId) return true;
+
+          if (
+            !validIds.has(productId) &&
+            isLegacyPrintServiceProductId(productId) &&
+            item.formatKey === "physical" &&
+            item.customPrint?.uploadId
+          ) {
+            // Legacy print cart items use virtual service ids.
+            // The server resolves them to the real print service product.
+            return false;
+          }
+
+          return !validIds.has(productId);
+        });
         return { valid: invalidProducts.length === 0, invalidProducts };
       }
     } catch (error) {

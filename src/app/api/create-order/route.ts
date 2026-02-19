@@ -266,6 +266,53 @@ const collectDigitalProductIds = (items: Array<{ format?: string; product?: unkn
   return Array.from(new Set(ids));
 };
 
+const PRINT_SERVICE_SLUG = "custom-print-service";
+const LEGACY_PRINT_SERVICE_PRODUCT_IDS = new Set([
+  "service-print",
+  "custom-print",
+  "custom-print-service",
+]);
+
+const isLegacyPrintServiceProductRef = (value: unknown) => {
+  const raw = String(value ?? "").trim().toLowerCase();
+  return raw ? LEGACY_PRINT_SERVICE_PRODUCT_IDS.has(raw) : false;
+};
+
+const ensurePrintServiceProductId = async (payload: any) => {
+  const existing = await payload.find({
+    collection: "products",
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    where: {
+      slug: {
+        equals: PRINT_SERVICE_SLUG,
+      },
+    },
+  });
+
+  const existingId = existing?.docs?.[0]?.id;
+  if (existingId) {
+    return existingId;
+  }
+
+  const created = await payload.create({
+    collection: "products",
+    overrideAccess: true,
+    data: {
+      name: "Печать на заказ",
+      slug: PRINT_SERVICE_SLUG,
+      price: 0,
+      technology: "SLA Resin",
+      format: "Physical Print",
+      isVerified: true,
+      isFeatured: true,
+    },
+  });
+
+  return created?.id ?? null;
+};
+
 const IDEMPOTENCY_HEADER = "x-idempotency-key";
 const IDEMPOTENCY_MARKER_PREFIX = "checkout:req:";
 const IDEMPOTENCY_WINDOW_MINUTES = 30;
@@ -640,6 +687,8 @@ export async function POST(request: NextRequest) {
         .map((item: { customerUpload?: unknown }) => String(item.customerUpload))
     );
 
+    let fallbackPrintServiceProductId: string | number | null = null;
+
     // Verify referenced products exist to avoid relationship validation errors
     for (const item of items) {
       try {
@@ -651,6 +700,32 @@ export async function POST(request: NextRequest) {
         });
         productCache.set(String(productDoc?.id ?? item.product), productDoc);
       } catch {
+        const canUsePrintFallback =
+          item.format === "Physical" &&
+          Boolean(item.customerUpload) &&
+          isLegacyPrintServiceProductRef(item.product);
+
+        if (canUsePrintFallback) {
+          try {
+            if (!fallbackPrintServiceProductId) {
+              fallbackPrintServiceProductId = await ensurePrintServiceProductId(payload);
+            }
+            if (fallbackPrintServiceProductId) {
+              const productDoc = await payload.findByID({
+                collection: "products",
+                id: fallbackPrintServiceProductId as any,
+                depth: 0,
+                overrideAccess: true,
+              });
+              item.product = fallbackPrintServiceProductId;
+              productCache.set(String(productDoc?.id ?? fallbackPrintServiceProductId), productDoc);
+              continue;
+            }
+          } catch (fallbackError) {
+            console.warn("[create-order] print service fallback resolution failed", fallbackError);
+          }
+        }
+
         return NextResponse.json(
           {
             success: false,
