@@ -35,10 +35,29 @@ const emptyOrdersResult = (limit: number) => ({
   hasPrevPage: false,
 });
 
+const isMissingOrderItemColorColumnError = (error: unknown) => {
+  const directMessage = error instanceof Error ? error.message : "";
+  const causeMessage =
+    error && typeof error === "object" && "cause" in error
+      ? String((error as { cause?: { message?: unknown } }).cause?.message ?? "")
+      : "";
+  const combined = `${directMessage}\n${causeMessage}`.toLowerCase();
+  return (
+    combined.includes("orders_items.print_specs_color") ||
+    (combined.includes("column") &&
+      combined.includes("print_specs_color") &&
+      combined.includes("does not exist"))
+  );
+};
+
 export async function GET(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
-    await ensureOrdersSchema(payload as any);
+    try {
+      await ensureOrdersSchema(payload as any);
+    } catch (error) {
+      console.warn("[orders] ensureOrdersSchema failed, continue without schema patch", error);
+    }
     const { searchParams } = new URL(request.url);
     const limit = parsePositiveInt(searchParams.get("limit"), 20);
     const depth = parsePositiveInt(searchParams.get("depth"), 0);
@@ -131,6 +150,10 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(result, { status: 200 });
   } catch (error) {
     console.error("[orders] fetch failed", error);
+    if (isMissingOrderItemColorColumnError(error)) {
+      const fallbackLimit = parsePositiveInt(new URL(request.url).searchParams.get("limit"), 20);
+      return NextResponse.json(emptyOrdersResult(fallbackLimit), { status: 200 });
+    }
     return NextResponse.json(
       { error: "Failed to fetch orders." },
       { status: 500 }

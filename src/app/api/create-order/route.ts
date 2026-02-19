@@ -319,7 +319,11 @@ const buildFallbackIdempotencyKey = (args: {
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
-    await ensureOrdersSchema(payload as any);
+    try {
+      await ensureOrdersSchema(payload as any);
+    } catch (error) {
+      console.warn("[create-order] ensureOrdersSchema failed, continue without schema patch", error);
+    }
     const smartPricingEnabled = resolveSmartPricingEnabled();
     const queueMultiplier = resolveQueueMultiplier();
     let authUser: any = null;
@@ -807,19 +811,37 @@ export async function POST(request: NextRequest) {
 
     orderData.items = normalizedItems;
 
-    // Create order using Payload Local API
-    const result = await payload.create({
-      collection: "orders",
-      data: orderData,
-      overrideAccess: false, // Use normal access control
-      req:
-        authUser || authHeaders
-          ? {
-              user: authUser ?? undefined,
-              headers: authHeaders,
-            }
-          : undefined,
-    });
+    const createPayloadOrder = () =>
+      payload.create({
+        collection: "orders",
+        data: orderData,
+        overrideAccess: false, // Use normal access control
+        req:
+          authUser || authHeaders
+            ? {
+                user: authUser ?? undefined,
+                headers: authHeaders,
+              }
+            : undefined,
+      });
+
+    // Create order using Payload Local API.
+    // Retry once if schema drift still triggers missing legacy column.
+    let result;
+    try {
+      result = await createPayloadOrder();
+    } catch (error) {
+      if (!isMissingOrderItemColorColumnError(error)) {
+        throw error;
+      }
+      console.warn("[create-order] retry create after legacy schema patch");
+      try {
+        await ensureOrdersSchema(payload as any);
+      } catch (ensureError) {
+        console.warn("[create-order] ensureOrdersSchema retry failed", ensureError);
+      }
+      result = await createPayloadOrder();
+    }
 
     try {
       const customerEmail = normalizeEmail((baseData as any)?.customer?.email);

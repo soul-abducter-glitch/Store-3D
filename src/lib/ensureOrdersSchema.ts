@@ -10,10 +10,10 @@ type PayloadLike = {
 };
 
 const normalizeSchemaName = (value: unknown) => {
-  if (typeof value !== "string") return "public";
+  if (typeof value !== "string") return null;
   const trimmed = value.trim();
-  if (!trimmed) return "public";
-  return /^[A-Za-z0-9_]+$/.test(trimmed) ? trimmed : "public";
+  if (!trimmed) return null;
+  return /^[A-Za-z0-9_]+$/.test(trimmed) ? trimmed : null;
 };
 
 const quoteIdentifier = (value: string) => `"${value.replace(/"/g, "\"\"")}"`;
@@ -39,27 +39,48 @@ const executeRaw = async (payload: PayloadLike, raw: string) => {
 };
 
 export const ensureOrdersSchema = async (payload: PayloadLike) => {
-  const schema = normalizeSchemaName(payload?.db?.schemaName);
-  const ordersItemsTable = qualifiedTable(schema, "orders_items");
-  const ordersItemsRegclass = `${schema}.orders_items`;
-
-  const existingTable = await executeRaw(
+  const schemaHint = normalizeSchemaName(payload?.db?.schemaName);
+  const schemaRows = await executeRaw(
     payload,
-    `SELECT to_regclass('${ordersItemsRegclass}') AS rel`
+    `
+      SELECT n.nspname AS schema_name
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+      WHERE c.relname = 'orders_items'
+        AND c.relkind IN ('r', 'p')
+        AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+    `
   );
-  if (!existingTable?.rows?.[0]?.rel) {
-    return;
-  }
 
-  try {
-    await executeRaw(
+  const schemasFromDb = Array.isArray(schemaRows?.rows)
+    ? schemaRows.rows
+        .map((row) => normalizeSchemaName((row as { schema_name?: unknown }).schema_name))
+        .filter((value): value is string => Boolean(value))
+    : [];
+
+  const schemas = Array.from(new Set([...schemasFromDb, ...(schemaHint ? [schemaHint] : []), "public"]));
+
+  for (const schema of schemas) {
+    const regclassResult = await executeRaw(
       payload,
-      `ALTER TABLE ${ordersItemsTable} ADD COLUMN IF NOT EXISTS "print_specs_color" varchar`
+      `SELECT to_regclass('${schema}.orders_items') AS rel`
     );
-  } catch (error) {
-    payload?.logger?.warn?.({
-      msg: "Failed to ensure legacy orders_items.print_specs_color column",
-      err: error,
-    });
+    if (!regclassResult?.rows?.[0]?.rel) {
+      continue;
+    }
+
+    const ordersItemsTable = qualifiedTable(schema, "orders_items");
+    try {
+      await executeRaw(
+        payload,
+        `ALTER TABLE ${ordersItemsTable} ADD COLUMN IF NOT EXISTS "print_specs_color" varchar`
+      );
+    } catch (error) {
+      payload?.logger?.warn?.({
+        msg: "Failed to ensure legacy orders_items.print_specs_color column",
+        schema,
+        err: error,
+      });
+    }
   }
 };
