@@ -101,6 +101,8 @@ type AiAssetRecord = {
   familyId?: string;
   version?: number;
   versionLabel?: "original" | "fixed_safe" | "fixed_strong" | "split_set" | "blender_edit" | string;
+  createdAt?: string;
+  updatedAt?: string;
   title: string;
   modelUrl: string;
   previewUrl: string;
@@ -138,6 +140,7 @@ type AiAssetRecord = {
       componentsCount?: number | null;
       polycount?: number | null;
       scaleSanity?: "ok" | "warning" | "critical" | "unknown";
+      analyzedAt?: string;
     };
   } | null;
 };
@@ -191,6 +194,7 @@ const logLines = [
 const DEFAULT_TOKEN_COST = 10;
 const GALLERY_LIMIT = 12;
 const GALLERY_STORAGE_KEY = "aiLabGallery";
+const LAB_PANEL_TAB_STORAGE_KEY = "aiLabPanelTab";
 const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
@@ -1482,6 +1486,7 @@ function AiLabContent() {
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [jobsConsoleOpen, setJobsConsoleOpen] = useState(false);
+  const [rightPanelQueryInput, setRightPanelQueryInput] = useState("");
   const [rightPanelQuery, setRightPanelQuery] = useState("");
   const currentProjectName = "Личный проект";
   const [uiThemeMode, setUiThemeMode] = useState<"dark" | "auto">("dark");
@@ -1556,6 +1561,8 @@ function AiLabContent() {
   const [publishedAssetsByJobId, setPublishedAssetsByJobId] = useState<Record<string, string>>({});
   const [publishedAssetsById, setPublishedAssetsById] = useState<Record<string, AiAssetRecord>>({});
   const [latestCompletedJob, setLatestCompletedJob] = useState<AiGenerationJob | null>(null);
+  const [activeHistoryJobId, setActiveHistoryJobId] = useState<string | null>(null);
+  const [activeVersionId, setActiveVersionId] = useState<string | null>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const remixIssueInputRef = useRef<HTMLInputElement>(null);
   const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -1603,6 +1610,26 @@ function AiLabContent() {
   useEffect(() => {
     showErrorRef.current = showError;
   }, [showError]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const stored = window.localStorage.getItem(LAB_PANEL_TAB_STORAGE_KEY);
+    if (stored === "assets" || stored === "history" || stored === "jobs") {
+      setLabPanelTab(stored);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem(LAB_PANEL_TAB_STORAGE_KEY, labPanelTab);
+  }, [labPanelTab]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      setRightPanelQuery(rightPanelQueryInput);
+    }, 320);
+    return () => window.clearTimeout(timer);
+  }, [rightPanelQueryInput]);
 
   const pushUiError = useCallback(
     (raw: unknown) => {
@@ -2857,14 +2884,17 @@ function AiLabContent() {
             setPublishedAssetsByJobId({});
             setPublishedAssetsById({});
           }
-          return;
+          return { byId: {}, byJobId: {} } as {
+            byId: Record<string, AiAssetRecord>;
+            byJobId: Record<string, string>;
+          };
         }
         const data = await response.json().catch(() => null);
         if (!response.ok) {
           if (!silent) {
             throw new Error(typeof data?.error === "string" ? data.error : "Failed to fetch AI assets.");
           }
-          return;
+          return null;
         }
         const assets = Array.isArray(data?.assets) ? (data.assets as AiAssetRecord[]) : [];
         const next: Record<string, string> = {};
@@ -2879,10 +2909,12 @@ function AiLabContent() {
         });
         setPublishedAssetsByJobId(next);
         setPublishedAssetsById(byId);
+        return { byId, byJobId: next };
       } catch (error) {
         if (!silent) {
           pushUiError(error instanceof Error ? error.message : "Failed to fetch AI assets.");
         }
+        return null;
       }
     },
     [pushUiError]
@@ -2895,6 +2927,30 @@ function AiLabContent() {
   useEffect(() => {
     void fetchPublishedAssets(false);
   }, [fetchPublishedAssets]);
+
+  useEffect(() => {
+    if (activeHistoryJobId) return;
+    if (latestCompletedJob?.id) {
+      setActiveHistoryJobId(latestCompletedJob.id);
+    } else if (jobHistory[0]?.id) {
+      setActiveHistoryJobId(jobHistory[0].id);
+    }
+  }, [activeHistoryJobId, jobHistory, latestCompletedJob?.id]);
+
+  useEffect(() => {
+    if (activeVersionId && publishedAssetsById[activeVersionId]) return;
+    if (activeHistoryJobId) {
+      const linkedAssetId = publishedAssetsByJobId[activeHistoryJobId];
+      if (linkedAssetId) {
+        setActiveVersionId(linkedAssetId);
+      }
+      return;
+    }
+    const fallback = Object.keys(publishedAssetsById)[0];
+    if (!activeVersionId && fallback) {
+      setActiveVersionId(fallback);
+    }
+  }, [activeHistoryJobId, activeVersionId, publishedAssetsById, publishedAssetsByJobId]);
 
   const handleStartServerSynthesis = useCallback(async () => {
     if (serverJobLoading || isSynthRunning) return;
@@ -3096,11 +3152,28 @@ function AiLabContent() {
     validInputReferences,
   ]);
 
+  const activatePublishedAsset = useCallback(
+    (asset: AiAssetRecord | null, options?: { jobId?: string | null }) => {
+      if (!asset) return;
+      setActiveVersionId(asset.id);
+      if (typeof options?.jobId === "string" && options.jobId) {
+        setActiveHistoryJobId(options.jobId);
+      }
+      if (asset.modelUrl) {
+        setGeneratedPreviewModel(asset.modelUrl);
+        setGeneratedPreviewLabel(asset.title || `Asset ${asset.id}`);
+      }
+    },
+    []
+  );
+
   const handleSelectAsset = (asset: GeneratedAsset) => {
     if (!asset.modelUrl) {
       showError("Файл модели недоступен. Загрузите модель заново.");
       return;
     }
+    setActiveHistoryJobId(null);
+    setActiveVersionId(null);
     setGeneratedPreviewModel(asset.modelUrl);
     setGeneratedPreviewLabel(asset.name);
   };
@@ -3130,6 +3203,18 @@ function AiLabContent() {
   };
 
   const handlePickHistoryJob = (job: AiGenerationJob) => {
+    setActiveHistoryJobId(job.id);
+    const linkedAssetId = publishedAssetsByJobId[job.id] || null;
+    if (linkedAssetId) {
+      setActiveVersionId(linkedAssetId);
+      const linkedAsset = publishedAssetsById[linkedAssetId] || null;
+      if (linkedAsset?.modelUrl) {
+        setGeneratedPreviewModel(linkedAsset.modelUrl);
+        setGeneratedPreviewLabel(linkedAsset.title || job.prompt || `Job ${job.id}`);
+      }
+    } else {
+      setActiveVersionId(null);
+    }
     if (job.mode === "text" || job.mode === "image") {
       setMode(job.mode);
     }
@@ -3137,8 +3222,10 @@ function AiLabContent() {
       setPrompt(job.prompt);
     }
     if (job.result?.modelUrl) {
-      setGeneratedPreviewModel(job.result.modelUrl);
-      setGeneratedPreviewLabel(job.prompt || `Job ${job.id}`);
+      if (!linkedAssetId) {
+        setGeneratedPreviewModel(job.result.modelUrl);
+        setGeneratedPreviewLabel(job.prompt || `Job ${job.id}`);
+      }
     }
     const refs = Array.isArray(job.inputRefs)
       ? job.inputRefs
@@ -3447,6 +3534,8 @@ function AiLabContent() {
           ...prev,
           [job.id]: String(data.asset.id),
         }));
+        setActiveHistoryJobId(job.id);
+        setActiveVersionId(String(data.asset.id));
         showSuccess("Saved to profile AI library.");
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("ai-assets-updated"));
@@ -3466,6 +3555,7 @@ function AiLabContent() {
   const waitForPipelineJob = useCallback(
     async (jobId: string, timeoutMs = 15000) => {
       const startedAt = Date.now();
+      let attempts = 0;
       while (Date.now() - startedAt < timeoutMs) {
         const response = await fetch(`/api/jobs/${encodeURIComponent(jobId)}`, {
           method: "GET",
@@ -3486,182 +3576,15 @@ function AiLabContent() {
                 : "Asset operation failed."
           );
         }
-        await new Promise((resolve) => setTimeout(resolve, 700));
+        attempts += 1;
+        const hiddenBoost =
+          typeof document !== "undefined" && document.visibilityState === "hidden" ? 800 : 0;
+        const backoff = Math.min(1200, attempts * 180);
+        await new Promise((resolve) => setTimeout(resolve, 1000 + backoff + hiddenBoost));
       }
       throw new Error("Job timeout. Please retry.");
     },
     []
-  );
-
-  const handleAnalyzePublishedAsset = useCallback(
-    async (job: AiGenerationJob) => {
-      const assetId = publishedAssetsByJobId[job.id];
-      if (!assetId) {
-        showError("Сначала сохраните результат в библиотеку профиля.");
-        return;
-      }
-      if (assetAction) return;
-      const linkedAsset = publishedAssetsById[assetId] || null;
-      const versionId = linkedAsset?.id || assetId;
-      setAssetAction({ assetId, type: "analyze" });
-      try {
-        const response = await fetch(ASSET_ANALYZE_API(assetId), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ versionId }),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Analyze failed.");
-        }
-        const settled = await waitForPipelineJob(String(data.jobId));
-        const stats = (settled?.result?.stats || data?.result?.stats || {}) as {
-          status?: "ok" | "warning" | "critical";
-          riskScore?: number;
-          issues?: Array<{ message?: string }>;
-        };
-        const status = stats?.status || "ok";
-        const firstIssue =
-          Array.isArray(stats?.issues) && stats.issues[0]?.message
-            ? String(stats.issues[0].message)
-            : "";
-        showSuccess(
-          status === "critical"
-            ? `Диагностика: critical (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
-            : status === "warning"
-              ? `Диагностика: warning (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
-              : `Диагностика: mesh OK (Q:${stats?.riskScore ?? "?"}).`
-        );
-        void fetchPublishedAssets(true);
-      } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Analyze failed.");
-      } finally {
-        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
-      }
-    },
-    [
-      assetAction,
-      fetchPublishedAssets,
-      publishedAssetsById,
-      publishedAssetsByJobId,
-      pushUiError,
-      showError,
-      showSuccess,
-      waitForPipelineJob,
-    ]
-  );
-
-  const handleQuickFixPublishedAsset = useCallback(
-    async (job: AiGenerationJob, preset: "safe" | "strong" = "safe") => {
-      const assetId = publishedAssetsByJobId[job.id];
-      if (!assetId) {
-        showError("Сначала сохраните результат в библиотеку профиля.");
-        return;
-      }
-      if (assetAction) return;
-      const linkedAsset = publishedAssetsById[assetId] || null;
-      const versionId = linkedAsset?.id || assetId;
-      setAssetAction({ assetId, type: preset === "strong" ? "fix_strong" : "fix_safe" });
-      try {
-        const response = await fetch(ASSET_FIX_API(assetId), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ versionId, preset }),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Quick Fix failed.");
-        }
-        const settled = await waitForPipelineJob(String(data.jobId));
-        const result = (settled?.result || data?.result || {}) as {
-          noChanges?: boolean;
-          newVersionId?: string;
-        };
-        if (result?.noChanges) {
-          showSuccess("Quick Fix: No changes. Новая версия не создана.");
-        } else {
-          showSuccess(
-            preset === "strong"
-              ? `Quick Fix Strong: готово (version ${result?.newVersionId || "new"}).`
-              : `Quick Fix: готово (version ${result?.newVersionId || "new"}).`
-          );
-        }
-        void fetchPublishedAssets(true);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("ai-assets-updated"));
-        }
-      } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Quick Fix failed.");
-      } finally {
-        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
-      }
-    },
-    [
-      assetAction,
-      fetchPublishedAssets,
-      publishedAssetsById,
-      publishedAssetsByJobId,
-      pushUiError,
-      showError,
-      showSuccess,
-      waitForPipelineJob,
-    ]
-  );
-
-  const handleSplitPublishedAsset = useCallback(
-    async (job: AiGenerationJob) => {
-      const assetId = publishedAssetsByJobId[job.id];
-      if (!assetId) {
-        showError("Сначала сохраните результат в библиотеку профиля.");
-        return;
-      }
-      if (assetAction) return;
-      const linkedAsset = publishedAssetsById[assetId] || null;
-      const versionId = linkedAsset?.id || assetId;
-      setAssetAction({ assetId, type: "split_auto" });
-      try {
-        const response = await fetch(ASSET_SPLIT_API(assetId), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ versionId, mode: "auto" }),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Split failed.");
-        }
-        const settled = await waitForPipelineJob(String(data.jobId));
-        const result = (settled?.result || data?.result || {}) as {
-          noChanges?: boolean;
-          partSetId?: string;
-        };
-        if (result?.noChanges) {
-          showSuccess("Split: модель уже состоит из 1 части, изменений нет.");
-        } else {
-          showSuccess(`Split готов: partSet ${result?.partSetId || "created"}.`);
-        }
-        void fetchPublishedAssets(true);
-        if (typeof window !== "undefined") {
-          window.dispatchEvent(new Event("ai-assets-updated"));
-        }
-      } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Split failed.");
-      } finally {
-        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
-      }
-    },
-    [
-      assetAction,
-      fetchPublishedAssets,
-      publishedAssetsById,
-      publishedAssetsByJobId,
-      pushUiError,
-      showError,
-      showSuccess,
-      waitForPipelineJob,
-    ]
   );
 
   const queueBlenderJobForAsset = useCallback(
@@ -3743,6 +3666,245 @@ function AiLabContent() {
     [showError, showSuccess]
   );
 
+  const activeHistoryJob = useMemo(
+    () => (activeHistoryJobId ? jobHistory.find((job) => job.id === activeHistoryJobId) || null : null),
+    [activeHistoryJobId, jobHistory]
+  );
+
+  const activeAssetVersion = useMemo(() => {
+    if (activeVersionId && publishedAssetsById[activeVersionId]) {
+      return publishedAssetsById[activeVersionId];
+    }
+    if (activeHistoryJob?.id) {
+      const linkedAssetId = publishedAssetsByJobId[activeHistoryJob.id];
+      if (linkedAssetId && publishedAssetsById[linkedAssetId]) {
+        return publishedAssetsById[linkedAssetId];
+      }
+    }
+    return null;
+  }, [activeHistoryJob?.id, activeVersionId, publishedAssetsById, publishedAssetsByJobId]);
+
+  useEffect(() => {
+    if (!activeAssetVersion?.modelUrl) return;
+    setGeneratedPreviewModel(activeAssetVersion.modelUrl);
+    setGeneratedPreviewLabel(activeAssetVersion.title || `Asset ${activeAssetVersion.id}`);
+  }, [activeAssetVersion?.id, activeAssetVersion?.modelUrl, activeAssetVersion?.title]);
+
+  const isAnalysisFresh = useCallback((asset: AiAssetRecord | null) => {
+    const analyzedAtRaw = asset?.checks?.diagnostics?.analyzedAt;
+    if (!analyzedAtRaw) return false;
+    const analyzedAtMs = new Date(analyzedAtRaw).getTime();
+    if (!Number.isFinite(analyzedAtMs)) return false;
+    return Date.now() - analyzedAtMs <= 5 * 60 * 1000;
+  }, []);
+
+  const handleAnalyzeActiveAsset = useCallback(
+    async (asset: AiAssetRecord | null, force = false) => {
+      if (!asset) {
+        showError("Сначала выберите модель в истории или ассетах.");
+        return;
+      }
+      if (!force && isAnalysisFresh(asset)) {
+        showSuccess("Анализ свежий. Можно нажать «Обновить анализ».");
+        return;
+      }
+      if (assetAction) return;
+      const assetId = asset.id;
+      const versionId = asset.id;
+      setAssetAction({ assetId, type: "analyze" });
+      try {
+        const response = await fetch(ASSET_ANALYZE_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ versionId }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Analyze failed.");
+        }
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const stats = (settled?.result?.stats || data?.result?.stats || {}) as {
+          status?: "ok" | "warning" | "critical";
+          riskScore?: number;
+          issues?: Array<{ message?: string }>;
+        };
+        const status = stats?.status || "ok";
+        const firstIssue =
+          Array.isArray(stats?.issues) && stats.issues[0]?.message
+            ? String(stats.issues[0].message)
+            : "";
+        showSuccess(
+          status === "critical"
+            ? `Диагностика: critical (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
+            : status === "warning"
+              ? `Диагностика: warning (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
+              : `Диагностика: mesh OK (Q:${stats?.riskScore ?? "?"}).`
+        );
+        const snapshot = await fetchPublishedAssets(true);
+        const refreshed = snapshot?.byId?.[assetId] || null;
+        if (refreshed) {
+          activatePublishedAsset(refreshed, { jobId: activeHistoryJob?.id || refreshed.jobId || null });
+        }
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Analyze failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [
+      activatePublishedAsset,
+      activeHistoryJob?.id,
+      assetAction,
+      fetchPublishedAssets,
+      isAnalysisFresh,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
+  );
+
+  const handleQuickFixActiveAsset = useCallback(
+    async (asset: AiAssetRecord | null, preset: "safe" | "strong" = "safe") => {
+      if (!asset) {
+        showError("Сначала выберите модель в истории или ассетах.");
+        return;
+      }
+      if (assetAction) return;
+      const assetId = asset.id;
+      const versionId = asset.id;
+      setAssetAction({ assetId, type: preset === "strong" ? "fix_strong" : "fix_safe" });
+      try {
+        const response = await fetch(ASSET_FIX_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ versionId, preset }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Quick Fix failed.");
+        }
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const result = (settled?.result || data?.result || {}) as {
+          noChanges?: boolean;
+          newVersionId?: string;
+        };
+        if (result?.noChanges) {
+          showSuccess("Quick Fix: изменений не найдено.");
+        } else {
+          showSuccess(
+            preset === "strong"
+              ? `Quick Fix Strong: готово (version ${result?.newVersionId || "new"}).`
+              : `Quick Fix: готово (version ${result?.newVersionId || "new"}).`
+          );
+        }
+        const snapshot = await fetchPublishedAssets(true);
+        if (result?.newVersionId && snapshot?.byId?.[result.newVersionId]) {
+          activatePublishedAsset(snapshot.byId[result.newVersionId], {
+            jobId: activeHistoryJob?.id || snapshot.byId[result.newVersionId].jobId || null,
+          });
+        } else if (!result?.newVersionId && snapshot?.byId?.[assetId]) {
+          activatePublishedAsset(snapshot.byId[assetId], {
+            jobId: activeHistoryJob?.id || snapshot.byId[assetId].jobId || null,
+          });
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ai-assets-updated"));
+        }
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Quick Fix failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [
+      activatePublishedAsset,
+      activeHistoryJob?.id,
+      assetAction,
+      fetchPublishedAssets,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
+  );
+
+  const handleSplitActiveAsset = useCallback(
+    async (asset: AiAssetRecord | null) => {
+      if (!asset) {
+        showError("Сначала выберите модель в истории или ассетах.");
+        return;
+      }
+      if (assetAction) return;
+      const assetId = asset.id;
+      const versionId = asset.id;
+      setAssetAction({ assetId, type: "split_auto" });
+      try {
+        const response = await fetch(ASSET_SPLIT_API(assetId), {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ versionId, mode: "auto" }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success || !data?.jobId) {
+          throw new Error(typeof data?.error === "string" ? data.error : "Split failed.");
+        }
+        const settled = await waitForPipelineJob(String(data.jobId));
+        const result = (settled?.result || data?.result || {}) as {
+          noChanges?: boolean;
+          newVersionId?: string;
+          partSetId?: string;
+        };
+        if (result?.noChanges) {
+          showSuccess("Split: изменений не найдено.");
+        } else {
+          showSuccess(`Split готов: partSet ${result?.partSetId || "created"}.`);
+        }
+        const snapshot = await fetchPublishedAssets(true);
+        if (result?.newVersionId && snapshot?.byId?.[result.newVersionId]) {
+          activatePublishedAsset(snapshot.byId[result.newVersionId], {
+            jobId: activeHistoryJob?.id || snapshot.byId[result.newVersionId].jobId || null,
+          });
+        } else if (snapshot?.byId?.[assetId]) {
+          activatePublishedAsset(snapshot.byId[assetId], {
+            jobId: activeHistoryJob?.id || snapshot.byId[assetId].jobId || null,
+          });
+        }
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new Event("ai-assets-updated"));
+        }
+      } catch (error) {
+        pushUiError(error instanceof Error ? error.message : "Split failed.");
+      } finally {
+        setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
+      }
+    },
+    [
+      activatePublishedAsset,
+      activeHistoryJob?.id,
+      assetAction,
+      fetchPublishedAssets,
+      pushUiError,
+      showError,
+      showSuccess,
+      waitForPipelineJob,
+    ]
+  );
+
+  const isAssetPipelineBusy = Boolean(assetAction);
+  const activeDiagnosticsStatus = activeAssetVersion?.checks?.diagnostics?.status || "unknown";
+  const activeDiagnosticsBadgeClass =
+    activeDiagnosticsStatus === "ok"
+      ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-200"
+      : activeDiagnosticsStatus === "warning"
+        ? "border-amber-400/40 bg-amber-500/10 text-amber-200"
+        : activeDiagnosticsStatus === "critical"
+          ? "border-rose-400/40 bg-rose-500/10 text-rose-200"
+          : "border-white/20 bg-white/5 text-white/60";
+
   const filteredJobHistory = useMemo(() => {
     if (jobHistoryFilter === "all") return jobHistory;
     return jobHistory.filter((job) => job.status === jobHistoryFilter);
@@ -3821,38 +3983,6 @@ function AiLabContent() {
   }, [resultAsset, resultJob, router, showError]);
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
-  const exportTargetAsset = useMemo(() => {
-    if (resultJob?.id) {
-      const resultAssetId = publishedAssetsByJobId[resultJob.id];
-      if (resultAssetId && publishedAssetsById[resultAssetId]) {
-        return publishedAssetsById[resultAssetId];
-      }
-    }
-    const activeModel = (activePreviewModel || "").trim();
-    if (activeModel) {
-      const byModel = Object.values(publishedAssetsById).find(
-        (asset) => (asset.modelUrl || "").trim() === activeModel
-      );
-      if (byModel) return byModel;
-    }
-    const all = Object.values(publishedAssetsById);
-    if (!all.length) return null;
-    return (
-      all.sort((a, b) => {
-        const at = new Date(String((a as any)?.createdAt || 0)).getTime();
-        const bt = new Date(String((b as any)?.createdAt || 0)).getTime();
-        if (Number.isFinite(at) && Number.isFinite(bt)) return bt - at;
-        return 0;
-      })[0] || null
-    );
-  }, [activePreviewModel, publishedAssetsById, publishedAssetsByJobId, resultJob?.id]);
-  const handleOpenBlenderFromExportPanel = useCallback(async () => {
-    if (!exportTargetAsset) {
-      showError("Сначала сохраните модель в ассеты (кнопка ПУБЛИКАЦИЯ).");
-      return;
-    }
-    await queueBlenderJobForAsset(exportTargetAsset);
-  }, [exportTargetAsset, queueBlenderJobForAsset, showError]);
   const [modelScale, setModelScale] = useState(1);
 
   useEffect(() => {
@@ -4804,18 +4934,13 @@ function AiLabContent() {
                   <button
                     type="button"
                     onClick={() => {
-                      if (exportTargetAsset) {
-                        handleDownloadAssetGlb(exportTargetAsset);
+                      if (!activeAssetVersion) {
+                        showError("Выберите активную модель в истории/ассетах.");
                         return;
                       }
-                      const firstLocal = gallery[0];
-                      if (!firstLocal) {
-                        showError("Сначала создайте модель.");
-                        return;
-                      }
-                      handleDownload(firstLocal);
+                      handleDownloadAssetGlb(activeAssetVersion);
                     }}
-                    disabled={gallery.length === 0 && !exportTargetAsset}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
                     className="rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     Экспорт GLB
@@ -4831,9 +4956,13 @@ function AiLabContent() {
                 <button
                   type="button"
                   onClick={() => {
-                    void handleOpenBlenderFromExportPanel();
+                    if (!activeAssetVersion) {
+                      showError("Выберите активную модель в истории/ассетах.");
+                      return;
+                    }
+                    void queueBlenderJobForAsset(activeAssetVersion);
                   }}
-                  disabled={Boolean(assetAction)}
+                  disabled={!activeAssetVersion || isAssetPipelineBusy}
                   className="w-full rounded-lg border border-violet-400/35 bg-violet-500/10 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
                 >
                   {assetAction?.type === "blender" ? "Открытие в Blender..." : "Открыть в Blender"}
@@ -5239,13 +5368,212 @@ function AiLabContent() {
             </div>
             <div className="rounded-2xl border border-white/10 bg-black/25 p-2">
               <input
-                value={rightPanelQuery}
-                onChange={(event) => setRightPanelQuery(event.target.value)}
+                value={rightPanelQueryInput}
+                onChange={(event) => setRightPanelQueryInput(event.target.value)}
                 placeholder="Поиск..."
                 className="w-full rounded-xl border border-white/10 bg-black/35 px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/80 placeholder:text-white/35 focus:border-cyan-400/50 focus:outline-none"
               />
             </div>
           </div>
+          {labPanelTab !== "jobs" && (
+            <div className="rounded-2xl border border-cyan-400/35 bg-black/35 p-3">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/65">
+                    Выбранная модель
+                  </p>
+                  {activeHistoryJob ? (
+                    <>
+                      <p className="mt-1 truncate text-sm font-semibold text-white/90">
+                        {activeHistoryJob.prompt || `Задача ${activeHistoryJob.id}`}
+                      </p>
+                      <p className="mt-1 truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                        {activeAssetVersion?.versionLabel || "original"} •{" "}
+                        {JOB_STATUS_LABEL_RU[activeHistoryJob.status] || activeHistoryJob.status}
+                      </p>
+                    </>
+                  ) : (
+                    <p className="mt-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                      Выберите модель в истории или ассетах
+                    </p>
+                  )}
+                </div>
+                <span
+                  className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${activeDiagnosticsBadgeClass}`}
+                >
+                  {activeDiagnosticsStatus}
+                </span>
+              </div>
+
+              <div className="mt-3 flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!activeHistoryJob) return;
+                    setRemixJob(activeHistoryJob);
+                    setRemixPrompt(activeHistoryJob.prompt || "");
+                    setRemixLocalEdit(false);
+                    setRemixTargetZone("ноги");
+                    setRemixIssueReference(null);
+                  }}
+                  disabled={!activeHistoryJob || historyAction?.id === activeHistoryJob?.id}
+                  className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {historyAction?.id === activeHistoryJob?.id && historyAction?.type === "variation"
+                    ? "..."
+                    : "Ремикс"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!activeHistoryJob) return;
+                    void handlePublishJob(activeHistoryJob);
+                  }}
+                  disabled={
+                    !activeHistoryJob ||
+                    historyAction?.id === activeHistoryJob.id ||
+                    Boolean(activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id])
+                  }
+                  className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id]
+                    ? "Сохранено"
+                    : historyAction?.id === activeHistoryJob?.id && historyAction?.type === "publish"
+                      ? "..."
+                      : "В библиотеку"}
+                </button>
+                <details className="group relative">
+                  <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
+                    ...
+                  </summary>
+                  <div className="absolute right-0 top-8 z-20 min-w-[172px] space-y-1 rounded-xl border border-white/10 bg-[#06090d]/95 p-2 shadow-[0_12px_24px_rgba(0,0,0,0.45)]">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activeHistoryJob) return;
+                        void handleRetryHistoryJob(activeHistoryJob);
+                      }}
+                      disabled={
+                        !activeHistoryJob ||
+                        historyAction?.id === activeHistoryJob.id ||
+                        (activeHistoryJob.status !== "failed" && activeHistoryJob.status !== "queued")
+                      }
+                      className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Повтор
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleAnalyzeActiveAsset(activeAssetVersion, true)}
+                      disabled={!activeAssetVersion || isAssetPipelineBusy}
+                      className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Обновить анализ
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "strong")}
+                      disabled={!activeAssetVersion || isAssetPipelineBusy}
+                      className="w-full rounded-lg border border-orange-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-orange-200 transition hover:border-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Quick Fix Strong
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShowAssetIssues(activeAssetVersion)}
+                      disabled={!activeAssetVersion}
+                      className="w-full rounded-lg border border-white/30 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Показать проблемы
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!activeHistoryJob) return;
+                        if (!window.confirm("Удалить задачу навсегда?")) return;
+                        void handleDeleteHistoryJob(activeHistoryJob);
+                      }}
+                      disabled={!activeHistoryJob || historyAction?.id === activeHistoryJob?.id}
+                      className="w-full rounded-lg border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      Удалить
+                    </button>
+                  </div>
+                </details>
+              </div>
+
+              <div className="mt-3">
+                <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                  Инструменты для активной модели
+                </p>
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => void handleAnalyzeActiveAsset(activeAssetVersion)}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-emerald-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "analyze"
+                      ? "..."
+                      : isAnalysisFresh(activeAssetVersion)
+                        ? "Обновить анализ"
+                        : "Анализ"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-amber-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "fix_safe"
+                      ? "..."
+                      : "Быстрый фикс"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSplitActiveAsset(activeAssetVersion)}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-cyan-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "split_auto"
+                      ? "..."
+                      : "Разделить"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeAssetVersion) return;
+                      handleDownloadAssetGlb(activeAssetVersion);
+                    }}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    className="rounded-full border border-[#2ED1FF]/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    Экспорт GLB
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!activeAssetVersion) return;
+                      void queueBlenderJobForAsset(activeAssetVersion);
+                    }}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
+                    title={isAssetPipelineBusy ? "Сейчас выполняется обработка. Подождите завершения." : ""}
+                    className="rounded-full border border-violet-400/45 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    {assetAction?.assetId === activeAssetVersion?.id && assetAction?.type === "blender"
+                      ? "..."
+                      : "Blender"}
+                  </button>
+                </div>
+              </div>
+              <div className="mt-3 rounded-xl border border-white/10 bg-black/20 px-2.5 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
+                Экспорт / Blender дублируются в левом инструменте «Экспорт».
+              </div>
+            </div>
+          )}
 
           {labPanelTab === "jobs" && (
             <>
@@ -5435,18 +5763,31 @@ function AiLabContent() {
                   <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/40">
                     ПУСТО. ИЗМЕНИТЕ ПОИСК ИЛИ СГЕНЕРИРУЙТЕ ПЕРВУЮ МОДЕЛЬ.
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setLeftTool("generate")}
-                    className="mt-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
-                  >
-                    Сгенерировать первую модель
-                  </button>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRightPanelQueryInput("");
+                        setJobHistoryFilter("all");
+                      }}
+                      className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
+                    >
+                      Сбросить фильтры
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLeftTool("generate")}
+                      className="rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
+                    >
+                      Сгенерировать первую модель
+                    </button>
+                  </div>
                 </div>
               ) : (
                 filteredHistoryByQuery.map((job) => {
-                  const linkedAssetId = publishedAssetsByJobId[job.id];
-                  const linkedAsset = linkedAssetId ? publishedAssetsById[linkedAssetId] : null;
+                  const linkedAsset = publishedAssetsByJobId[job.id]
+                    ? publishedAssetsById[publishedAssetsByJobId[job.id]]
+                    : null;
                   const fixAvailable = Boolean(
                     linkedAsset?.fixAvailable || linkedAsset?.checks?.topology?.fixAvailable
                   );
@@ -5455,7 +5796,20 @@ function AiLabContent() {
                   return (
                   <div
                     key={job.id}
-                    className="rounded-xl border border-white/10 bg-white/[0.03] px-3 py-2"
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => handlePickHistoryJob(job)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        handlePickHistoryJob(job);
+                      }
+                    }}
+                    className={`rounded-xl border bg-white/[0.03] px-3 py-2 transition ${
+                      activeHistoryJobId === job.id
+                        ? "border-[#2ED1FF]/60 shadow-[0_0_14px_rgba(46,209,255,0.2)]"
+                        : "border-white/10 hover:border-white/25"
+                    }`}
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -5490,14 +5844,8 @@ function AiLabContent() {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => handlePickHistoryJob(job)}
-                          className="rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
-                        >
-                          ВЗЯТЬ
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
+                          onClick={(event) => {
+                            event.stopPropagation();
                             setRemixJob(job);
                             setRemixPrompt(job.prompt || "");
                             setRemixLocalEdit(false);
@@ -5512,7 +5860,10 @@ function AiLabContent() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handlePublishJob(job)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void handlePublishJob(job);
+                          }}
                           disabled={
                             historyAction?.id === job.id ||
                             job.status !== "completed" ||
@@ -5526,14 +5877,17 @@ function AiLabContent() {
                               ? "..."
                               : "ПУБЛИКАЦИЯ"}
                         </button>
-                        <details className="group relative">
+                        <details className="group relative" onClick={(event) => event.stopPropagation()}>
                           <summary className="list-none cursor-pointer rounded-full border border-white/20 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white [&::-webkit-details-marker]:hidden">
                             ЕЩЕ
                           </summary>
                           <div className="absolute right-0 top-8 z-20 min-w-[172px] space-y-1 rounded-xl border border-white/10 bg-[#06090d]/95 p-2 shadow-[0_12px_24px_rgba(0,0,0,0.45)]">
                             <button
                               type="button"
-                              onClick={() => void handleRetryHistoryJob(job)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleRetryHistoryJob(job);
+                              }}
                               disabled={
                                 historyAction?.id === job.id ||
                                 (job.status !== "failed" && job.status !== "queued")
@@ -5544,67 +5898,10 @@ function AiLabContent() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => void handleAnalyzePublishedAsset(job)}
-                              disabled={!linkedAssetId || Boolean(assetAction)}
-                              className="w-full rounded-lg border border-emerald-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-200 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={linkedAssetId ? "Проверить топологию ассета" : "Сначала сохраните ассет"}
-                            >
-                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "analyze"
-                                ? "..."
-                                : "АНАЛИЗ"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleQuickFixPublishedAsset(job, "safe")}
-                              disabled={!linkedAssetId || Boolean(assetAction)}
-                              className="w-full rounded-lg border border-amber-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={linkedAssetId ? "Безопасный авто-фикс" : "Сначала сохраните ассет"}
-                            >
-                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "fix_safe"
-                                ? "..."
-                                : "QUICK FIX"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleQuickFixPublishedAsset(job, "strong")}
-                              disabled={!linkedAssetId || Boolean(assetAction)}
-                              className="w-full rounded-lg border border-orange-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-orange-200 transition hover:border-orange-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={linkedAssetId ? "Агрессивный авто-фикс (может менять детали)" : "Сначала сохраните ассет"}
-                            >
-                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "fix_strong"
-                                ? "..."
-                                : "QUICK FIX STRONG"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleSplitPublishedAsset(job)}
-                              disabled={!linkedAssetId || Boolean(assetAction)}
-                              className="w-full rounded-lg border border-cyan-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-                              title={linkedAssetId ? "Разделить модель на части (auto separate shells)" : "Сначала сохраните ассет"}
-                            >
-                              {assetAction?.assetId === linkedAssetId && assetAction?.type === "split_auto"
-                                ? "..."
-                                : "SPLIT AUTO"}
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleShowAssetIssues(linkedAsset)}
-                              disabled={!linkedAsset}
-                              className="w-full rounded-lg border border-white/30 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/80 transition hover:border-white/50 disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              SHOW ISSUES
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => linkedAsset && handleDownloadAssetGlb(linkedAsset)}
-                              disabled={!linkedAsset}
-                              className="w-full rounded-lg border border-[#2ED1FF]/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF] disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                              DOWNLOAD GLB
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void handleDeleteHistoryJob(job)}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                void handleDeleteHistoryJob(job);
+                              }}
                               disabled={historyAction?.id === job.id}
                               className="w-full rounded-lg border border-rose-400/40 px-2 py-1 text-left text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-rose-200 transition hover:border-rose-300 disabled:cursor-not-allowed disabled:opacity-50"
                             >
@@ -5614,40 +5911,6 @@ function AiLabContent() {
                         </details>
                       </div>
                     </div>
-                    {linkedAsset && (
-                      <div className="mt-2 rounded-xl border border-white/10 bg-black/25 p-2">
-                        <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
-                          Actions
-                        </p>
-                        <div className="mt-2 flex flex-wrap gap-1.5">
-                          <button
-                            type="button"
-                            onClick={() => void handleQuickFixPublishedAsset(job, "safe")}
-                            disabled={Boolean(assetAction)}
-                            className="rounded-full border border-amber-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {assetAction?.assetId === linkedAsset.id && assetAction?.type === "fix_safe" ? "..." : "Quick Fix"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => void handleSplitPublishedAsset(job)}
-                            disabled={Boolean(assetAction)}
-                            className="rounded-full border border-cyan-400/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
-                          >
-                            {assetAction?.assetId === linkedAsset.id && assetAction?.type === "split_auto"
-                              ? "..."
-                              : "Split into parts"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDownloadAssetGlb(linkedAsset)}
-                            className="rounded-full border border-[#2ED1FF]/45 px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
-                          >
-                            Download GLB
-                          </button>
-                        </div>
-                      </div>
-                    )}
                   </div>
                   );
                 })
@@ -5667,13 +5930,22 @@ function AiLabContent() {
                   <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/40">
                     ПОКА НЕТ РЕЗУЛЬТАТОВ
                   </p>
-                  <button
-                    type="button"
-                    onClick={() => setLeftTool("generate")}
-                    className="mt-2 rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
-                  >
-                    Сгенерировать первую модель
-                  </button>
+                  <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setRightPanelQueryInput("")}
+                      className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
+                    >
+                      Сбросить фильтры
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setLeftTool("generate")}
+                      className="rounded-full border border-cyan-400/35 bg-cyan-500/10 px-3 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
+                    >
+                      Сгенерировать первую модель
+                    </button>
+                  </div>
                 </div>
               ) : (
                 filteredGalleryByQuery.map((asset) => (
