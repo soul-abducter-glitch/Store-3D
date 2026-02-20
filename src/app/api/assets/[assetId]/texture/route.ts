@@ -35,6 +35,30 @@ const normalizeHexColor = (value: unknown, fallback = "#b7a487") => {
   return normalized.toLowerCase();
 };
 
+const IMAGE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i;
+
+const looksLikeImageUrl = (value: string) => {
+  const raw = value.trim();
+  if (!raw) return false;
+  if (raw.startsWith("data:image/")) return true;
+  const withoutHash = raw.split("#")[0] || raw;
+  const withoutQuery = withoutHash.split("?")[0] || withoutHash;
+  return IMAGE_EXT_RE.test(withoutQuery);
+};
+
+const normalizeTextureImageUrl = (value: unknown) => {
+  const raw = toNonEmptyString(value);
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) {
+    // Keep inline payloads bounded so checks JSON doesn't grow uncontrollably.
+    return raw.length <= 260_000 ? raw : "";
+  }
+  if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/")) {
+    return looksLikeImageUrl(raw) ? raw : "";
+  }
+  return "";
+};
+
 const hashToTint = (seed: string) => {
   const raw = seed || "texture";
   let hash = 0;
@@ -83,6 +107,9 @@ export async function POST(
   try {
     const body = await request.json().catch(() => null);
     const mode = resolveMode(body?.mode);
+    const requestedSourceImageUrl = normalizeTextureImageUrl(
+      body?.params?.sourceImageUrl || body?.sourceImageUrl
+    );
 
     targetAsset = await resolveOwnedAssetVersion({
       payload,
@@ -117,10 +144,20 @@ export async function POST(
     jobs = upsertPipelineJob(jobs, job);
 
     const sourceUrl = toNonEmptyString(targetAsset?.sourceUrl);
+    const fallbackSourceImageUrl =
+      normalizeTextureImageUrl(targetAsset?.sourceUrl) ||
+      normalizeTextureImageUrl(targetAsset?.previewUrl) ||
+      "";
+    const baseColorMapUrl =
+      mode === "image" ? requestedSourceImageUrl || fallbackSourceImageUrl || null : null;
+    const usedImageMap = Boolean(baseColorMapUrl);
     const tintHex =
       mode === "flat"
         ? normalizeHexColor(body?.params?.color, "#aab0ba")
-        : hashToTint(sourceUrl || toNonEmptyString(targetAsset?.title) || String(targetAsset.id));
+        : hashToTint(
+            (baseColorMapUrl || sourceUrl || toNonEmptyString(targetAsset?.title) || String(targetAsset.id))
+              .slice(0, 1024)
+          );
 
     const sourceChecks =
       targetAsset?.checks && typeof targetAsset.checks === "object" ? targetAsset.checks : {};
@@ -129,15 +166,20 @@ export async function POST(
       ...sourceChecks,
       texture: {
         mode,
-        sourceImageUrl: sourceUrl || null,
+        sourceImageUrl: baseColorMapUrl || sourceUrl || null,
+        baseColorMapUrl,
+        mapApplied: usedImageMap,
         tintHex,
         roughness: 0.72,
         metalness: 0.08,
         autoUv: true,
+        uvReady: true,
         generatedAt: new Date().toISOString(),
         notes:
           mode === "image"
-            ? "Texture color profile derived from source image metadata (MVP)."
+            ? usedImageMap
+              ? "Base color map applied from source image (MVP)."
+              : "Source image not found. Fallback color profile applied (MVP)."
             : "Fallback flat material profile applied.",
       },
     };
@@ -161,6 +203,8 @@ export async function POST(
       result: {
         newVersionId: String(texturedAsset.id),
         mode,
+        baseColorMapUrl,
+        mapApplied: usedImageMap,
         tintHex,
         autoUv: true,
       },
@@ -185,6 +229,8 @@ export async function POST(
         result: {
           newVersionId: String(texturedAsset.id),
           mode,
+          baseColorMapUrl,
+          mapApplied: usedImageMap,
           tintHex,
           autoUv: true,
         },
@@ -231,4 +277,3 @@ export async function POST(
     );
   }
 }
-

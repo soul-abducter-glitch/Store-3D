@@ -37,7 +37,10 @@ import {
   type PointLight,
 } from "three";
 
-import ModelView, { type ModelIssueMarker } from "@/components/ModelView";
+import ModelView, {
+  type ModelIssueMarker,
+  type ModelMaterialOverride,
+} from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import { resolveGenerationEtaMinutes, resolveGenerationTokenCost } from "@/lib/aiGenerationProfile";
 
@@ -111,6 +114,7 @@ type AiAssetRecord = {
   title: string;
   modelUrl: string;
   previewUrl: string;
+  sourceUrl?: string;
   format: string;
   status: string;
   splitPartSet?: {
@@ -147,6 +151,18 @@ type AiAssetRecord = {
       polycount?: number | null;
       scaleSanity?: "ok" | "warning" | "critical" | "unknown";
       analyzedAt?: string;
+    };
+    texture?: {
+      mode?: "image" | "flat" | string;
+      sourceImageUrl?: string | null;
+      baseColorMapUrl?: string | null;
+      mapApplied?: boolean;
+      tintHex?: string;
+      roughness?: number | null;
+      metalness?: number | null;
+      autoUv?: boolean;
+      generatedAt?: string;
+      notes?: string;
     };
   } | null;
 };
@@ -254,6 +270,15 @@ const APPEARANCE_PRESET_TINT: Record<"clay" | "resin" | "plastic" | "hologram", 
   plastic: "#c4d4ff",
   hologram: "#78ecff",
 };
+const APPEARANCE_PRESET_PBR: Record<
+  "clay" | "resin" | "plastic" | "hologram",
+  { roughness: number; metalness: number }
+> = {
+  clay: { roughness: 0.92, metalness: 0.02 },
+  resin: { roughness: 0.36, metalness: 0.04 },
+  plastic: { roughness: 0.52, metalness: 0.08 },
+  hologram: { roughness: 0.18, metalness: 0.64 },
+};
 const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
   { id: "starter", title: "STARTER", credits: 50, note: "STRIPE TEST" },
   { id: "pro", title: "PRO", credits: 200, note: "STRIPE TEST" },
@@ -275,6 +300,22 @@ const QUALITY_PRESET_LABEL: Record<"draft" | "standard" | "pro", string> = {
   draft: "Черновик",
   standard: "Стандарт",
   pro: "Про",
+};
+const IMAGE_SOURCE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i;
+
+const normalizeTextureSourceUrl = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) return raw.length <= 260_000 ? raw : "";
+  if (!(raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/"))) {
+    return "";
+  }
+  const withoutHash = raw.split("#")[0] || raw;
+  const withoutQuery = withoutHash.split("?")[0] || withoutHash;
+  if (IMAGE_SOURCE_EXT_RE.test(withoutQuery)) return raw;
+  if (/\/api\/media\/file\//i.test(withoutQuery)) return raw;
+  return "";
 };
 const STYLE_PRESET_LABEL: Record<"realistic" | "stylized" | "anime", string> = {
   realistic: "Реалистичный",
@@ -4086,7 +4127,11 @@ function AiLabContent() {
   );
 
   const handleTextureActiveAsset = useCallback(
-    async (asset: AiAssetRecord | null, mode: "image" | "flat" = "image") => {
+    async (
+      asset: AiAssetRecord | null,
+      mode: "image" | "flat" = "image",
+      sourceImageUrl?: string | null
+    ) => {
       if (!asset) {
         showError("Сначала выберите модель в истории или ассетах.");
         return;
@@ -4103,12 +4148,17 @@ function AiLabContent() {
           body: JSON.stringify({
             versionId,
             mode,
-            params: mode === "flat" ? { color: "#aab0ba" } : undefined,
+            params:
+              mode === "flat"
+                ? { color: "#aab0ba" }
+                : {
+                    sourceImageUrl: normalizeTextureSourceUrl(sourceImageUrl || ""),
+                  },
           }),
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Texture failed.");
+          throw new Error(typeof data?.error === "string" ? data.error : "Текстуры не применены.");
         }
         const settled = await waitForPipelineJob(String(data.jobId));
         const result = (settled?.result || data?.result || {}) as {
@@ -4126,7 +4176,8 @@ function AiLabContent() {
           activatePublishedAsset(snapshot.byId[result.newVersionId], {
             jobId: activeHistoryJob?.id || snapshot.byId[result.newVersionId].jobId || null,
           });
-          setViewportRenderMode("base");
+          setAppearancePreset("original");
+          setViewportRenderMode("final");
         } else if (snapshot?.byId?.[assetId]) {
           activatePublishedAsset(snapshot.byId[assetId], {
             jobId: activeHistoryJob?.id || snapshot.byId[assetId].jobId || null,
@@ -4136,7 +4187,7 @@ function AiLabContent() {
           window.dispatchEvent(new Event("ai-assets-updated"));
         }
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Texture failed.");
+        pushUiError(error instanceof Error ? error.message : "Текстуры не применены.");
       } finally {
         setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
       }
@@ -4153,9 +4204,26 @@ function AiLabContent() {
     ]
   );
 
+  const resolveTextureImageSource = useCallback(() => {
+    for (const ref of validInputReferences) {
+      const candidate = normalizeTextureSourceUrl(ref.previewUrl || ref.url);
+      if (candidate) return candidate;
+    }
+    const historyRefs = Array.isArray(activeHistoryJob?.inputRefs) ? activeHistoryJob.inputRefs : [];
+    for (const ref of historyRefs) {
+      const candidate = normalizeTextureSourceUrl(ref?.url);
+      if (candidate) return candidate;
+    }
+    const assetCandidate = normalizeTextureSourceUrl(activeAssetVersion?.sourceUrl || "");
+    if (assetCandidate) return assetCandidate;
+    const previewCandidate = normalizeTextureSourceUrl(activeAssetVersion?.previewUrl || "");
+    if (previewCandidate) return previewCandidate;
+    return normalizeTextureSourceUrl(uploadPreview || "");
+  }, [activeAssetVersion?.previewUrl, activeAssetVersion?.sourceUrl, activeHistoryJob?.inputRefs, uploadPreview, validInputReferences]);
+
   const handleTextureFromImage = useCallback(() => {
-    void handleTextureActiveAsset(activeAssetVersion, "image");
-  }, [activeAssetVersion, handleTextureActiveAsset]);
+    void handleTextureActiveAsset(activeAssetVersion, "image", resolveTextureImageSource());
+  }, [activeAssetVersion, handleTextureActiveAsset, resolveTextureImageSource]);
 
   const handleTextureFallbackMaterial = useCallback(() => {
     void handleTextureActiveAsset(activeAssetVersion, "flat");
@@ -4395,23 +4463,66 @@ function AiLabContent() {
   }, [resultAsset, resultJob, router, showError]);
   const activePreviewModel = generatedPreviewModel ?? localPreviewModel ?? previewModel;
   const activePreviewLabel = generatedPreviewLabel ?? localPreviewLabel ?? previewLabel;
+  const activeTextureProfile = useMemo(() => {
+    const textureChecks = activeAssetVersion?.checks?.texture;
+    if (!textureChecks || typeof textureChecks !== "object") return null;
+
+    const tintRaw = String(textureChecks?.tintHex || "")
+      .trim()
+      .toLowerCase();
+    const tintHex = /^#[0-9a-f]{6}$/.test(tintRaw) ? tintRaw : "#aab0ba";
+    const roughnessRaw = Number(textureChecks?.roughness);
+    const metalnessRaw = Number(textureChecks?.metalness);
+    const roughness = Number.isFinite(roughnessRaw) ? Math.max(0, Math.min(1, roughnessRaw)) : 0.72;
+    const metalness = Number.isFinite(metalnessRaw) ? Math.max(0, Math.min(1, metalnessRaw)) : 0.08;
+    const baseColorMapUrl = normalizeTextureSourceUrl(
+      textureChecks?.baseColorMapUrl || textureChecks?.sourceImageUrl || ""
+    );
+
+    return {
+      mode: textureChecks?.mode === "flat" ? "flat" : "image",
+      tintHex,
+      roughness,
+      metalness,
+      baseColorMapUrl: baseColorMapUrl || null,
+    };
+  }, [activeAssetVersion?.checks?.texture]);
+  const hasTextureImageSource = useMemo(
+    () => Boolean(resolveTextureImageSource()),
+    [resolveTextureImageSource]
+  );
   const activeTextureTint = useMemo(() => {
     if (appearancePreset !== "original") {
       return APPEARANCE_PRESET_TINT[appearancePreset];
     }
-    const raw = String((activeAssetVersion?.checks as any)?.texture?.tintHex || "")
-      .trim()
-      .toLowerCase();
-    return /^#[0-9a-f]{6}$/.test(raw) ? raw : "#aab0ba";
-  }, [activeAssetVersion?.checks, appearancePreset]);
+    return activeTextureProfile?.tintHex || "#aab0ba";
+  }, [activeTextureProfile?.tintHex, appearancePreset]);
+  const activeMaterialOverride = useMemo<ModelMaterialOverride | null>(() => {
+    if (appearancePreset !== "original") {
+      const preset = APPEARANCE_PRESET_PBR[appearancePreset];
+      return {
+        baseColor: APPEARANCE_PRESET_TINT[appearancePreset],
+        roughness: preset.roughness,
+        metalness: preset.metalness,
+      };
+    }
+    if (!activeTextureProfile) return null;
+    return {
+      baseColor: activeTextureProfile.tintHex,
+      baseColorMapUrl:
+        activeTextureProfile.mode === "image" ? activeTextureProfile.baseColorMapUrl : null,
+      roughness: activeTextureProfile.roughness,
+      metalness: activeTextureProfile.metalness,
+    };
+  }, [activeTextureProfile, appearancePreset]);
   const effectiveViewportRenderMode = useMemo<"final" | "wireframe" | "base">(() => {
     if (viewportRenderMode === "wireframe") return "wireframe";
     if (appearancePreset !== "original") return "base";
-    if (activeAssetVersion?.versionLabel === "textured_v1") return "base";
     return viewportRenderMode;
-  }, [activeAssetVersion?.versionLabel, appearancePreset, viewportRenderMode]);
+  }, [appearancePreset, viewportRenderMode]);
   const noActiveModelTooltip = "Сначала сгенерируйте/выберите модель";
   const busyPipelineTooltip = "Сейчас выполняется обработка. Подождите завершения.";
+  const noTextureSourceTooltip = "Нужно исходное изображение (референс или source image).";
   const activeModelStatus = useMemo<"READY" | "RUNNING" | "ERROR">(() => {
     if (activeAssetVersion && assetAction?.assetId === activeAssetVersion.id) return "RUNNING";
     if (serverJobError) return "ERROR";
@@ -5399,12 +5510,16 @@ function AiLabContent() {
                   <button
                     type="button"
                     onClick={handleTextureFromImage}
-                    disabled={
-                      !activeAssetVersion ||
-                      isAssetPipelineBusy ||
-                      (!uploadPreview && validInputReferences.length === 0 && !activeHistoryJob?.inputRefs?.length)
+                    disabled={!activeAssetVersion || isAssetPipelineBusy || !hasTextureImageSource}
+                    title={
+                      !activeAssetVersion
+                        ? noActiveModelTooltip
+                        : isAssetPipelineBusy
+                          ? busyPipelineTooltip
+                          : !hasTextureImageSource
+                            ? noTextureSourceTooltip
+                            : undefined
                     }
-                    title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
                     className="w-full rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
                     Текстуры (из изображения)
@@ -5515,6 +5630,7 @@ function AiLabContent() {
                       renderMode={effectiveViewportRenderMode}
                       accentColor="#2ED1FF"
                       baseColor={activeTextureTint}
+                      materialOverride={activeMaterialOverride}
                       onBounds={handleBounds}
                       onStats={handleViewportStats}
                       onIssueMarkers={handleViewportIssueMarkers}

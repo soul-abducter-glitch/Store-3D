@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useGLTF } from "@react-three/drei";
+import { useGLTF, useTexture } from "@react-three/drei";
 import type { Material } from "three";
-import { Box3, Color, Mesh, Sphere, Vector3, type Object3D } from "three";
+import { Box3, Color, Mesh, SRGBColorSpace, Sphere, Vector3, type Object3D } from "three";
 import { clone as cloneSkeleton } from "three/examples/jsm/utils/SkeletonUtils.js";
 
 import { resolveAssetUrl, type Finish } from "@/lib/products";
@@ -17,6 +17,13 @@ export type ModelIssueMarker = {
   severity: "low" | "medium" | "high";
 };
 
+export type ModelMaterialOverride = {
+  baseColor?: string;
+  baseColorMapUrl?: string | null;
+  roughness?: number;
+  metalness?: number;
+};
+
 type ModelViewProps = {
   rawModelUrl?: string | null;
   paintedModelUrl?: string | null;
@@ -24,6 +31,7 @@ type ModelViewProps = {
   renderMode: RenderMode;
   accentColor: string;
   baseColor?: string;
+  materialOverride?: ModelMaterialOverride | null;
   analysisSignal?: number;
   onBounds?: (bounds: {
     size: number;
@@ -39,6 +47,8 @@ type ModelViewProps = {
 };
 
 const FALLBACK_MODEL = "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
+const TRANSPARENT_PIXEL_DATA_URL =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
 
 export default function ModelView({
   rawModelUrl,
@@ -47,6 +57,7 @@ export default function ModelView({
   renderMode,
   accentColor,
   baseColor,
+  materialOverride,
   analysisSignal,
   onBounds,
   onStats,
@@ -97,9 +108,32 @@ export default function ModelView({
   >(new Map());
   const normalizedScenes = useRef<WeakSet<object>>(new WeakSet());
   const baseModeColor = useMemo(() => new Color(baseColor ?? "#4a4a4a"), [baseColor]);
+  const overrideColor = useMemo(() => {
+    const raw = typeof materialOverride?.baseColor === "string" ? materialOverride.baseColor.trim() : "";
+    if (!raw) return null;
+    try {
+      return new Color(raw);
+    } catch {
+      return null;
+    }
+  }, [materialOverride?.baseColor]);
+  const overrideMapUrl = useMemo(() => {
+    const raw = typeof materialOverride?.baseColorMapUrl === "string" ? materialOverride.baseColorMapUrl.trim() : "";
+    if (!raw) return "";
+    return resolveAssetUrl(raw) ?? raw;
+  }, [materialOverride?.baseColorMapUrl]);
+  const hasOverrideMap = Boolean(overrideMapUrl);
+  const overrideMap = useTexture(hasOverrideMap ? overrideMapUrl : TRANSPARENT_PIXEL_DATA_URL);
   const baseRoughness = 0.85;
   const baseMetalness = 0.05;
   const [isReady, setIsReady] = useState(false);
+
+  useEffect(() => {
+    if (!hasOverrideMap || !overrideMap) return;
+    overrideMap.colorSpace = SRGBColorSpace;
+    overrideMap.flipY = false;
+    overrideMap.needsUpdate = true;
+  }, [hasOverrideMap, overrideMap]);
 
   const computeMeshBounds = (root: Object3D) => {
     const box = new Box3();
@@ -437,6 +471,16 @@ export default function ModelView({
 
     const isWireframe = renderMode === "wireframe";
     const useBase = renderMode === "base";
+    const overrideRoughness =
+      typeof materialOverride?.roughness === "number" && Number.isFinite(materialOverride.roughness)
+        ? Math.max(0, Math.min(1, materialOverride.roughness))
+        : null;
+    const overrideMetalness =
+      typeof materialOverride?.metalness === "number" && Number.isFinite(materialOverride.metalness)
+        ? Math.max(0, Math.min(1, materialOverride.metalness))
+        : null;
+    const hasMaterialOverride =
+      overrideColor !== null || hasOverrideMap || overrideRoughness !== null || overrideMetalness !== null;
 
     scene.traverse((child) => {
       if (!(child instanceof Mesh)) return;
@@ -578,6 +622,21 @@ export default function ModelView({
         if ("wireframe" in material) {
           material.wireframe = isWireframe;
         }
+        if (hasMaterialOverride) {
+          if (overrideColor && "color" in material && material.color) {
+            material.color.copy(overrideColor);
+          }
+          if ("map" in material) {
+            (material as any).map = hasOverrideMap ? overrideMap : null;
+          }
+          if ("roughness" in material && typeof overrideRoughness === "number") {
+            (material as any).roughness = overrideRoughness;
+          }
+          if ("metalness" in material && typeof overrideMetalness === "number") {
+            (material as any).metalness = overrideMetalness;
+          }
+          material.needsUpdate = true;
+        }
       });
     });
   }, [
@@ -588,6 +647,11 @@ export default function ModelView({
     isReady,
     accentColor,
     baseModeColor,
+    hasOverrideMap,
+    materialOverride?.metalness,
+    materialOverride?.roughness,
+    overrideColor,
+    overrideMap,
   ]);
 
   return <primitive object={scene} dispose={null} />;
