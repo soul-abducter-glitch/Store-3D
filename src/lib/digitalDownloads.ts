@@ -63,7 +63,32 @@ const resolveDownloadTtlSeconds = () => {
   return Math.min(Math.max(parsed, 300), 1800);
 };
 
-const hasDownloadFile = (product: any) => Boolean(product?.rawModel || product?.paintedModel);
+const LEGACY_DOWNLOAD_FIELDS = [
+  "modelUrl",
+  "modelFile",
+  "downloadUrl",
+  "downloadFile",
+  "digitalFile",
+  "fileUrl",
+  "sourceUrl",
+  "stlFile",
+  "stlUrl",
+  "glbFile",
+  "glbUrl",
+  "assetUrl",
+  "file",
+  "model",
+];
+
+const hasDownloadFile = (product: any) => {
+  if (!product || typeof product !== "object") return false;
+  if (product.rawModel || product.paintedModel) return true;
+  return LEGACY_DOWNLOAD_FIELDS.some((field) => {
+    const value = product[field];
+    if (Array.isArray(value)) return value.some(Boolean);
+    return Boolean(value);
+  });
+};
 
 export const createDownloadEvent = async (args: {
   payload: any;

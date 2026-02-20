@@ -28,6 +28,7 @@ type ProductDoc = {
   paintedModel?: MediaDoc | string | number | null;
   value?: unknown;
   _id?: unknown;
+  [key: string]: unknown;
 };
 
 type UserDoc = {
@@ -259,8 +260,68 @@ const resolveFilename = (media: MediaDoc, product: ProductDoc, target: string) =
   return fileNameFromMedia || fileNameFromUrl || `${product.slug || product.id || target}.stl`;
 };
 
+const legacyMediaFieldCandidates = [
+  "modelUrl",
+  "modelFile",
+  "downloadUrl",
+  "downloadFile",
+  "digitalFile",
+  "fileUrl",
+  "sourceUrl",
+  "stlFile",
+  "stlUrl",
+  "glbFile",
+  "glbUrl",
+  "assetUrl",
+  "file",
+  "model",
+];
+
+const looksLikeDirectMediaValue = (value: string) => {
+  const normalized = value.trim();
+  if (!normalized) return false;
+  if (/^https?:\/\//i.test(normalized)) return true;
+  if (normalized.startsWith("/")) return true;
+  if (normalized.includes("/")) return true;
+  return /\.(glb|gltf|stl|obj|zip|fbx)$/i.test(normalized);
+};
+
+const collectProductMediaCandidates = (product?: ProductDoc | null) => {
+  const values: Array<MediaDoc | string | number | null | undefined> = [
+    product?.rawModel,
+    product?.paintedModel,
+  ];
+  if (!product || typeof product !== "object") {
+    return values;
+  }
+
+  for (const key of legacyMediaFieldCandidates) {
+    const rawValue = (product as Record<string, unknown>)[key];
+    if (Array.isArray(rawValue)) {
+      for (const entry of rawValue) {
+        values.push(entry as MediaDoc | string | number | null);
+      }
+      continue;
+    }
+    values.push(rawValue as MediaDoc | string | number | null | undefined);
+  }
+
+  return values;
+};
+
 const hasDownloadModel = (product?: ProductDoc | null) =>
-  Boolean(product?.rawModel || product?.paintedModel);
+  collectProductMediaCandidates(product).some((value) => {
+    if (value === null || value === undefined) return false;
+    if (typeof value === "number") return true;
+    if (typeof value === "string") {
+      return Boolean(value.trim());
+    }
+    return Boolean(
+      getRelationshipId(value) ||
+        (value as MediaDoc).filename ||
+        (value as MediaDoc).url
+    );
+  });
 
 const buildAttachmentResponse = (
   body: BodyInit | null,
@@ -345,6 +406,18 @@ const tryDownloadFromStorage = async (
 };
 
 const resolveMediaDoc = async (payload: any, value?: MediaDoc | string | number | null) => {
+  if (typeof value === "string") {
+    const raw = value.trim();
+    if (!raw) return null;
+    if (looksLikeDirectMediaValue(raw)) {
+      const normalizedPath = normalizeStoragePath(raw);
+      const filename = normalizedPath.split("/").pop() || "";
+      return {
+        url: raw,
+        filename: filename || undefined,
+      } as MediaDoc;
+    }
+  }
   const relationId = getRelationshipId(value);
   if (typeof value === "object" && value && !relationId) {
     const typed = value as MediaDoc;
@@ -372,6 +445,17 @@ const resolveMediaDoc = async (payload: any, value?: MediaDoc | string | number 
   } catch {
     return null;
   }
+};
+
+const resolveProductMediaDoc = async (payload: any, product: ProductDoc) => {
+  const candidates = collectProductMediaCandidates(product);
+  for (const candidate of candidates) {
+    const media = await resolveMediaDoc(payload, candidate as MediaDoc | string | number | null);
+    if (media?.filename || media?.url) {
+      return media;
+    }
+  }
+  return null;
 };
 
 const fetchUser = async (payload: any, request: NextRequest) => {
@@ -693,9 +777,7 @@ export async function GET(
     return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
-  const media =
-    (await resolveMediaDoc(payload, product.rawModel)) ??
-    (await resolveMediaDoc(payload, product.paintedModel));
+  const media = await resolveProductMediaDoc(payload, product);
   if (!media?.filename && !media?.url) {
     if (entitlementEventMeta) {
       return denyEntitlement(404, "file_missing", "File not available.");
@@ -723,6 +805,19 @@ export async function GET(
     }
   }
 
+  const filenameCandidate = normalizeStoragePath(media.filename || "").split("/").pop();
+  if (filenameCandidate) {
+    const proxiedPayloadMedia = await fetchAsAttachment(
+      request,
+      `/media/${encodeURIComponent(filenameCandidate)}`,
+      resolvedFilename
+    );
+    if (proxiedPayloadMedia) {
+      await writeEntitlementEvent("OK");
+      return proxiedPayloadMedia;
+    }
+  }
+
   const proxyCandidates = buildProxyCandidates(media, resolvedFilename, keyCandidates);
   for (const candidate of proxyCandidates) {
     const proxiedInternal = await fetchAsAttachment(
@@ -734,6 +829,11 @@ export async function GET(
       await writeEntitlementEvent("OK");
       return proxiedInternal;
     }
+  }
+
+  if (media.url && /^https?:\/\//i.test(media.url)) {
+    await writeEntitlementEvent("OK");
+    return NextResponse.redirect(media.url, { status: 307 });
   }
 
   if (!storageTargets.length) {

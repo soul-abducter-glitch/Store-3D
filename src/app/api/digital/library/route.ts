@@ -20,6 +20,23 @@ type MediaDoc = {
   filesize?: number;
 };
 
+const LEGACY_DOWNLOAD_FIELDS = [
+  "modelUrl",
+  "modelFile",
+  "downloadUrl",
+  "downloadFile",
+  "digitalFile",
+  "fileUrl",
+  "sourceUrl",
+  "stlFile",
+  "stlUrl",
+  "glbFile",
+  "glbUrl",
+  "assetUrl",
+  "file",
+  "model",
+];
+
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const resolveMediaUrl = (value?: any) => {
@@ -28,6 +45,26 @@ const resolveMediaUrl = (value?: any) => {
   if (typeof value?.url === "string") return value.url;
   if (typeof value?.filename === "string") return `/media/${value.filename}`;
   return "";
+};
+
+const resolveLegacyMedia = (product: any): MediaDoc | null => {
+  if (!product || typeof product !== "object") return null;
+  for (const key of LEGACY_DOWNLOAD_FIELDS) {
+    const value = product[key];
+    if (!value) continue;
+    if (typeof value === "string") {
+      const trimmed = value.trim();
+      if (!trimmed) continue;
+      return {
+        url: trimmed,
+        filename: trimmed.split("?")[0].split("#")[0].split("/").pop() || undefined,
+      };
+    }
+    if (typeof value?.url === "string" || typeof value?.filename === "string") {
+      return value as MediaDoc;
+    }
+  }
+  return null;
 };
 
 const formatFileSize = (bytes?: number) => {
@@ -194,8 +231,10 @@ export async function GET(request: NextRequest) {
 
     const paintedModel = product?.paintedModel as MediaDoc | null | undefined;
     const rawModel = product?.rawModel as MediaDoc | null | undefined;
-    const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
-    const selectedMedia = (paintedModel || rawModel) as MediaDoc | null;
+    const legacyMedia = resolveLegacyMedia(product);
+    const previewUrl =
+      resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel) || resolveMediaUrl(legacyMedia);
+    const selectedMedia = (paintedModel || rawModel || legacyMedia) as MediaDoc | null;
     const format =
       typeof product?.format === "string" && product.format.trim()
         ? product.format.trim()
