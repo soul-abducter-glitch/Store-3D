@@ -79,6 +79,7 @@ type DownloadEntry = {
   id: string;
   source: "entitlement" | "legacy";
   entitlementId?: string;
+  orderId?: string | null;
   productId: string;
   product: string;
   format: string;
@@ -329,6 +330,7 @@ const mapLegacyPurchasedDownloads = (user: any): DownloadEntry[] => {
       return {
         id: `legacy:${productId}:${index}`,
         source: "legacy",
+        orderId: null,
         productId,
         product: String(product?.name || product?.slug || "Цифровой STL"),
         format: "Digital STL",
@@ -648,6 +650,10 @@ export default function ProfilePage() {
             id: String(entry?.id || entitlementId),
             source: "entitlement",
             entitlementId,
+            orderId:
+              entry?.orderId !== null && entry?.orderId !== undefined
+                ? String(entry.orderId).trim() || null
+                : null,
             productId,
             product: String(entry?.title || "Цифровой файл"),
             format: String(entry?.format || "Digital STL"),
@@ -670,7 +676,20 @@ export default function ProfilePage() {
         mergedByProductId.set(legacy.productId, legacy);
       }
       for (const entitlement of entitlementDownloads) {
-        mergedByProductId.set(entitlement.productId, entitlement);
+        const existing = mergedByProductId.get(entitlement.productId);
+        if (!existing) {
+          mergedByProductId.set(entitlement.productId, entitlement);
+          continue;
+        }
+        if (!existing.ready && entitlement.ready) {
+          mergedByProductId.set(entitlement.productId, entitlement);
+          continue;
+        }
+        const existingTime = existing.purchasedAt ? new Date(existing.purchasedAt).getTime() : 0;
+        const nextTime = entitlement.purchasedAt ? new Date(entitlement.purchasedAt).getTime() : 0;
+        if (nextTime >= existingTime) {
+          mergedByProductId.set(entitlement.productId, entitlement);
+        }
       }
       const merged = Array.from(mergedByProductId.values()).sort((a, b) => {
         const aTime = a.purchasedAt ? new Date(a.purchasedAt).getTime() : 0;
@@ -1677,6 +1696,22 @@ export default function ProfilePage() {
     }
   };
 
+  const canResumeDownloadPayment = (item: DownloadEntry) => {
+    if (item.ready) return false;
+    if (!item.orderId) return false;
+    const reason = String(item.blockedReason || "").trim().toLowerCase();
+    return reason.includes("покупка не подтверждена");
+  };
+
+  const handleResumeDownloadPayment = (item: DownloadEntry) => {
+    const orderId = typeof item.orderId === "string" ? item.orderId.trim() : "";
+    if (!orderId) {
+      toast.error("Номер заказа не найден.", { className: "sonner-toast" });
+      return;
+    }
+    router.push(`/checkout?orderId=${encodeURIComponent(orderId)}&resume=1`);
+  };
+
   const handleDownloadFile = async (item: DownloadEntry) => {
     if (!item.productId) {
       toast.error("Не удалось определить модель для скачивания.", { className: "sonner-toast" });
@@ -2506,6 +2541,15 @@ export default function ProfilePage() {
                             <Download className="h-4 w-4" />
                             Недоступно
                           </span>
+                        )}
+                        {canResumeDownloadPayment(download) && (
+                          <button
+                            type="button"
+                            onClick={() => handleResumeDownloadPayment(download)}
+                            className="flex w-full items-center justify-center gap-2 rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20 hover:text-white sm:w-auto"
+                          >
+                            Завершить оплату
+                          </button>
                         )}
                         <button
                           type="button"

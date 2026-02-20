@@ -1172,6 +1172,31 @@ const CheckoutPage = () => {
     if (typeof window === "undefined") {
       return;
     }
+    const params = new URLSearchParams(window.location.search);
+    const orderId = (params.get("orderId") || "").trim();
+    if (!orderId) {
+      return;
+    }
+    if (pendingOrderId === orderId && step === "payment") {
+      return;
+    }
+
+    setPendingOrderId(orderId);
+    setPendingOrderPayload(null);
+    setPaymentMethod("card");
+    setPaymentIntentId(null);
+    setPaymentClientSecret(null);
+    setPaymentConfirmationUrl(null);
+    setSubmitError(null);
+    setPaymentStageError(null);
+    setStep("payment");
+    logCheckoutEvent("checkout:resume:order", { orderId });
+  }, [logCheckoutEvent, pendingOrderId, step]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
     if (!userReady) {
       return;
     }

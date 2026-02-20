@@ -81,7 +81,7 @@ const normalizeRelationshipId = (value: unknown): string | number | null => {
 
 const isDigitalFormat = (value: unknown) => {
   const raw = normalizeStatus(value);
-  return raw.includes("digital") || raw.includes("С†РёС„СЂРѕРІ");
+  return raw.includes("digital") || raw.includes("\u0446\u0438\u0444\u0440\u043e\u0432");
 };
 
 const hasDigitalItems = (order: any) => {
@@ -93,7 +93,7 @@ const hasDigitalItems = (order: any) => {
 
 const formatMoney = (value: number) => {
   const safe = Number.isFinite(value) ? value : 0;
-  return `${new Intl.NumberFormat("ru-RU").format(Math.round(safe * 100) / 100)} в‚Ѕ`;
+  return `${new Intl.NumberFormat("ru-RU").format(Math.round(safe * 100) / 100)} \u20bd`;
 };
 
 const resolveDeliveryCost = (order: any) => {
@@ -207,7 +207,7 @@ const resolveEvent = (doc: any, previousDoc?: any): OrderEvent | null => {
 
 const getOrderItemList = (order: any) => {
   const items = Array.isArray(order?.items) ? order.items : [];
-  if (!items.length) return "Р‘РµР· РїРѕР·РёС†РёР№";
+  if (!items.length) return "\u0411\u0435\u0437 \u043f\u043e\u0437\u0438\u0446\u0438\u0439";
 
   return items
     .map((item: any) => {
@@ -221,22 +221,30 @@ const getOrderItemList = (order: any) => {
           ? product.name.trim()
           : typeof product === "string" && product.trim()
             ? product.trim()
-            : "РўРѕРІР°СЂ";
+            : "\u0422\u043e\u0432\u0430\u0440";
       return `- ${name} x${qty}`;
     })
     .join("\n");
 };
 
 const getSubject = (event: OrderEvent, orderId: string) => {
-  if (event === "paid") return `РћРїР»Р°С‚Р° РїРѕР»СѓС‡РµРЅР°: Р·Р°РєР°Р· #${orderId}`;
-  if (event === "cancelled") return `Р—Р°РєР°Р· #${orderId} РѕС‚РјРµРЅРµРЅ`;
-  return `Р’РѕР·РІСЂР°С‚ РїРѕ Р·Р°РєР°Р·Сѓ #${orderId}`;
+  if (event === "paid") {
+    return `\u041e\u043f\u043b\u0430\u0442\u0430 \u043f\u043e\u043b\u0443\u0447\u0435\u043d\u0430: \u0437\u0430\u043a\u0430\u0437 #${orderId}`;
+  }
+  if (event === "cancelled") {
+    return `\u0417\u0430\u043a\u0430\u0437 #${orderId} \u043e\u0442\u043c\u0435\u043d\u0435\u043d`;
+  }
+  return `\u0412\u043e\u0437\u0432\u0440\u0430\u0442 \u043f\u043e \u0437\u0430\u043a\u0430\u0437\u0443 #${orderId}`;
 };
 
 const getEventHeader = (event: OrderEvent) => {
-  if (event === "paid") return "РњС‹ РїРѕР»СѓС‡РёР»Рё РѕРїР»Р°С‚Сѓ РїРѕ РІР°С€РµРјСѓ Р·Р°РєР°Р·Сѓ.";
-  if (event === "cancelled") return "Р—Р°РєР°Р· РѕС‚РјРµРЅРµРЅ РїРѕ РІР°С€РµРјСѓ Р·Р°РїСЂРѕСЃСѓ.";
-  return "РџРѕ Р·Р°РєР°Р·Сѓ РѕС„РѕСЂРјР»РµРЅ РІРѕР·РІСЂР°С‚ СЃСЂРµРґСЃС‚РІ.";
+  if (event === "paid") {
+    return "\u041c\u044b \u043f\u043e\u043b\u0443\u0447\u0438\u043b\u0438 \u043e\u043f\u043b\u0430\u0442\u0443 \u043f\u043e \u0432\u0430\u0448\u0435\u043c\u0443 \u0437\u0430\u043a\u0430\u0437\u0443.";
+  }
+  if (event === "cancelled") {
+    return "\u0417\u0430\u043a\u0430\u0437 \u043e\u0442\u043c\u0435\u043d\u0435\u043d \u043f\u043e \u0432\u0430\u0448\u0435\u043c\u0443 \u0437\u0430\u043f\u0440\u043e\u0441\u0443.";
+  }
+  return "\u041f\u043e \u0437\u0430\u043a\u0430\u0437\u0443 \u043e\u0444\u043e\u0440\u043c\u043b\u0435\u043d \u0432\u043e\u0437\u0432\u0440\u0430\u0442 \u0441\u0440\u0435\u0434\u0441\u0442\u0432.";
 };
 
 const buildGuestDigitalLibraryUrl = (order: any, origin: string) => {
@@ -310,7 +318,7 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Logge
   const customerName =
     typeof order?.customer?.name === "string" && order.customer.name.trim()
       ? order.customer.name.trim()
-      : "Покупатель";
+      : "\u041f\u043e\u043a\u0443\u043f\u0430\u0442\u0435\u043b\u044c";
   const receiptUrl = `${origin}/api/orders/${orderId}/receipt`;
   const profileUrl = `${origin}/profile?tab=downloads`;
   const guestDigitalUrl =
@@ -331,18 +339,20 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Logge
   const itemLines = getOrderItemList(order);
 
   const text = [
-    `Здравствуйте, ${customerName}.`,
+    `\u0417\u0434\u0440\u0430\u0432\u0441\u0442\u0432\u0443\u0439\u0442\u0435, ${customerName}.`,
     "",
     getEventHeader(event),
-    `Заказ: #${orderId}`,
-    `Сумма: ${total}`,
+    `\u0417\u0430\u043a\u0430\u0437: #${orderId}`,
+    `\u0421\u0443\u043c\u043c\u0430: ${total}`,
     "",
-    "Состав заказа:",
+    "\u0421\u043e\u0441\u0442\u0430\u0432 \u0437\u0430\u043a\u0430\u0437\u0430:",
     itemLines,
     "",
-    `Личный кабинет: ${profileUrl}`,
-    ...(guestDigitalUrl ? [`Файлы для скачивания: ${guestDigitalUrl}`] : []),
-    `Чек PDF: ${receiptUrl}`,
+    `\u041b\u0438\u0447\u043d\u044b\u0439 \u043a\u0430\u0431\u0438\u043d\u0435\u0442: ${profileUrl}`,
+    ...(guestDigitalUrl
+      ? [`\u0424\u0430\u0439\u043b\u044b \u0434\u043b\u044f \u0441\u043a\u0430\u0447\u0438\u0432\u0430\u043d\u0438\u044f: ${guestDigitalUrl}`]
+      : []),
+    `\u0427\u0435\u043a PDF: ${receiptUrl}`,
   ].join("\n");
 
   const result = await sendNotificationEmail({
