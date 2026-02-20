@@ -1568,8 +1568,8 @@ function AiLabContent() {
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [tokensPopoverOpen, setTokensPopoverOpen] = useState(false);
   const [quickSettingsOpen, setQuickSettingsOpen] = useState(false);
+  const [toolsMenuOpen, setToolsMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
-  const [jobsConsoleOpen, setJobsConsoleOpen] = useState(false);
   const [rightPanelQueryInput, setRightPanelQueryInput] = useState("");
   const [rightPanelQuery, setRightPanelQuery] = useState("");
   const currentProjectName = "Личный проект";
@@ -1603,7 +1603,6 @@ function AiLabContent() {
     boxSize: [number, number, number];
     radius: number;
   } | null>(null);
-  const [panelUxMode, setPanelUxMode] = useState<"basic" | "pro">("basic");
   const [rightPanelMainBlock, setRightPanelMainBlock] = useState<RightPanelMainBlock>("create");
   const [createRefsOpen, setCreateRefsOpen] = useState(false);
   const [appearancePreset, setAppearancePreset] = useState<
@@ -3901,7 +3900,7 @@ function AiLabContent() {
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Analyze failed.");
+          throw new Error(typeof data?.error === "string" ? data.error : "Анализ не выполнен.");
         }
         const settled = await waitForPipelineJob(String(data.jobId));
         const stats = (settled?.result?.stats || data?.result?.stats || {}) as {
@@ -3916,10 +3915,10 @@ function AiLabContent() {
             : "";
         showSuccess(
           status === "critical"
-            ? `Диагностика: critical (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
+            ? `Диагностика: критично (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
             : status === "warning"
-              ? `Диагностика: warning (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
-              : `Диагностика: mesh OK (Q:${stats?.riskScore ?? "?"}).`
+              ? `Диагностика: предупреждение (Q:${stats?.riskScore ?? "?"}). ${firstIssue}`.trim()
+              : `Диагностика: сетка в норме (Q:${stats?.riskScore ?? "?"}).`
         );
         const snapshot = await fetchPublishedAssets(true);
         const refreshed = snapshot?.byId?.[assetId] || null;
@@ -3927,7 +3926,7 @@ function AiLabContent() {
           activatePublishedAsset(refreshed, { jobId: activeHistoryJob?.id || refreshed.jobId || null });
         }
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Analyze failed.");
+        pushUiError(error instanceof Error ? error.message : "Анализ не выполнен.");
       } finally {
         setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
       }
@@ -3964,7 +3963,7 @@ function AiLabContent() {
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Quick Fix failed.");
+          throw new Error(typeof data?.error === "string" ? data.error : "Быстрый фикс не выполнен.");
         }
         const settled = await waitForPipelineJob(String(data.jobId));
         const result = (settled?.result || data?.result || {}) as {
@@ -3972,12 +3971,12 @@ function AiLabContent() {
           newVersionId?: string;
         };
         if (result?.noChanges) {
-          showSuccess("Quick Fix: изменений не найдено.");
+          showSuccess("Быстрый фикс: изменений не найдено.");
         } else {
           showSuccess(
             preset === "strong"
-              ? `Quick Fix Strong: готово (version ${result?.newVersionId || "new"}).`
-              : `Quick Fix: готово (version ${result?.newVersionId || "new"}).`
+              ? `Исправить для печати: готово (версия ${result?.newVersionId || "new"}).`
+              : `Быстрый фикс: готово (версия ${result?.newVersionId || "new"}).`
           );
         }
         const snapshot = await fetchPublishedAssets(true);
@@ -3994,7 +3993,7 @@ function AiLabContent() {
           window.dispatchEvent(new Event("ai-assets-updated"));
         }
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Quick Fix failed.");
+        pushUiError(error instanceof Error ? error.message : "Быстрый фикс не выполнен.");
       } finally {
         setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
       }
@@ -4030,7 +4029,7 @@ function AiLabContent() {
         });
         const data = await response.json().catch(() => null);
         if (!response.ok || !data?.success || !data?.jobId) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Split failed.");
+          throw new Error(typeof data?.error === "string" ? data.error : "Разделение не выполнено.");
         }
         const settled = await waitForPipelineJob(String(data.jobId));
         const result = (settled?.result || data?.result || {}) as {
@@ -4057,7 +4056,7 @@ function AiLabContent() {
           window.dispatchEvent(new Event("ai-assets-updated"));
         }
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Split failed.");
+        pushUiError(error instanceof Error ? error.message : "Разделение не выполнено.");
       } finally {
         setAssetAction((prev) => (prev?.assetId === assetId ? null : prev));
       }
@@ -4120,9 +4119,7 @@ function AiLabContent() {
         if (result?.noChanges) {
           showSuccess("Текстуры: изменений не найдено.");
         } else {
-          showSuccess(
-            `Текстуры: готово (${mode === "image" ? "из изображения" : "однотонный материал"}). Auto-UV включен.`
-          );
+          showSuccess(`Текстуры: готово (${mode === "image" ? "из изображения" : "однотонный материал"}). Авто-UV включен.`);
         }
         const snapshot = await fetchPublishedAssets(true);
         if (result?.newVersionId && snapshot?.byId?.[result.newVersionId]) {
@@ -4233,7 +4230,7 @@ function AiLabContent() {
       items.push({
         id: `gen:${job.id}`,
         queueJobId: job.id,
-        type: job.parentJobId ? "Ремикс" : "Генерация",
+        type: job.parentJobId ? "Повтор" : "Генерация",
         label: job.prompt || `Job ${job.id}`,
         status,
         progress: Math.max(0, Math.min(100, job.progress || 0)),
@@ -4363,10 +4360,7 @@ function AiLabContent() {
     return "text-white/60";
   };
 
-  const currentStatus = serverJob?.status ? JOB_STATUS_LABEL_RU[serverJob.status] : "ОЖИДАНИЕ";
   const displayProgress = Math.max(0, Math.min(100, serverJob?.progress ?? 0));
-  const displayStage = serverJob?.stage?.trim() || (serverJob ? SERVER_STAGE_BY_STATUS[serverJob.status] : "STANDBY");
-  const displayEta = formatEta(serverJob?.etaSeconds ?? null);
   const estimatedTokenCost = resolveGenerationTokenCost(tokenCost, {
     quality: qualityPreset,
     style: stylePreset,
@@ -4381,20 +4375,12 @@ function AiLabContent() {
     style: stylePreset,
     advanced: advancedPreset,
   });
-  const displayQueuePosition =
-    typeof serverJob?.queuePosition === "number" && serverJob.queuePosition > 0
-      ? `#${serverJob.queuePosition}`
-      : "RUN";
-  const displayQueueDepth =
-    typeof serverJob?.queueDepth === "number" && Number.isFinite(serverJob.queueDepth)
-      ? Math.max(0, Math.trunc(serverJob.queueDepth))
-      : 0;
   const resultJob = latestCompletedJob ?? (serverJob?.status === "completed" ? serverJob : null);
   const isResultPublished = Boolean(resultJob?.id && publishedAssetsByJobId[resultJob.id]);
   const handlePrintResult = useCallback(() => {
     const modelUrl = resultAsset?.modelUrl || resultJob?.result?.modelUrl || "";
     if (!modelUrl) {
-      showError("Model URL is missing.");
+      showError("Не найден URL модели.");
       return;
     }
 
@@ -4695,6 +4681,7 @@ function AiLabContent() {
     const onGlobalClick = () => {
       setTokensPopoverOpen(false);
       setQuickSettingsOpen(false);
+      setToolsMenuOpen(false);
       setUserMenuOpen(false);
     };
     window.addEventListener("click", onGlobalClick);
@@ -4743,6 +4730,7 @@ function AiLabContent() {
                   onClick={() => {
                     setTokensPopoverOpen(false);
                     setQuickSettingsOpen(false);
+                    setToolsMenuOpen(false);
                     setUserMenuOpen(false);
                     showSuccess("Командные workspace будут добавлены позже. Сейчас доступен личный проект.");
                   }}
@@ -4754,9 +4742,88 @@ function AiLabContent() {
                     WORKSPACE СКОРО
                   </span>
                 </button>
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setToolsMenuOpen((prev) => !prev);
+                      setTokensPopoverOpen(false);
+                      setQuickSettingsOpen(false);
+                      setUserMenuOpen(false);
+                    }}
+                    className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 transition hover:border-white/35 hover:text-white"
+                    title="Быстрые инструменты AI Lab"
+                  >
+                    Инструменты
+                    <ChevronDown className={`h-3.5 w-3.5 transition ${toolsMenuOpen ? "rotate-180" : ""}`} />
+                  </button>
+                  {toolsMenuOpen && (
+                    <div
+                      onClick={(event) => event.stopPropagation()}
+                      className="absolute left-0 top-10 z-50 w-[280px] space-y-2 rounded-xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_16px_32px_rgba(0,0,0,0.45)]"
+                    >
+                      <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                        Группы инструментов
+                      </p>
+                      <div className="grid grid-cols-2 gap-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em]">
+                        {([
+                          ["create", "Создать (G/1)"],
+                          ["check", "Проверить (C/2)"],
+                          ["repair", "Исправить (R/3)"],
+                          ["appearance", "Материалы (M/4)"],
+                          ["export", "Экспорт (E/5)"],
+                        ] as Array<[RightPanelMainBlock, string]>).map(([block, label]) => (
+                          <button
+                            key={block}
+                            type="button"
+                            onClick={() => {
+                              setRightPanelMainBlock(block);
+                              setToolsMenuOpen(false);
+                            }}
+                            className={`rounded-lg border px-2 py-1 text-left transition ${
+                              rightPanelMainBlock === block
+                                ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                                : "border-white/10 bg-white/[0.02] text-white/65 hover:border-white/30 hover:text-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="h-px bg-white/10" />
+                      <div className="flex gap-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em]">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (focusMode) setFocusMode(false);
+                            setPanelCollapsed((prev) => !prev);
+                            setToolsMenuOpen(false);
+                          }}
+                          className="flex-1 rounded-lg border border-white/15 bg-white/[0.02] px-2 py-1 text-white/70 transition hover:border-white/35 hover:text-white"
+                        >
+                          {isDesktopPanelHidden ? "Показать панели" : "Скрыть панели"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setFocusMode((prev) => !prev);
+                            setToolsMenuOpen(false);
+                          }}
+                          className="flex-1 rounded-lg border border-white/15 bg-white/[0.02] px-2 py-1 text-white/70 transition hover:border-white/35 hover:text-white"
+                        >
+                          {focusMode ? "Фокус OFF" : "Фокус ON"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
-                  onClick={() => setLabPanelTab("assets")}
+                  onClick={() => {
+                    setLabPanelTab("assets");
+                    setToolsMenuOpen(false);
+                  }}
                   className={`rounded-full border px-3 py-1.5 transition ${
                     labPanelTab === "assets"
                       ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
@@ -4767,7 +4834,10 @@ function AiLabContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setLabPanelTab("history")}
+                  onClick={() => {
+                    setLabPanelTab("history");
+                    setToolsMenuOpen(false);
+                  }}
                   className={`rounded-full border px-3 py-1.5 transition ${
                     labPanelTab === "history"
                       ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
@@ -4778,7 +4848,10 @@ function AiLabContent() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setLabPanelTab("queue")}
+                  onClick={() => {
+                    setLabPanelTab("queue");
+                    setToolsMenuOpen(false);
+                  }}
                   className={`rounded-full border px-3 py-1.5 transition ${
                     labPanelTab === "queue"
                       ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
@@ -4797,11 +4870,12 @@ function AiLabContent() {
                     event.stopPropagation();
                     setTokensPopoverOpen((prev) => !prev);
                     setQuickSettingsOpen(false);
+                    setToolsMenuOpen(false);
                     setUserMenuOpen(false);
                   }}
-                  className="inline-flex items-center gap-1.5 rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60"
+                  className="group inline-flex items-center gap-1.5 rounded-full border border-[#2ED1FF]/45 bg-[linear-gradient(180deg,rgba(11,16,20,0.95),rgba(8,13,18,0.95))] px-3 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-[#D8F6FF] shadow-[0_0_16px_rgba(46,209,255,0.24)] transition hover:border-[#7FE7FF]/80 hover:shadow-[0_0_20px_rgba(46,209,255,0.34)]"
                 >
-                  <Coins className="h-3.5 w-3.5" />
+                  <Coins className="h-4 w-4 text-[#8FE7FF] transition duration-200 group-hover:scale-110 group-hover:text-[#BFF4FF]" />
                   <span>ТОКЕНЫ: {tokensLoading ? "..." : tokens}</span>
                 </button>
                 <button
@@ -4812,9 +4886,10 @@ function AiLabContent() {
                     setTopupOpen(true);
                     setTokensPopoverOpen(false);
                     setQuickSettingsOpen(false);
+                    setToolsMenuOpen(false);
                     setUserMenuOpen(false);
                   }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#2ED1FF]/35 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.2)] transition hover:border-[#7FE7FF]/60 hover:text-white"
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-[#2ED1FF]/45 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.22)] transition hover:border-[#7FE7FF]/70 hover:text-white hover:shadow-[0_0_18px_rgba(46,209,255,0.3)]"
                   aria-label="Пополнить токены"
                   title="Пополнить токены"
                 >
@@ -4860,6 +4935,7 @@ function AiLabContent() {
                     event.stopPropagation();
                     setQuickSettingsOpen((prev) => !prev);
                     setTokensPopoverOpen(false);
+                    setToolsMenuOpen(false);
                     setUserMenuOpen(false);
                   }}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
@@ -4936,7 +5012,9 @@ function AiLabContent() {
                       </div>
                       <button
                         type="button"
-                        onClick={() => showSuccess("Горячие клавиши: G генерация, H история, A ассеты, J задачи.")}
+                        onClick={() =>
+                          showSuccess("Горячие клавиши: G/1 создать, C/2 проверить, R/3 исправить, M/4 материалы, E/5 экспорт.")
+                        }
                         className="w-full rounded-md border border-white/15 bg-white/[0.02] px-2 py-1 text-left text-white/70 transition hover:border-white/30"
                       >
                         Список хоткеев
@@ -4953,6 +5031,7 @@ function AiLabContent() {
                     setUserMenuOpen((prev) => !prev);
                     setTokensPopoverOpen(false);
                     setQuickSettingsOpen(false);
+                    setToolsMenuOpen(false);
                   }}
                   className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-white/5 text-white/70 transition hover:border-white/35 hover:text-white"
                   aria-label="Профиль"
@@ -4994,67 +5073,8 @@ function AiLabContent() {
               </div>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={() => setJobsConsoleOpen((prev) => !prev)}
-            className="flex h-8 w-full items-center gap-2 border-t border-white/10 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/55 transition hover:text-white"
-          >
-            <span className="text-white/35">СТАТУС:</span>
-            <span className="text-emerald-200">{currentStatus}</span>
-            <span className="text-white/35">•</span>
-            <span>{displayStage}</span>
-            {(isSynthRunning || serverJobLoading) && (
-              <>
-                <span className="text-white/35">•</span>
-                <span>{Math.round(displayProgress)}%</span>
-              </>
-            )}
-            <span className="ml-auto text-white/30">{jobsConsoleOpen ? "СКРЫТЬ ЛОГИ" : "ОТКРЫТЬ ЛОГИ"}</span>
-          </button>
         </div>
       </header>
-
-      {jobsConsoleOpen && (
-        <div className="fixed right-4 top-[92px] z-40 w-[320px] rounded-2xl border border-white/15 bg-[#060a10]/95 p-3 shadow-[0_20px_34px_rgba(0,0,0,0.45)] backdrop-blur">
-          <div className="flex items-center justify-between">
-            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-white/65">
-               Консоль задач
-            </p>
-            <button
-              type="button"
-              onClick={() => setJobsConsoleOpen(false)}
-              className="rounded-full border border-white/15 px-2 py-0.5 text-[9px] text-white/60 transition hover:border-white/30 hover:text-white"
-            >
-               Закрыть
-            </button>
-          </div>
-          <div className="mt-2 space-y-2 text-[10px] text-white/70">
-            <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-              <p className="text-white/45">Состояние</p>
-              <p className="mt-0.5">{currentStatus} • {displayStage}</p>
-            </div>
-            <div className="rounded-lg border border-white/10 bg-black/30 px-2 py-1.5">
-              <p className="text-white/45">Очередь</p>
-              <p className="mt-0.5">{displayQueuePosition} / {displayQueueDepth} • ETA {displayEta}</p>
-            </div>
-            {serverJobError && (
-              <div className="rounded-lg border border-rose-400/30 bg-rose-500/10 px-2 py-1.5 text-rose-200">
-                {serverJobError}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => {
-                setLabPanelTab("queue");
-                setJobsConsoleOpen(false);
-              }}
-              className="w-full rounded-lg border border-cyan-400/35 bg-cyan-500/10 px-2 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300"
-            >
-              Открыть вкладку очереди
-            </button>
-          </div>
-        </div>
-      )}
 
       <motion.main
         initial={{ opacity: 0, y: 16 }}
@@ -5081,7 +5101,12 @@ function AiLabContent() {
                 <button
                   key={id}
                   type="button"
-                  onClick={() => setRightPanelMainBlock(id)}
+                  onClick={() => {
+                    if (id === "create") {
+                      handleStartNewGeneration();
+                    }
+                    setRightPanelMainBlock(id);
+                  }}
                   className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
                     rightPanelMainBlock === id
                       ? "border-cyan-300/60 bg-cyan-500/15 text-cyan-100"
@@ -5106,26 +5131,7 @@ function AiLabContent() {
                           ? "Материалы"
                           : "Экспорт"}
                 </span>
-                <div className="inline-flex rounded-full border border-white/10 bg-black/30 p-0.5 text-[8px]">
-                  <button
-                    type="button"
-                    onClick={() => setPanelUxMode("basic")}
-                    className={`rounded-full px-2 py-0.5 transition ${
-                      panelUxMode === "basic" ? "bg-cyan-500/20 text-cyan-100" : "text-white/55"
-                    }`}
-                  >
-                    BASIC
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setPanelUxMode("pro")}
-                    className={`rounded-full px-2 py-0.5 transition ${
-                      panelUxMode === "pro" ? "bg-violet-500/20 text-violet-100" : "text-white/55"
-                    }`}
-                  >
-                    PRO
-                  </button>
-                </div>
+                <span className="text-[9px] text-white/35">G/C/R/M/E</span>
               </div>
 
               {rightPanelMainBlock === "create" && (
@@ -5259,9 +5265,21 @@ function AiLabContent() {
                       void handleStartServerSynthesis();
                     }}
                     disabled={serverJobLoading || isSynthRunning || tokensLoading}
-                    className="w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                    className="group w-full rounded-2xl border border-emerald-400/60 bg-emerald-500/15 px-4 py-3 text-sm font-semibold uppercase tracking-[0.2em] text-emerald-100 shadow-[0_0_0_rgba(16,185,129,0)] transition hover:border-emerald-300 hover:text-white hover:shadow-[0_0_20px_rgba(16,185,129,0.25)] disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    {serverJobLoading ? "Генерация..." : isSynthRunning ? `В работе ${Math.round(displayProgress)}%` : `Generate • ${estimatedTokenCost}`}
+                    {serverJobLoading ? (
+                      "Генерация..."
+                    ) : isSynthRunning ? (
+                      `В работе ${Math.round(displayProgress)}%`
+                    ) : (
+                      <span className="inline-flex items-center gap-2">
+                        <span>Сгенерировать модель</span>
+                        <span className="inline-flex items-center gap-1 rounded-full border border-emerald-300/60 bg-emerald-400/15 px-2 py-0.5 text-[10px]">
+                          <Coins className="h-3.5 w-3.5 transition group-hover:scale-110" />
+                          {estimatedTokenCost}
+                        </span>
+                      </span>
+                    )}
                   </button>
                 </div>
               )}
@@ -5269,7 +5287,7 @@ function AiLabContent() {
               {rightPanelMainBlock === "check" && (
                 <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                   <div className="rounded-xl border border-emerald-400/30 bg-emerald-500/[0.08] px-3 py-2">
-                    <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100/80">Printability Score</p>
+                    <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100/80">Скор печати</p>
                     <p className={`mt-1 text-[11px] font-semibold ${activePrintabilityTone}`}>
                       {activePrintabilityScore === null ? "--" : `${activePrintabilityScore}/100`}
                     </p>
@@ -5301,7 +5319,7 @@ function AiLabContent() {
                     <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">X: {viewportBounds ? viewportBounds.boxSize[0].toFixed(2) : "--"}</div>
                     <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Y: {viewportBounds ? viewportBounds.boxSize[1].toFixed(2) : "--"}</div>
                     <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Z: {viewportBounds ? viewportBounds.boxSize[2].toFixed(2) : "--"}</div>
-                    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Scale: {modelScale.toFixed(2)}x</div>
+                    <div className="rounded-lg border border-white/10 bg-black/25 px-2 py-1">Масштаб: {modelScale.toFixed(2)}x</div>
                   </div>
                 </div>
               )}
@@ -5315,16 +5333,16 @@ function AiLabContent() {
                     title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
                     className="w-full rounded-lg border border-amber-400/45 bg-amber-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
-                    Quick Fix
+                    Быстрый фикс
                   </button>
                   <button
                     type="button"
-                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "safe")}
+                    onClick={() => void handleQuickFixActiveAsset(activeAssetVersion, "strong")}
                     disabled={!activeAssetVersion || isAssetPipelineBusy}
                     title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
                     className="w-full rounded-lg border border-emerald-400/45 bg-emerald-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-100 transition hover:border-emerald-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
-                    Fix for Print
+                    Исправить для печати
                   </button>
                   <button
                     type="button"
@@ -5333,24 +5351,22 @@ function AiLabContent() {
                     title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
                     className="w-full rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
                   >
-                    Split for Print
+                    Разделить для печати
                   </button>
-                  {panelUxMode === "pro" && (
-                    <div className="flex flex-wrap gap-1.5 pt-1">
-                      {(["web", "game", "print"] as const).map((preset) => (
-                        <button
-                          key={preset}
-                          type="button"
-                          onClick={() => void handleRemeshPreset(preset)}
-                          disabled={!activeAssetVersion || isAssetPipelineBusy}
-                          title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
-                          className="rounded-full border border-violet-300/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          Remesh {preset}
-                        </button>
-                      ))}
-                    </div>
-                  )}
+                  <div className="flex flex-wrap gap-1.5 pt-1">
+                    {(["web", "game", "print"] as const).map((preset) => (
+                      <button
+                        key={preset}
+                        type="button"
+                        onClick={() => void handleRemeshPreset(preset)}
+                        disabled={!activeAssetVersion || isAssetPipelineBusy}
+                        title={!activeAssetVersion ? noActiveModelTooltip : isAssetPipelineBusy ? busyPipelineTooltip : undefined}
+                        className="rounded-full border border-violet-300/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        Ремеш {preset}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -5466,64 +5482,6 @@ function AiLabContent() {
               РАБОЧАЯ ЗОНА
             </div>
           )}
-          {!focusMode && (
-            <div className="absolute left-6 top-16 z-20 flex flex-wrap items-center gap-1.5 rounded-full border border-white/10 bg-black/45 px-2 py-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/70">
-              {([
-                ["create", "Gen (G/1)"],
-                ["check", "Check (C/2)"],
-                ["repair", "Fix (R/3)"],
-                ["appearance", "Mat (M/4)"],
-                ["export", "Exp (E/5)"],
-              ] as Array<[RightPanelMainBlock, string]>).map(([id, label]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setRightPanelMainBlock(id)}
-                  className={`rounded-full border px-2 py-1 transition ${
-                    rightPanelMainBlock === id
-                      ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
-                      : "border-white/15 bg-white/[0.02] hover:border-white/35 hover:text-white"
-                  }`}
-                  title="Быстрый переход к группе инструментов"
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="absolute right-6 top-6 z-20 flex flex-wrap items-center justify-end gap-2">
-            {!focusMode && (
-              <div className="rounded-full border border-white/10 bg-black/50 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/60">
-                СТАТУС: ЭКСПЕРИМЕНТАЛЬНО // ИДЕТ ИНТЕГРАЦИЯ API
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setFocusMode((prev) => !prev)}
-              className={`rounded-full border px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] transition ${
-                focusMode
-                  ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_14px_rgba(46,209,255,0.3)]"
-                  : "border-white/20 bg-black/50 text-white/70 hover:border-white/40 hover:text-white"
-              }`}
-            >
-              {focusMode ? "ФОКУС: ON" : "ФОКУС"}
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                if (focusMode) setFocusMode(false);
-                setPanelCollapsed((prev) => !prev);
-              }}
-              className={`rounded-full border px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] transition ${
-                isDesktopPanelHidden
-                  ? "border-emerald-400/55 bg-emerald-500/10 text-emerald-200"
-                  : "border-white/20 bg-black/50 text-white/70 hover:border-white/40 hover:text-white"
-              }`}
-            >
-              {isDesktopPanelHidden ? "ПАНЕЛЬ СКРЫТА" : "ПАНЕЛЬ ПОКАЗАНА"}
-            </button>
-          </div>
-
           <div className="relative h-[520px] w-full sm:h-[600px] lg:h-full">
             <Canvas
               gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
@@ -5990,7 +5948,7 @@ function AiLabContent() {
                   title={!activeHistoryJob ? noActiveModelTooltip : undefined}
                   className="rounded-full border border-cyan-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-cyan-200 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {historyAction?.id === activeHistoryJob?.id && historyAction?.type === "variation" ? "..." : "Ремикс"}
+                  {historyAction?.id === activeHistoryJob?.id && historyAction?.type === "variation" ? "..." : "Повтор"}
                 </button>
                 <button
                   type="button"
@@ -6006,11 +5964,8 @@ function AiLabContent() {
                   title={!activeHistoryJob ? noActiveModelTooltip : undefined}
                   className="rounded-full border border-amber-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] text-amber-200 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id] ? "Сохранено" : "В библиотеку"}
+                  {activeHistoryJob?.id && publishedAssetsByJobId[activeHistoryJob.id] ? "Сохранено" : "В AI библиотеку"}
                 </button>
-              </div>
-              <div className="mt-3 rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/50">
-                Основные инструменты находятся в левой панели под иконками.
               </div>
             </div>
           )}
