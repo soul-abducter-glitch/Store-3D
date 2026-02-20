@@ -3627,17 +3627,6 @@ function Header({
     prevCartCountRef.current = cartCount;
   }, [cartCount]);
 
-  useEffect(() => {
-    const handleScroll = () => {
-      if (window.scrollY > 32) {
-        logoReturnArmedRef.current = false;
-        logoReturnArmedAtRef.current = 0;
-      }
-    };
-    window.addEventListener("scroll", handleScroll, { passive: true });
-    return () => window.removeEventListener("scroll", handleScroll);
-  }, []);
-
   const handleLogoClick = (_event: ReactMouseEvent<HTMLButtonElement>) => {
     if (typeof window === "undefined") {
       router.push("/");

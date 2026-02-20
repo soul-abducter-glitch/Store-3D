@@ -3412,6 +3412,18 @@ function AiLabContent() {
     showError("Нет файла для скачивания.");
   };
 
+  const handleRemoveGalleryAsset = useCallback(
+    (asset: GeneratedAsset) => {
+      setGallery((prev) => prev.filter((item) => item.id !== asset.id));
+      if (generatedPreviewLabel === asset.name && generatedPreviewModel === asset.modelUrl) {
+        setGeneratedPreviewModel(null);
+        setGeneratedPreviewLabel(null);
+      }
+      showSuccess("Модель удалена из витрины.");
+    },
+    [generatedPreviewLabel, generatedPreviewModel, showSuccess]
+  );
+
   const handlePickHistoryJob = useCallback((job: AiGenerationJob) => {
     setFreshGenerationMode(false);
     setActiveHistoryJobId(job.id);
@@ -4245,8 +4257,12 @@ function AiLabContent() {
   }, [activeAssetVersion?.previewUrl, activeAssetVersion?.sourceUrl, activeHistoryJob?.inputRefs, uploadPreview, validInputReferences]);
 
   const handleTextureFromImage = useCallback(() => {
-    void handleTextureActiveAsset(activeAssetVersion, "image", resolveTextureImageSource());
-  }, [activeAssetVersion, handleTextureActiveAsset, resolveTextureImageSource]);
+    const sourceImage = resolveTextureImageSource();
+    if (!sourceImage) {
+      showSuccess("Источник не найден: применяем fallback профиль текстуры.");
+    }
+    void handleTextureActiveAsset(activeAssetVersion, "image", sourceImage);
+  }, [activeAssetVersion, handleTextureActiveAsset, resolveTextureImageSource, showSuccess]);
 
   const handleTextureFallbackMaterial = useCallback(() => {
     void handleTextureActiveAsset(activeAssetVersion, "flat", undefined, appearanceFlatColor);
@@ -4510,10 +4526,6 @@ function AiLabContent() {
       baseColorMapUrl: baseColorMapUrl || null,
     };
   }, [activeAssetVersion?.checks?.texture]);
-  const hasTextureImageSource = useMemo(
-    () => Boolean(resolveTextureImageSource()),
-    [resolveTextureImageSource]
-  );
   const activeTextureTint = useMemo(() => {
     if (appearancePreset !== "original") {
       return APPEARANCE_PRESET_TINT[appearancePreset];
@@ -4934,6 +4946,33 @@ function AiLabContent() {
                             }}
                             className={`rounded-lg border px-2 py-1 text-left transition ${
                               rightPanelMainBlock === block
+                                ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
+                                : "border-white/10 bg-white/[0.02] text-white/65 hover:border-white/30 hover:text-white"
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                      <div className="h-px bg-white/10" />
+                      <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
+                        Полка справа
+                      </p>
+                      <div className="grid grid-cols-3 gap-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em]">
+                        {([
+                          ["assets", "Ассеты"],
+                          ["history", "История"],
+                          ["queue", "Очередь"],
+                        ] as Array<[LabPanelTab, string]>).map(([tab, label]) => (
+                          <button
+                            key={tab}
+                            type="button"
+                            onClick={() => {
+                              setLabPanelTab(tab);
+                              setToolsMenuOpen(false);
+                            }}
+                            className={`rounded-lg border px-2 py-1 text-left transition ${
+                              labPanelTab === tab
                                 ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
                                 : "border-white/10 bg-white/[0.02] text-white/65 hover:border-white/30 hover:text-white"
                             }`}
@@ -5375,8 +5414,65 @@ function AiLabContent() {
                           </p>
                         ) : (
                           validInputReferences.map((ref) => (
-                            <div key={ref.id} className="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/65">
-                              {ref.name}
+                            <div key={ref.id} className="rounded-lg border border-white/10 bg-white/[0.04] p-2">
+                              <div className="flex items-start gap-2">
+                                {ref.previewUrl ? (
+                                  <img
+                                    src={ref.previewUrl}
+                                    alt={ref.name}
+                                    className="h-12 w-12 rounded-md border border-white/10 object-cover"
+                                  />
+                                ) : (
+                                  <div className="flex h-12 w-12 items-center justify-center rounded-md border border-white/10 bg-black/30 text-[8px] text-white/40">
+                                    IMG
+                                  </div>
+                                )}
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/70">
+                                    {ref.name}
+                                  </p>
+                                  <div className="mt-1 flex flex-wrap gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleRemoveReferenceBackground(ref.id)}
+                                      disabled={Boolean(removingReferenceBgId || smartMaskingReferenceId)}
+                                      className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                      RM BG
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleSmartMaskReference(ref.id)}
+                                      disabled={Boolean(removingReferenceBgId || smartMaskingReferenceId)}
+                                      className="rounded-full border border-amber-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                      MASK+
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => void handleOpenMaskEditor(ref.id)}
+                                      disabled={Boolean(maskEditorLoading || maskApplying)}
+                                      className="rounded-full border border-violet-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                      Ручная
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleDownloadReference(ref)}
+                                      className="rounded-full border border-white/20 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/75 transition hover:border-white/35 hover:text-white"
+                                    >
+                                      PNG
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRemoveInputReference(ref.id)}
+                                      className="rounded-full border border-rose-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-rose-200 transition hover:border-rose-300"
+                                    >
+                                      Удалить
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
                             </div>
                           ))
                         )}
@@ -5545,7 +5641,7 @@ function AiLabContent() {
                           } disabled:cursor-not-allowed disabled:opacity-45`}
                         >
                           <span
-                            className="h-4.5 w-4.5 rounded-full shadow-[inset_0_1px_2px_rgba(255,255,255,0.4)]"
+                            className="h-4 w-4 rounded-full shadow-[inset_0_1px_2px_rgba(255,255,255,0.4)]"
                             style={{ background: APPEARANCE_PRESET_SWATCH[preset] }}
                           />
                         </button>
@@ -5612,14 +5708,14 @@ function AiLabContent() {
                   <button
                     type="button"
                     onClick={handleTextureFromImage}
-                    disabled={!activeAssetVersion || isAssetPipelineBusy || !hasTextureImageSource}
+                    disabled={!activeAssetVersion || isAssetPipelineBusy}
                     title={
                       !activeAssetVersion
                         ? noActiveModelTooltip
                         : isAssetPipelineBusy
                           ? busyPipelineTooltip
-                          : !hasTextureImageSource
-                            ? noTextureSourceTooltip
+                          : !resolveTextureImageSource()
+                            ? `${noTextureSourceTooltip}. Будет применен fallback профиль.`
                             : undefined
                     }
                     className="w-full rounded-lg border border-cyan-400/45 bg-cyan-500/10 px-3 py-1.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
@@ -6645,6 +6741,17 @@ function AiLabContent() {
                         className="min-w-0 w-full truncate rounded-full border border-[#2ED1FF]/40 px-1.5 py-1 text-center text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                       >
                         СКАЧАТЬ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handleRemoveGalleryAsset(asset);
+                        }}
+                        className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300"
+                        title="Удалить из витрины"
+                      >
+                        УДАЛИТЬ
                       </button>
                     </div>
                   </div>
