@@ -179,6 +179,7 @@ const formatPrice = (value?: number) => {
 
 const DIGITAL_CANCEL_WINDOW_MINUTES = 30;
 const PHYSICAL_CANCEL_WINDOW_MINUTES = 12 * 60;
+const PAYMENT_RESUME_WINDOW_MINUTES = 30;
 const DELIVERY_COST_MAP: Record<string, number> = {
   cdek: 200,
   yandex: 150,
@@ -377,6 +378,7 @@ export default function ProfilePage() {
   const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
   const [downloadsError, setDownloadsError] = useState<string | null>(null);
+  const [pendingPaymentNow, setPendingPaymentNow] = useState(() => Date.now());
   const [aiAssets, setAiAssets] = useState<AiAssetEntry[]>([]);
   const [aiAssetsLoading, setAiAssetsLoading] = useState(false);
   const [aiAssetsError, setAiAssetsError] = useState<string | null>(null);
@@ -1703,6 +1705,47 @@ export default function ProfilePage() {
     return reason.includes("покупка не подтверждена");
   };
 
+  const formatPaymentCountdown = (remainingMs: number) => {
+    const totalSeconds = Math.max(0, Math.floor(remainingMs / 1000));
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    if (hours > 0) {
+      return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(
+        seconds
+      ).padStart(2, "0")}`;
+    }
+    return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  };
+
+  const getResumePaymentMeta = (item: DownloadEntry) => {
+    if (!canResumeDownloadPayment(item)) return null;
+    const createdAtMs = item.purchasedAt ? new Date(item.purchasedAt).getTime() : Number.NaN;
+    if (!Number.isFinite(createdAtMs)) {
+      return {
+        badge: "Ожидает оплату",
+        text: "Можно завершить оплату и сразу получить доступ к файлу.",
+        expired: false,
+      };
+    }
+
+    const deadlineMs = createdAtMs + PAYMENT_RESUME_WINDOW_MINUTES * 60 * 1000;
+    const remainingMs = deadlineMs - pendingPaymentNow;
+    if (remainingMs <= 0) {
+      return {
+        badge: "Окно истекло",
+        text: "Время быстрой оплаты истекло, но можно повторно запустить оплату.",
+        expired: true,
+      };
+    }
+
+    return {
+      badge: "Ожидает оплату",
+      text: `Окно быстрой оплаты: ${formatPaymentCountdown(remainingMs)}`,
+      expired: false,
+    };
+  };
+
   const handleResumeDownloadPayment = (item: DownloadEntry) => {
     const orderId = typeof item.orderId === "string" ? item.orderId.trim() : "";
     if (!orderId) {
@@ -1711,6 +1754,20 @@ export default function ProfilePage() {
     }
     router.push(`/checkout?orderId=${encodeURIComponent(orderId)}&resume=1`);
   };
+
+  useEffect(() => {
+    if (activeTab !== "downloads") return;
+    if (typeof window === "undefined") return;
+
+    const hasPending = downloads.some((item) => canResumeDownloadPayment(item));
+    if (!hasPending) return;
+
+    setPendingPaymentNow(Date.now());
+    const timerId = window.setInterval(() => {
+      setPendingPaymentNow(Date.now());
+    }, 1000);
+    return () => window.clearInterval(timerId);
+  }, [activeTab, downloads]);
 
   const handleDownloadFile = async (item: DownloadEntry) => {
     if (!item.productId) {
@@ -2489,11 +2546,13 @@ export default function ProfilePage() {
               )}
               {!downloadsLoading &&
                 !downloadsError &&
-                downloads.map((download) => (
-                  <div
-                    key={download.id}
-                    className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
-                  >
+                downloads.map((download) => {
+                  const resumePaymentMeta = getResumePaymentMeta(download);
+                  return (
+                    <div
+                      key={download.id}
+                      className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
+                    >
                       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex items-center gap-3">
                           {download.previewUrl ? (
@@ -2522,6 +2581,20 @@ export default function ProfilePage() {
                           )}
                           {download.blockedReason && (
                             <p className="mt-1 text-xs text-amber-200">{download.blockedReason}</p>
+                          )}
+                          {resumePaymentMeta && (
+                            <>
+                              <span
+                                className={`mt-2 inline-flex rounded-full border px-2.5 py-1 text-[10px] uppercase tracking-[0.2em] ${
+                                  resumePaymentMeta.expired
+                                    ? "border-amber-400/45 bg-amber-500/10 text-amber-100"
+                                    : "border-cyan-400/40 bg-cyan-500/10 text-cyan-100"
+                                }`}
+                              >
+                                {resumePaymentMeta.badge}
+                              </span>
+                              <p className="mt-1 text-xs text-white/65">{resumePaymentMeta.text}</p>
+                            </>
                           )}
                         </div>
                       </div>
@@ -2563,7 +2636,8 @@ export default function ProfilePage() {
                       </div>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
             </div>
           )}
           {activeTab === "ai-assets" && (
