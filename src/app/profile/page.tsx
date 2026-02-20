@@ -75,21 +75,18 @@ type CustomPrintMeta = {
   volumeCm3?: number;
 };
 
-type PurchasedProduct = {
-  id?: string;
-  name?: string;
-  rawModel?: any;
-  paintedModel?: any;
-  slug?: string;
-};
-
 type DownloadEntry = {
   id: string;
+  entitlementId: string;
   productId: string;
   product: string;
+  format: string;
   fileSize: string;
   previewUrl: string;
   ready: boolean;
+  status: "ACTIVE" | "REVOKED";
+  blockedReason?: string;
+  purchasedAt?: string | null;
 };
 
 type AiAssetEntry = {
@@ -326,6 +323,9 @@ export default function ProfilePage() {
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const [creatingGiftForId, setCreatingGiftForId] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
+  const [downloadsLoading, setDownloadsLoading] = useState(false);
+  const [downloadsError, setDownloadsError] = useState<string | null>(null);
   const [aiAssets, setAiAssets] = useState<AiAssetEntry[]>([]);
   const [aiAssetsLoading, setAiAssetsLoading] = useState(false);
   const [aiAssetsError, setAiAssetsError] = useState<string | null>(null);
@@ -483,6 +483,15 @@ export default function ProfilePage() {
   }, [user]);
 
   useEffect(() => {
+    if (!user?.id) return;
+    fetch(`${apiBase}/api/digital/claim-email`, {
+      method: "POST",
+      credentials: "include",
+      cache: "no-store",
+    }).catch(() => null);
+  }, [apiBase, user?.id]);
+
+  useEffect(() => {
     const refetchUser = () => {
       fetch(`${apiBase}/api/users/me?depth=2`, { credentials: "include", cache: "no-store" })
         .then((res) => (res.ok ? res.json() : null))
@@ -557,6 +566,80 @@ export default function ProfilePage() {
       window.removeEventListener("orders-updated", handleOrdersUpdated);
     };
   }, [user, apiBase]);
+
+  const fetchDownloads = useCallback(async () => {
+    if (!user?.id) {
+      setDownloads([]);
+      setDownloadsError(null);
+      setDownloadsLoading(false);
+      return;
+    }
+
+    setDownloadsLoading(true);
+    setDownloadsError(null);
+    try {
+      const response = await fetch(`${apiBase}/api/digital/library`, {
+        method: "GET",
+        credentials: "include",
+        cache: "no-store",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Не удалось загрузить цифровую библиотеку.");
+      }
+
+      const docs = Array.isArray(data?.items) ? data.items : [];
+      const mapped: DownloadEntry[] = docs
+        .map((entry: any) => {
+          const productId = String(entry?.productId || "").trim();
+          const entitlementId = String(entry?.entitlementId || "").trim();
+          if (!productId || !entitlementId) return null;
+          const ready = Boolean(entry?.canDownload);
+          return {
+            id: String(entry?.id || entitlementId),
+            entitlementId,
+            productId,
+            product: String(entry?.title || "Цифровой файл"),
+            format: String(entry?.format || "Digital STL"),
+            fileSize: String(entry?.fileSize || "N/A"),
+            previewUrl: typeof entry?.previewUrl === "string" ? entry.previewUrl : "",
+            ready,
+            status: String(entry?.status || "").toUpperCase() === "REVOKED" ? "REVOKED" : "ACTIVE",
+            blockedReason:
+              typeof entry?.blockedReason === "string" && entry.blockedReason.trim()
+                ? entry.blockedReason.trim()
+                : undefined,
+            purchasedAt: typeof entry?.purchasedAt === "string" ? entry.purchasedAt : null,
+          } satisfies DownloadEntry;
+        })
+        .filter((entry: DownloadEntry | null): entry is DownloadEntry => Boolean(entry));
+
+      setDownloads(mapped);
+    } catch (error) {
+      const message =
+        error instanceof Error && error.message
+          ? error.message
+          : "Не удалось загрузить цифровую библиотеку.";
+      setDownloadsError(message);
+    } finally {
+      setDownloadsLoading(false);
+    }
+  }, [apiBase, user?.id]);
+
+  useEffect(() => {
+    if (activeTab !== "downloads") return;
+    void fetchDownloads();
+  }, [activeTab, fetchDownloads]);
+
+  useEffect(() => {
+    const handleOrdersUpdated = () => {
+      if (activeTab === "downloads") {
+        void fetchDownloads();
+      }
+    };
+    window.addEventListener("orders-updated", handleOrdersUpdated);
+    return () => window.removeEventListener("orders-updated", handleOrdersUpdated);
+  }, [activeTab, fetchDownloads]);
 
   const fetchAiAssets = useCallback(async () => {
     if (!user?.id) {
@@ -956,19 +1039,6 @@ export default function ProfilePage() {
     if (raw === "requires_confirmation") return "Требуется подтверждение";
     if (raw === "canceled" || raw === "cancelled") return "Отменено";
     return status;
-  };
-
-  const formatFileSize = (bytes?: number) => {
-    if (typeof bytes !== "number" || Number.isNaN(bytes)) return "N/A";
-    const units = ["B", "KB", "MB", "GB"];
-    let size = bytes;
-    let unitIndex = 0;
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024;
-      unitIndex += 1;
-    }
-    const formatted = size < 10 && unitIndex > 0 ? size.toFixed(1) : Math.round(size).toString();
-    return `${formatted} ${units[unitIndex]}`;
   };
 
   const getOrderItems = (order: any) => (Array.isArray(order?.items) ? order.items : []);
@@ -1544,20 +1614,22 @@ export default function ProfilePage() {
   };
 
   const handleDownloadFile = async (item: DownloadEntry) => {
-    if (!item.productId) {
+    if (!item.productId || !item.entitlementId) {
       toast.error("Не удалось определить модель для скачивания.", { className: "sonner-toast" });
       return;
     }
     setDownloadingId(item.id);
     try {
-      const response = await fetch(
-        `${apiBase}/api/download-token/${encodeURIComponent(item.productId)}`,
-        {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        }
-      );
+      const response = await fetch(`${apiBase}/api/downloads/createLink`, {
+        method: "POST",
+        credentials: "include",
+        cache: "no-store",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          entitlementId: item.entitlementId,
+          productId: item.productId,
+        }),
+      });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.success || typeof data?.downloadUrl !== "string") {
         throw new Error(data?.error || "Не удалось подготовить ссылку для скачивания.");
@@ -1570,6 +1642,11 @@ export default function ProfilePage() {
       document.body.appendChild(link);
       link.click();
       link.remove();
+      setDownloads((current) =>
+        current.map((entry) =>
+          entry.id === item.id ? { ...entry, ready: true, blockedReason: undefined } : entry
+        )
+      );
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -1738,38 +1815,6 @@ export default function ProfilePage() {
       setDeletingAiAssetId(null);
     }
   };
-
-  const purchasedProducts: PurchasedProduct[] = Array.isArray(user?.purchasedProducts)
-    ? user.purchasedProducts
-    : [];
-
-  const downloads: DownloadEntry[] =
-    purchasedProducts
-      .map((product) => {
-        if (!product) return null;
-        const rawModel = (product as any)?.rawModel;
-        const paintedModel = (product as any)?.paintedModel;
-        const targetId = String(
-          product.id || (product as any)?.value || (product as any)?._id || product.slug || product.name || ""
-        );
-        const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
-        const fileSize =
-          typeof rawModel?.filesize === "number"
-            ? formatFileSize(rawModel.filesize)
-            : typeof paintedModel?.filesize === "number"
-              ? formatFileSize(paintedModel.filesize)
-              : "N/A";
-
-        return {
-          id: String(product.id || product.slug || product.name),
-          productId: targetId,
-          product: product.name || "Цифровой STL",
-          fileSize,
-          previewUrl,
-          ready: Boolean(targetId),
-        };
-      })
-      .filter((item): item is NonNullable<typeof item> => Boolean(item)) ?? [];
 
   const cartItemCount = useMemo(
     () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
@@ -2321,23 +2366,23 @@ export default function ProfilePage() {
           )}
           {activeTab === "downloads" && (
             <div className="space-y-4">
-              {ordersLoading && (
+              {downloadsLoading && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
                   Загружаем библиотеку...
                 </div>
               )}
-              {!ordersLoading && ordersError && (
+              {!downloadsLoading && downloadsError && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-red-200 backdrop-blur-xl">
-                  {ordersError}
+                  {downloadsError}
                 </div>
               )}
-              {!ordersLoading && !ordersError && downloads.length === 0 && (
+              {!downloadsLoading && !downloadsError && downloads.length === 0 && (
                 <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 text-sm text-white/60 backdrop-blur-xl">
                   Цифровая библиотека пуста.
                 </div>
               )}
-              {!ordersLoading &&
-                !ordersError &&
+              {!downloadsLoading &&
+                !downloadsError &&
                 downloads.map((download) => (
                   <div
                     key={download.id}
@@ -2358,7 +2403,17 @@ export default function ProfilePage() {
                         )}
                         <div>
                           <h3 className="text-xl font-semibold text-white">{download.product}</h3>
-                          <p className="mt-1 text-sm text-white/60">Размер файла: {download.fileSize}</p>
+                          <p className="mt-1 text-sm text-white/60">
+                            {download.format} • Размер файла: {download.fileSize}
+                          </p>
+                          {download.purchasedAt && (
+                            <p className="mt-1 text-xs text-white/45">
+                              Куплено: {formatDate(download.purchasedAt)}
+                            </p>
+                          )}
+                          {download.blockedReason && (
+                            <p className="mt-1 text-xs text-amber-200">{download.blockedReason}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -2370,12 +2425,12 @@ export default function ProfilePage() {
                             className="flex w-full items-center justify-center gap-2 rounded-full bg-[#2ED1FF]/20 px-4 py-2 text-xs uppercase tracking-[0.2em] text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                           >
                             <Download className="h-4 w-4" />
-                            {downloadingId === download.id ? "Готовим..." : "Скачать .STL"}
+                            {downloadingId === download.id ? "Готовим..." : "Скачать"}
                           </button>
                         ) : (
                           <span className="flex w-full items-center justify-center gap-2 rounded-full bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/40 sm:w-auto">
                             <Download className="h-4 w-4" />
-                            Готовится
+                            Недоступно
                           </span>
                         )}
                         <button

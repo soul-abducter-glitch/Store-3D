@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import { createDigitalGuestToken } from "./digitalGuestTokens";
 
 const deliveryCostMap: Record<string, number> = {
   cdek: 200,
@@ -63,9 +64,36 @@ const normalizeOrderStatus = (value?: unknown) => {
   return raw || "accepted";
 };
 
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  let current: unknown = value;
+  while (typeof current === "object" && current !== null) {
+    current =
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+  }
+  if (current === null || current === undefined) return null;
+  if (typeof current === "number") return current;
+  const raw = String(current).trim();
+  return raw || null;
+};
+
+const isDigitalFormat = (value: unknown) => {
+  const raw = normalizeStatus(value);
+  return raw.includes("digital") || raw.includes("С†РёС„СЂРѕРІ");
+};
+
+const hasDigitalItems = (order: any) => {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  return items.some((item: any) =>
+    isDigitalFormat(item?.format ?? item?.formatKey ?? item?.type ?? item?.formatLabel)
+  );
+};
+
 const formatMoney = (value: number) => {
   const safe = Number.isFinite(value) ? value : 0;
-  return `${new Intl.NumberFormat("ru-RU").format(Math.round(safe * 100) / 100)} ₽`;
+  return `${new Intl.NumberFormat("ru-RU").format(Math.round(safe * 100) / 100)} в‚Ѕ`;
 };
 
 const resolveDeliveryCost = (order: any) => {
@@ -179,7 +207,7 @@ const resolveEvent = (doc: any, previousDoc?: any): OrderEvent | null => {
 
 const getOrderItemList = (order: any) => {
   const items = Array.isArray(order?.items) ? order.items : [];
-  if (!items.length) return "Без позиций";
+  if (!items.length) return "Р‘РµР· РїРѕР·РёС†РёР№";
 
   return items
     .map((item: any) => {
@@ -193,22 +221,38 @@ const getOrderItemList = (order: any) => {
           ? product.name.trim()
           : typeof product === "string" && product.trim()
             ? product.trim()
-            : "Товар";
+            : "РўРѕРІР°СЂ";
       return `- ${name} x${qty}`;
     })
     .join("\n");
 };
 
 const getSubject = (event: OrderEvent, orderId: string) => {
-  if (event === "paid") return `Оплата получена: заказ #${orderId}`;
-  if (event === "cancelled") return `Заказ #${orderId} отменен`;
-  return `Возврат по заказу #${orderId}`;
+  if (event === "paid") return `РћРїР»Р°С‚Р° РїРѕР»СѓС‡РµРЅР°: Р·Р°РєР°Р· #${orderId}`;
+  if (event === "cancelled") return `Р—Р°РєР°Р· #${orderId} РѕС‚РјРµРЅРµРЅ`;
+  return `Р’РѕР·РІСЂР°С‚ РїРѕ Р·Р°РєР°Р·Сѓ #${orderId}`;
 };
 
 const getEventHeader = (event: OrderEvent) => {
-  if (event === "paid") return "Мы получили оплату по вашему заказу.";
-  if (event === "cancelled") return "Заказ отменен по вашему запросу.";
-  return "По заказу оформлен возврат средств.";
+  if (event === "paid") return "РњС‹ РїРѕР»СѓС‡РёР»Рё РѕРїР»Р°С‚Сѓ РїРѕ РІР°С€РµРјСѓ Р·Р°РєР°Р·Сѓ.";
+  if (event === "cancelled") return "Р—Р°РєР°Р· РѕС‚РјРµРЅРµРЅ РїРѕ РІР°С€РµРјСѓ Р·Р°РїСЂРѕСЃСѓ.";
+  return "РџРѕ Р·Р°РєР°Р·Сѓ РѕС„РѕСЂРјР»РµРЅ РІРѕР·РІСЂР°С‚ СЃСЂРµРґСЃС‚РІ.";
+};
+
+const buildGuestDigitalLibraryUrl = (order: any, origin: string) => {
+  const orderUserId = normalizeRelationshipId(order?.user);
+  const emailRaw =
+    typeof order?.customer?.email === "string" ? order.customer.email.trim().toLowerCase() : "";
+  const orderIdRaw = normalizeRelationshipId(order?.id);
+  if (!emailRaw || orderUserId !== null || orderIdRaw === null || !hasDigitalItems(order)) {
+    return null;
+  }
+
+  const token = createDigitalGuestToken({
+    email: emailRaw,
+    orderId: String(orderIdRaw),
+  });
+  return `${origin}/digital/library?token=${encodeURIComponent(token)}`;
 };
 
 export const sendNotificationEmail = async (args: {
@@ -268,7 +312,22 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Logge
       ? order.customer.name.trim()
       : "Покупатель";
   const receiptUrl = `${origin}/api/orders/${orderId}/receipt`;
-  const profileUrl = `${origin}/profile`;
+  const profileUrl = `${origin}/profile?tab=downloads`;
+  const guestDigitalUrl =
+    event === "paid"
+      ? (() => {
+          try {
+            return buildGuestDigitalLibraryUrl(order, origin);
+          } catch (error) {
+            logger?.warn?.({
+              msg: "[orders] failed to build guest digital library url",
+              orderId,
+              err: error,
+            });
+            return null;
+          }
+        })()
+      : null;
   const itemLines = getOrderItemList(order);
 
   const text = [
@@ -282,6 +341,7 @@ const sendOrderEventEmail = async (event: OrderEvent, order: any, logger?: Logge
     itemLines,
     "",
     `Личный кабинет: ${profileUrl}`,
+    ...(guestDigitalUrl ? [`Файлы для скачивания: ${guestDigitalUrl}`] : []),
     `Чек PDF: ${receiptUrl}`,
   ].join("\n");
 

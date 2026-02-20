@@ -16,8 +16,12 @@ import { AiTokenEvents } from "./src/payload/collections/AiTokenEvents.ts";
 import { AiSubscriptions } from "./src/payload/collections/AiSubscriptions.ts";
 import { ProcessedWebhooks } from "./src/payload/collections/ProcessedWebhooks.ts";
 import { SupportTickets } from "./src/payload/collections/SupportTickets.ts";
+import { DigitalEntitlements } from "./src/payload/collections/DigitalEntitlements.ts";
+import { DownloadLinkEvents } from "./src/payload/collections/DownloadLinkEvents.ts";
+import { DownloadEvents } from "./src/payload/collections/DownloadEvents.ts";
 import { ensureAiLabSchema } from "./src/lib/ensureAiLabSchema.ts";
 import { ensureOrdersSchema } from "./src/lib/ensureOrdersSchema.ts";
+import { ensureDigitalDownloadsSchema } from "./src/lib/ensureDigitalDownloadsSchema.ts";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -330,6 +334,9 @@ export default buildConfig({
     AiSubscriptions,
     ProcessedWebhooks,
     SupportTickets,
+    DigitalEntitlements,
+    DownloadLinkEvents,
+    DownloadEvents,
   ],
   onInit: async (payload) => {
     try {
@@ -341,6 +348,11 @@ export default buildConfig({
       await ensureOrdersSchema(payload as any);
     } catch (error) {
       payload.logger?.error({ err: error, msg: "Failed to ensure orders schema" });
+    }
+    try {
+      await ensureDigitalDownloadsSchema(payload as any);
+    } catch (error) {
+      payload.logger?.error({ err: error, msg: "Failed to ensure digital downloads schema" });
     }
 
     if (!enableBootstrapSeed) {

@@ -1,5 +1,6 @@
 ﻿import type { Access, CollectionConfig } from "payload";
 import { notifyOrderEventIfNeeded } from "../../lib/orderNotifications.ts";
+import { syncDigitalEntitlementsForOrder } from "../../lib/digitalEntitlements.ts";
 
 const normalizeEmail = (value?: string) => {
   if (!value) return "";
@@ -344,6 +345,20 @@ export const Orders: CollectionConfig = {
         if (!doc) return doc;
         const payloadInstance = req?.payload;
         if (!payloadInstance) return doc;
+
+        try {
+          await syncDigitalEntitlementsForOrder({
+            payload: payloadInstance,
+            order: doc,
+            previousOrder: previousDoc,
+          });
+        } catch (error) {
+          payloadInstance.logger?.warn({
+            msg: "Failed to sync digital entitlements for order",
+            err: error,
+            orderId: doc.id,
+          });
+        }
 
         const userIdFromDoc = extractRelationshipId(doc.user);
         const userId = userIdFromDoc ?? (await findUserIdByEmail(payloadInstance, doc.customer?.email));

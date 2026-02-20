@@ -1,7 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
-import payloadConfig from "../../../../../payload.config";
+import payloadConfig from "@payload-config";
+import { normalizeEmail, normalizeRelationshipId, resolveEntitlementForAccess } from "@/lib/digitalEntitlements";
+import { issueDownloadLinkForEntitlement } from "@/lib/digitalDownloads";
 import { createDownloadToken } from "@/lib/downloadTokens";
 
 export const dynamic = "force-dynamic";
@@ -16,31 +18,13 @@ type ProductDoc = {
 
 type UserDoc = {
   id?: string | number;
+  email?: string;
   purchasedProducts?: Array<ProductDoc | string | number | null> | null;
 };
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
 const normalizeId = (value: unknown) => String(value ?? "").trim();
-
-const normalizeRelationshipId = (value: unknown): string | number | null => {
-  let current: unknown = value;
-  while (typeof current === "object" && current !== null) {
-    current =
-      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
-      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
-      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
-      null;
-  }
-  if (current === null || current === undefined) return null;
-  if (typeof current === "number") return current;
-  const raw = String(current).trim();
-  if (!raw) return null;
-  const base = raw.split(":")[0]?.trim() ?? "";
-  if (!base || /\s/.test(base)) return null;
-  if (/^\d+$/.test(base)) return Number(base);
-  return base;
-};
 
 const pickPurchasedProduct = (
   products: Array<ProductDoc | string | number | null>,
@@ -74,7 +58,7 @@ const fetchUser = async (payload: any, request: NextRequest) => {
     return (await payload.findByID({
       collection: "users",
       id: relationId,
-      depth: 2,
+      depth: 0,
       overrideAccess: true,
     })) as UserDoc;
   } catch {
@@ -98,12 +82,44 @@ export async function GET(
     return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
   }
 
+  const entitlement = await resolveEntitlementForAccess({
+    payload,
+    productId: target,
+    userId: user.id,
+    userEmail: normalizeEmail(user.email),
+  });
+
+  if (entitlement) {
+    const issued = await issueDownloadLinkForEntitlement({
+      payload,
+      entitlement,
+      request,
+    });
+
+    if (!issued.ok) {
+      return NextResponse.json({ success: false, error: issued.error }, { status: issued.status });
+    }
+
+    return NextResponse.json(
+      {
+        success: true,
+        downloadUrl: issued.downloadUrl,
+        expiresAt: issued.expiresAt,
+        legacy: false,
+      },
+      { status: 200 }
+    );
+  }
+
   const purchasedProducts = Array.isArray(user?.purchasedProducts)
     ? user.purchasedProducts
     : [];
   const purchasedEntry = pickPurchasedProduct(purchasedProducts, target);
   if (!purchasedEntry) {
-    return NextResponse.json({ success: false, error: "Access denied." }, { status: 403 });
+    return NextResponse.json(
+      { success: false, error: "Access denied." },
+      { status: 403 }
+    );
   }
 
   const token = createDownloadToken({
@@ -114,6 +130,8 @@ export async function GET(
   const downloadUrl = `/api/download/${encodeURIComponent(target)}?token=${encodeURIComponent(
     token
   )}`;
-  return NextResponse.json({ success: true, downloadUrl }, { status: 200 });
+  return NextResponse.json(
+    { success: true, downloadUrl, legacy: true },
+    { status: 200 }
+  );
 }
-

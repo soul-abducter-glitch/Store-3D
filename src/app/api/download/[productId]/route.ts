@@ -5,6 +5,8 @@ import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
 import { verifyDownloadToken } from "@/lib/downloadTokens";
+import { isPaidOrderForEntitlement } from "@/lib/digitalEntitlements";
+import { createDownloadEvent } from "@/lib/digitalDownloads";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -490,38 +492,204 @@ export async function GET(
   }
 
   const payload = await getPayloadClient();
-  const user = await fetchUser(payload, request);
-  if (!user?.id) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
-  }
-
   const token = (request.nextUrl.searchParams.get("token") || "").trim();
+  const ip =
+    (request.headers.get("x-forwarded-for") || "").split(",")[0]?.trim() ||
+    (request.headers.get("x-real-ip") || "").trim() ||
+    "";
+  const userAgent = (request.headers.get("user-agent") || "").slice(0, 1024);
+  let verifiedToken: ReturnType<typeof verifyDownloadToken> | null = null;
+
   if (requireSignedDownloadToken) {
     if (!token) {
       return NextResponse.json({ error: "Download link is required." }, { status: 403 });
     }
-    const verifiedToken = verifyDownloadToken(token);
+    verifiedToken = verifyDownloadToken(token);
     if (!verifiedToken.valid) {
       return NextResponse.json({ error: verifiedToken.error }, { status: 403 });
     }
-    if (
-      normalizeId(verifiedToken.payload.userId) !== normalizeId(user.id) ||
-      normalizeId(verifiedToken.payload.productId) !== target
-    ) {
+    if (normalizeId(verifiedToken.payload.productId) !== target) {
       return NextResponse.json({ error: "Download link is invalid." }, { status: 403 });
+    }
+  } else if (token) {
+    verifiedToken = verifyDownloadToken(token);
+    if (!verifiedToken.valid) {
+      verifiedToken = null;
     }
   }
 
-  const purchasedProducts = Array.isArray(user?.purchasedProducts)
-    ? user.purchasedProducts
-    : [];
-  const purchasedEntry = pickPurchasedProduct(purchasedProducts, target);
-  if (!purchasedEntry) {
-    return NextResponse.json({ error: "Access denied." }, { status: 403 });
+  let product: ProductDoc | null = null;
+  let entitlementEventMeta: {
+    entitlementId: string;
+    orderId: string;
+    productId: string;
+    ownerType: "USER" | "EMAIL";
+    ownerRef: string;
+  } | null = null;
+
+  const writeEntitlementEvent = async (
+    status: "OK" | "DENY",
+    reason?: string
+  ) => {
+    if (!entitlementEventMeta) return;
+    await createDownloadEvent({
+      payload,
+      entitlementId: entitlementEventMeta.entitlementId,
+      orderId: entitlementEventMeta.orderId,
+      productId: entitlementEventMeta.productId,
+      status,
+      reason,
+      ownerType: entitlementEventMeta.ownerType,
+      ownerRef: entitlementEventMeta.ownerRef,
+      ip,
+      userAgent,
+    });
+  };
+
+  const denyEntitlement = async (statusCode: number, reason: string, errorMessage: string) => {
+    await writeEntitlementEvent("DENY", reason);
+    return NextResponse.json({ error: errorMessage }, { status: statusCode });
+  };
+
+  if (verifiedToken?.valid && verifiedToken.payload.kind === "entitlement") {
+    const tokenPayload = verifiedToken.payload;
+    const ownerType = tokenPayload.ownerType === "EMAIL" ? "EMAIL" : "USER";
+    const ownerRef =
+      ownerType === "EMAIL"
+        ? normalizeId(tokenPayload.ownerRef).toLowerCase()
+        : normalizeId(tokenPayload.ownerRef);
+    entitlementEventMeta = {
+      entitlementId: normalizeId(tokenPayload.entitlementId),
+      orderId: normalizeId(tokenPayload.orderId),
+      productId: normalizeId(tokenPayload.productId),
+      ownerType,
+      ownerRef,
+    };
+
+    const entitlementId = normalizeRelationshipId(tokenPayload.entitlementId);
+    if (entitlementId === null) {
+      return denyEntitlement(403, "invalid_entitlement_token", "Download link is invalid.");
+    }
+
+    const entitlement = await payload
+      .findByID({
+        collection: "digital_entitlements",
+        id: entitlementId as any,
+        depth: 0,
+        overrideAccess: true,
+      })
+      .catch(() => null);
+    if (!entitlement) {
+      return denyEntitlement(403, "entitlement_not_found", "Access denied.");
+    }
+
+    const entitlementProductId = normalizeRelationshipId(entitlement?.product);
+    const entitlementOrderId = normalizeRelationshipId(entitlement?.order);
+    const entitlementOwnerType =
+      String(entitlement?.ownerType || "")
+        .trim()
+        .toUpperCase() === "EMAIL"
+        ? "EMAIL"
+        : "USER";
+    const entitlementOwnerRef =
+      entitlementOwnerType === "EMAIL"
+        ? normalizeId(entitlement?.ownerEmail).toLowerCase()
+        : normalizeId(entitlement?.ownerUser);
+    const entitlementStatus = String(entitlement?.status || "")
+      .trim()
+      .toUpperCase();
+
+    entitlementEventMeta = {
+      entitlementId: normalizeId(entitlement?.id),
+      orderId: normalizeId(entitlementOrderId),
+      productId: normalizeId(entitlementProductId),
+      ownerType: entitlementOwnerType,
+      ownerRef: entitlementOwnerRef,
+    };
+
+    if (
+      normalizeId(entitlementProductId) !== target ||
+      normalizeId(entitlementProductId) !== normalizeId(tokenPayload.productId)
+    ) {
+      return denyEntitlement(403, "product_mismatch", "Download link is invalid.");
+    }
+    if (entitlementOwnerType !== ownerType || entitlementOwnerRef !== ownerRef) {
+      return denyEntitlement(403, "owner_mismatch", "Download link is invalid.");
+    }
+    if (entitlementStatus !== "ACTIVE") {
+      return denyEntitlement(403, "entitlement_revoked", "Доступ к файлу отозван.");
+    }
+    if (entitlementOrderId === null) {
+      return denyEntitlement(403, "missing_order", "Покупка не подтверждена.");
+    }
+
+    const order = await payload
+      .findByID({
+        collection: "orders",
+        id: entitlementOrderId as any,
+        depth: 0,
+        overrideAccess: true,
+      })
+      .catch(() => null);
+    if (!order || !isPaidOrderForEntitlement(order)) {
+      return denyEntitlement(403, "order_not_paid", "Покупка не подтверждена.");
+    }
+
+    if (entitlementOwnerType === "USER") {
+      const user = await fetchUser(payload, request);
+      if (!user?.id) {
+        return denyEntitlement(401, "unauthorized", "Unauthorized.");
+      }
+      if (normalizeId(user.id) !== entitlementOwnerRef) {
+        return denyEntitlement(403, "user_mismatch", "Access denied.");
+      }
+    }
+
+    product =
+      (await fetchProductByIdOrSlug(payload, normalizeId(entitlementProductId))) ??
+      (await fetchProductByIdOrSlug(payload, target));
+    if (!product) {
+      return denyEntitlement(404, "product_not_found", "Product not found.");
+    }
+  } else {
+    const user = await fetchUser(payload, request);
+    if (!user?.id) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
+
+    if (requireSignedDownloadToken) {
+      if (!verifiedToken?.valid) {
+        return NextResponse.json({ error: "Download link is invalid." }, { status: 403 });
+      }
+      if (verifiedToken.payload.kind !== "legacy") {
+        return NextResponse.json({ error: "Download link is invalid." }, { status: 403 });
+      }
+      if (
+        normalizeId(verifiedToken.payload.userId) !== normalizeId(user.id) ||
+        normalizeId(verifiedToken.payload.productId) !== target
+      ) {
+        return NextResponse.json({ error: "Download link is invalid." }, { status: 403 });
+      }
+    }
+
+    const purchasedProducts = Array.isArray(user?.purchasedProducts)
+      ? user.purchasedProducts
+      : [];
+    const purchasedEntry = pickPurchasedProduct(purchasedProducts, target);
+    if (!purchasedEntry) {
+      return NextResponse.json({ error: "Access denied." }, { status: 403 });
+    }
+
+    product = await resolveProduct(payload, target, purchasedEntry);
+    if (!product) {
+      return NextResponse.json({ error: "Product not found." }, { status: 404 });
+    }
   }
 
-  const product = await resolveProduct(payload, target, purchasedEntry);
   if (!product) {
+    if (entitlementEventMeta) {
+      return denyEntitlement(404, "product_not_found", "Product not found.");
+    }
     return NextResponse.json({ error: "Product not found." }, { status: 404 });
   }
 
@@ -529,6 +697,9 @@ export async function GET(
     (await resolveMediaDoc(payload, product.rawModel)) ??
     (await resolveMediaDoc(payload, product.paintedModel));
   if (!media?.filename && !media?.url) {
+    if (entitlementEventMeta) {
+      return denyEntitlement(404, "file_missing", "File not available.");
+    }
     return NextResponse.json({ error: "File not available." }, { status: 404 });
   }
 
@@ -540,12 +711,14 @@ export async function GET(
     keyCandidates
   );
   if (storageResponse) {
+    await writeEntitlementEvent("OK");
     return storageResponse;
   }
 
   if (media.url) {
     const proxiedRemote = await fetchAsAttachment(request, media.url, resolvedFilename);
     if (proxiedRemote) {
+      await writeEntitlementEvent("OK");
       return proxiedRemote;
     }
   }
@@ -558,14 +731,24 @@ export async function GET(
       resolvedFilename
     );
     if (proxiedInternal) {
+      await writeEntitlementEvent("OK");
       return proxiedInternal;
     }
   }
 
   if (!storageTargets.length) {
+    if (entitlementEventMeta) {
+      await writeEntitlementEvent("DENY", "storage_not_configured");
+    }
     return NextResponse.json({ error: "Storage is not configured." }, { status: 500 });
   }
 
+  if (entitlementEventMeta) {
+    await writeEntitlementEvent(
+      "DENY",
+      hadUnexpectedError ? "download_failed" : "file_not_found"
+    );
+  }
   return NextResponse.json(
     { error: hadUnexpectedError ? "Failed to download file." : "File not found." },
     { status: hadUnexpectedError ? 500 : 404 }

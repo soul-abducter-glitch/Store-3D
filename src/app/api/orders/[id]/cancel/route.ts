@@ -271,6 +271,81 @@ const buildInternalReq = (authUser: any, refundResult: RefundResult) =>
     }),
   }) as any;
 
+const resolveItemProductId = (item: any) => {
+  const id = normalizeRelationshipId(item?.product);
+  return id === null ? null : String(id);
+};
+
+const hasDownloadedEntitlementForOrderProducts = async (args: {
+  payload: any;
+  orderId: string | number;
+  productIds: string[];
+}) => {
+  const { payload, orderId, productIds } = args;
+  if (!productIds.length) {
+    return { hasDownload: false, matches: 0 };
+  }
+
+  const productSet = new Set(productIds.map((id) => String(id)));
+  const entitlementsResult = await payload.find({
+    collection: "digital_entitlements",
+    depth: 0,
+    limit: 500,
+    overrideAccess: true,
+    where: {
+      order: {
+        equals: orderId as any,
+      },
+    },
+  });
+  const entitlementDocs = Array.isArray(entitlementsResult?.docs) ? entitlementsResult.docs : [];
+  const matchedEntitlementIds = entitlementDocs
+    .filter((doc: any) => {
+      const productId = normalizeRelationshipId(doc?.product);
+      return productId !== null && productSet.has(String(productId));
+    })
+    .map((doc: any) => normalizeRelationshipId(doc?.id))
+    .filter((id: string | number | null): id is string | number => id !== null);
+
+  if (!matchedEntitlementIds.length) {
+    return { hasDownload: false, matches: 0 };
+  }
+
+  const downloadWhere =
+    matchedEntitlementIds.length === 1
+      ? {
+          and: [
+            { status: { equals: "OK" } },
+            { entitlement: { equals: matchedEntitlementIds[0] as any } },
+          ],
+        }
+      : {
+          and: [
+            { status: { equals: "OK" } },
+            {
+              or: matchedEntitlementIds.map((id: string | number) => ({
+                entitlement: { equals: id as any },
+              })),
+            },
+          ],
+        };
+
+  const downloadsResult = await payload.find({
+    collection: "download_events",
+    depth: 0,
+    limit: 1,
+    overrideAccess: true,
+    where: downloadWhere,
+  });
+
+  const hasDownload =
+    typeof downloadsResult?.totalDocs === "number"
+      ? downloadsResult.totalDocs > 0
+      : Array.isArray(downloadsResult?.docs) && downloadsResult.docs.length > 0;
+
+  return { hasDownload, matches: matchedEntitlementIds.length };
+};
+
 export async function POST(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
@@ -396,6 +471,28 @@ export async function POST(
         );
       }
 
+      const isPaidOrder = normalizePaymentStatus(order?.paymentStatus) === "paid";
+      if (isPaidOrder && isDigitalFormat(targetItem?.format)) {
+        const productId = resolveItemProductId(targetItem);
+        if (productId) {
+          const downloadState = await hasDownloadedEntitlementForOrderProducts({
+            payload,
+            orderId: order.id,
+            productIds: [productId],
+          });
+          if (downloadState.hasDownload) {
+            return NextResponse.json(
+              {
+                success: false,
+                error:
+                  "Для этой цифровой позиции уже было скачивание. Автовозврат недоступен.",
+              },
+              { status: 400 }
+            );
+          }
+        }
+      }
+
       const mode: CancelMode = items.length === 1 ? "order" : "item";
       const refundResult = await resolveRefundForCancellation({
         mode,
@@ -439,6 +536,31 @@ export async function POST(
         { success: false, error: getCancelWindowMessage(windowMinutes) },
         { status: 400 }
       );
+    }
+
+    const isPaidOrder = normalizePaymentStatus(order?.paymentStatus) === "paid";
+    if (isPaidOrder) {
+      const digitalProductIds = items
+        .filter((item: any) => isDigitalFormat(item?.format))
+        .map((item: any) => resolveItemProductId(item))
+        .filter((id: string | null): id is string => Boolean(id));
+      if (digitalProductIds.length > 0) {
+        const downloadState = await hasDownloadedEntitlementForOrderProducts({
+          payload,
+          orderId: order.id,
+          productIds: Array.from(new Set(digitalProductIds)),
+        });
+        if (downloadState.hasDownload) {
+          return NextResponse.json(
+            {
+              success: false,
+              error:
+                "Цифровые файлы из этого заказа уже скачивались. Автовозврат недоступен.",
+            },
+            { status: 400 }
+          );
+        }
+      }
     }
 
     const refundResult = await resolveRefundForCancellation({ mode: "order", order });
