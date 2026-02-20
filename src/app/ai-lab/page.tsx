@@ -270,6 +270,16 @@ const APPEARANCE_PRESET_TINT: Record<"clay" | "resin" | "plastic" | "hologram", 
   plastic: "#c4d4ff",
   hologram: "#78ecff",
 };
+const APPEARANCE_PRESET_SWATCH: Record<
+  "clay" | "original" | "resin" | "plastic" | "hologram",
+  string
+> = {
+  clay: "radial-gradient(circle at 34% 30%, #f5f5f5 0%, #c8c8c8 42%, #8d8d8d 100%)",
+  original: "radial-gradient(circle at 34% 30%, #f0f9ff 0%, #7dd3fc 48%, #2563eb 100%)",
+  resin: "radial-gradient(circle at 34% 30%, #fff7e8 0%, #f5d0a2 45%, #b45309 100%)",
+  plastic: "radial-gradient(circle at 34% 30%, #f8fafc 0%, #cbd5e1 44%, #475569 100%)",
+  hologram: "radial-gradient(circle at 34% 30%, #dcfce7 0%, #67e8f9 44%, #14b8a6 100%)",
+};
 const APPEARANCE_PRESET_PBR: Record<
   "clay" | "resin" | "plastic" | "hologram",
   { roughness: number; metalness: number }
@@ -316,6 +326,14 @@ const normalizeTextureSourceUrl = (value: unknown) => {
   if (IMAGE_SOURCE_EXT_RE.test(withoutQuery)) return raw;
   if (/\/api\/media\/file\//i.test(withoutQuery)) return raw;
   return "";
+};
+const normalizeHexColorClient = (value: unknown, fallback = "#aab0ba") => {
+  if (typeof value !== "string") return fallback;
+  const raw = value.trim();
+  if (!raw) return fallback;
+  const normalized = raw.startsWith("#") ? raw : `#${raw}`;
+  if (!/^#[0-9a-f]{6}$/i.test(normalized)) return fallback;
+  return normalized.toLowerCase();
 };
 const STYLE_PRESET_LABEL: Record<"realistic" | "stylized" | "anime", string> = {
   realistic: "Реалистичный",
@@ -1649,6 +1667,10 @@ function AiLabContent() {
   const [appearancePreset, setAppearancePreset] = useState<
     "clay" | "original" | "resin" | "plastic" | "hologram"
   >("original");
+  const [appearanceTuningOpen, setAppearanceTuningOpen] = useState(false);
+  const [appearanceRoughness, setAppearanceRoughness] = useState(72);
+  const [appearanceMetalness, setAppearanceMetalness] = useState(8);
+  const [appearanceFlatColor, setAppearanceFlatColor] = useState("#aab0ba");
   const [gallery, setGallery] = useState<GeneratedAsset[]>([]);
   const [resultAsset, setResultAsset] = useState<GeneratedAsset | null>(null);
   const [showResult, setShowResult] = useState(false);
@@ -4130,7 +4152,8 @@ function AiLabContent() {
     async (
       asset: AiAssetRecord | null,
       mode: "image" | "flat" = "image",
-      sourceImageUrl?: string | null
+      sourceImageUrl?: string | null,
+      flatColor?: string | null
     ) => {
       if (!asset) {
         showError("Сначала выберите модель в истории или ассетах.");
@@ -4150,7 +4173,7 @@ function AiLabContent() {
             mode,
             params:
               mode === "flat"
-                ? { color: "#aab0ba" }
+                ? { color: normalizeHexColorClient(flatColor || "#aab0ba", "#aab0ba") }
                 : {
                     sourceImageUrl: normalizeTextureSourceUrl(sourceImageUrl || ""),
                   },
@@ -4226,8 +4249,8 @@ function AiLabContent() {
   }, [activeAssetVersion, handleTextureActiveAsset, resolveTextureImageSource]);
 
   const handleTextureFallbackMaterial = useCallback(() => {
-    void handleTextureActiveAsset(activeAssetVersion, "flat");
-  }, [activeAssetVersion, handleTextureActiveAsset]);
+    void handleTextureActiveAsset(activeAssetVersion, "flat", undefined, appearanceFlatColor);
+  }, [activeAssetVersion, appearanceFlatColor, handleTextureActiveAsset]);
 
   const handleRemeshPreset = useCallback(
     async (preset: "web" | "game" | "print") => {
@@ -4498,23 +4521,32 @@ function AiLabContent() {
     return activeTextureProfile?.tintHex || "#aab0ba";
   }, [activeTextureProfile?.tintHex, appearancePreset]);
   const activeMaterialOverride = useMemo<ModelMaterialOverride | null>(() => {
+    const tuningRoughness = Math.max(0, Math.min(1, appearanceRoughness / 100));
+    const tuningMetalness = Math.max(0, Math.min(1, appearanceMetalness / 100));
     if (appearancePreset !== "original") {
       const preset = APPEARANCE_PRESET_PBR[appearancePreset];
       return {
         baseColor: APPEARANCE_PRESET_TINT[appearancePreset],
-        roughness: preset.roughness,
-        metalness: preset.metalness,
+        roughness: appearanceTuningOpen ? tuningRoughness : preset.roughness,
+        metalness: appearanceTuningOpen ? tuningMetalness : preset.metalness,
       };
     }
-    if (!activeTextureProfile) return null;
+    if (!activeTextureProfile) {
+      if (!appearanceTuningOpen) return null;
+      return {
+        baseColor: normalizeHexColorClient(appearanceFlatColor, "#aab0ba"),
+        roughness: tuningRoughness,
+        metalness: tuningMetalness,
+      };
+    }
     return {
       baseColor: activeTextureProfile.tintHex,
       baseColorMapUrl:
         activeTextureProfile.mode === "image" ? activeTextureProfile.baseColorMapUrl : null,
-      roughness: activeTextureProfile.roughness,
-      metalness: activeTextureProfile.metalness,
+      roughness: appearanceTuningOpen ? tuningRoughness : activeTextureProfile.roughness,
+      metalness: appearanceTuningOpen ? tuningMetalness : activeTextureProfile.metalness,
     };
-  }, [activeTextureProfile, appearancePreset]);
+  }, [activeTextureProfile, appearanceFlatColor, appearanceMetalness, appearancePreset, appearanceRoughness, appearanceTuningOpen]);
   const effectiveViewportRenderMode = useMemo<"final" | "wireframe" | "base">(() => {
     if (viewportRenderMode === "wireframe") return "wireframe";
     if (appearancePreset !== "original") return "base";
@@ -4548,8 +4580,16 @@ function AiLabContent() {
     setViewportStats(null);
     setViewportBounds(null);
     setCreateRefsOpen(false);
-    setAppearancePreset("original");
-  }, [activePreviewModel]);
+    setAppearanceTuningOpen(false);
+    setAppearancePreset(activeAssetVersion?.versionLabel === "textured_v1" ? "original" : "clay");
+  }, [activeAssetVersion?.versionLabel, activePreviewModel]);
+
+  useEffect(() => {
+    if (!activeTextureProfile) return;
+    setAppearanceFlatColor(activeTextureProfile.tintHex);
+    setAppearanceRoughness(Math.round(activeTextureProfile.roughness * 100));
+    setAppearanceMetalness(Math.round(activeTextureProfile.metalness * 100));
+  }, [activeTextureProfile]);
 
   const handleBounds = useCallback((bounds: { size: number; boxSize: [number, number, number]; radius: number }) => {
     if (!bounds?.size || !Number.isFinite(bounds.size)) return;
@@ -5483,30 +5523,92 @@ function AiLabContent() {
 
               {rightPanelMainBlock === "appearance" && (
                 <div className="space-y-3 rounded-2xl border border-white/10 bg-black/25 p-3">
-                  <div className="grid grid-cols-5 gap-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.12em]">
-                    {([
-                      ["clay", "Clay"],
-                      ["original", "Original"],
-                      ["resin", "Resin"],
-                      ["plastic", "Plastic"],
-                      ["hologram", "Holo"],
-                    ] as Array<[typeof appearancePreset, string]>).map(([preset, label]) => (
+                  <div className="rounded-full border border-white/10 bg-black/35 p-1.5">
+                    <div className="flex items-center gap-1.5">
+                      {([
+                        ["clay", "Clay"],
+                        ["original", "Original"],
+                        ["resin", "Resin"],
+                        ["plastic", "Plastic"],
+                        ["hologram", "Holo"],
+                      ] as Array<[typeof appearancePreset, string]>).map(([preset, label]) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setAppearancePreset(preset)}
+                          disabled={!activeAssetVersion}
+                          title={!activeAssetVersion ? noActiveModelTooltip : label}
+                          className={`relative inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                            appearancePreset === preset
+                              ? "border-cyan-300/70 bg-cyan-500/12 shadow-[0_0_12px_rgba(34,211,238,0.35)]"
+                              : "border-white/15 bg-white/[0.02] hover:border-white/35"
+                          } disabled:cursor-not-allowed disabled:opacity-45`}
+                        >
+                          <span
+                            className="h-4.5 w-4.5 rounded-full shadow-[inset_0_1px_2px_rgba(255,255,255,0.4)]"
+                            style={{ background: APPEARANCE_PRESET_SWATCH[preset] }}
+                          />
+                        </button>
+                      ))}
+                      <span className="mx-1 h-5 w-px bg-white/15" />
                       <button
-                        key={preset}
                         type="button"
-                        onClick={() => setAppearancePreset(preset)}
+                        onClick={() => setAppearanceTuningOpen((prev) => !prev)}
                         disabled={!activeAssetVersion}
-                        title={!activeAssetVersion ? noActiveModelTooltip : undefined}
-                        className={`rounded-md border px-1 py-1 transition ${
-                          appearancePreset === preset
-                            ? "border-cyan-300/60 bg-cyan-500/12 text-cyan-100"
-                            : "border-white/10 text-white/55 hover:border-white/30 hover:text-white"
+                        title={!activeAssetVersion ? noActiveModelTooltip : "Тонкая настройка материала"}
+                        className={`inline-flex h-8 w-8 items-center justify-center rounded-full border transition ${
+                          appearanceTuningOpen
+                            ? "border-cyan-300/65 bg-cyan-500/12 text-cyan-100"
+                            : "border-white/15 bg-white/[0.02] text-white/65 hover:border-white/35 hover:text-white"
                         } disabled:cursor-not-allowed disabled:opacity-45`}
                       >
-                        {label}
+                        <Settings2 className="h-3.5 w-3.5" />
                       </button>
-                    ))}
+                    </div>
                   </div>
+                  {appearanceTuningOpen && (
+                    <div className="space-y-2 rounded-xl border border-white/10 bg-black/30 p-2">
+                      <div className="flex items-center justify-between text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/65">
+                        <span>Roughness</span>
+                        <span>{appearanceRoughness}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={appearanceRoughness}
+                        onChange={(event) => setAppearanceRoughness(Number(event.target.value) || 0)}
+                        className="w-full accent-cyan-400"
+                      />
+                      <div className="flex items-center justify-between text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/65">
+                        <span>Metalness</span>
+                        <span>{appearanceMetalness}%</span>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={100}
+                        step={1}
+                        value={appearanceMetalness}
+                        onChange={(event) => setAppearanceMetalness(Number(event.target.value) || 0)}
+                        className="w-full accent-cyan-400"
+                      />
+                      <div className="flex items-center justify-between rounded-lg border border-white/10 bg-black/35 px-2 py-1.5">
+                        <span className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-white/60">
+                          Цвет flat
+                        </span>
+                        <input
+                          type="color"
+                          value={appearanceFlatColor}
+                          onChange={(event) =>
+                            setAppearanceFlatColor(normalizeHexColorClient(event.target.value, "#aab0ba"))
+                          }
+                          className="h-6 w-8 cursor-pointer rounded border border-white/20 bg-transparent p-0"
+                        />
+                      </div>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={handleTextureFromImage}
