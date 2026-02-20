@@ -77,7 +77,8 @@ type CustomPrintMeta = {
 
 type DownloadEntry = {
   id: string;
-  entitlementId: string;
+  source: "entitlement" | "legacy";
+  entitlementId?: string;
   productId: string;
   product: string;
   format: string;
@@ -292,6 +293,54 @@ const resolveMediaUrl = (value?: any) => {
   if (typeof value?.url === "string") return value.url;
   if (typeof value?.filename === "string") return `/media/${value.filename}`;
   return "";
+};
+
+const formatLegacyFileSize = (bytes?: number) => {
+  if (typeof bytes !== "number" || Number.isNaN(bytes)) return "N/A";
+  const units = ["B", "KB", "MB", "GB"];
+  let size = bytes;
+  let unitIndex = 0;
+  while (size >= 1024 && unitIndex < units.length - 1) {
+    size /= 1024;
+    unitIndex += 1;
+  }
+  const formatted = size < 10 && unitIndex > 0 ? size.toFixed(1) : Math.round(size).toString();
+  return `${formatted} ${units[unitIndex]}`;
+};
+
+const mapLegacyPurchasedDownloads = (user: any): DownloadEntry[] => {
+  const purchasedProducts = Array.isArray(user?.purchasedProducts) ? user.purchasedProducts : [];
+  return purchasedProducts
+    .map((product: any, index: number) => {
+      if (!product) return null;
+      const rawModel = product?.rawModel;
+      const paintedModel = product?.paintedModel;
+      const productId = String(
+        product?.id || product?.value || product?._id || product?.slug || ""
+      ).trim();
+      if (!productId) return null;
+      const previewUrl = resolveMediaUrl(paintedModel) || resolveMediaUrl(rawModel);
+      const fileSize =
+        typeof rawModel?.filesize === "number"
+          ? formatLegacyFileSize(rawModel.filesize)
+          : typeof paintedModel?.filesize === "number"
+            ? formatLegacyFileSize(paintedModel.filesize)
+            : "N/A";
+      return {
+        id: `legacy:${productId}:${index}`,
+        source: "legacy",
+        productId,
+        product: String(product?.name || product?.slug || "Цифровой STL"),
+        format: "Digital STL",
+        fileSize,
+        previewUrl,
+        ready: true,
+        status: "ACTIVE",
+        blockedReason: undefined,
+        purchasedAt: null,
+      } satisfies DownloadEntry;
+    })
+    .filter((entry: DownloadEntry | null): entry is DownloadEntry => Boolean(entry));
 };
 
 export default function ProfilePage() {
@@ -589,7 +638,7 @@ export default function ProfilePage() {
       }
 
       const docs = Array.isArray(data?.items) ? data.items : [];
-      const mapped: DownloadEntry[] = docs
+      const entitlementDownloads: DownloadEntry[] = docs
         .map((entry: any) => {
           const productId = String(entry?.productId || "").trim();
           const entitlementId = String(entry?.entitlementId || "").trim();
@@ -597,6 +646,7 @@ export default function ProfilePage() {
           const ready = Boolean(entry?.canDownload);
           return {
             id: String(entry?.id || entitlementId),
+            source: "entitlement",
             entitlementId,
             productId,
             product: String(entry?.title || "Цифровой файл"),
@@ -614,7 +664,21 @@ export default function ProfilePage() {
         })
         .filter((entry: DownloadEntry | null): entry is DownloadEntry => Boolean(entry));
 
-      setDownloads(mapped);
+      const legacyDownloads = mapLegacyPurchasedDownloads(user);
+      const mergedByProductId = new Map<string, DownloadEntry>();
+      for (const legacy of legacyDownloads) {
+        mergedByProductId.set(legacy.productId, legacy);
+      }
+      for (const entitlement of entitlementDownloads) {
+        mergedByProductId.set(entitlement.productId, entitlement);
+      }
+      const merged = Array.from(mergedByProductId.values()).sort((a, b) => {
+        const aTime = a.purchasedAt ? new Date(a.purchasedAt).getTime() : 0;
+        const bTime = b.purchasedAt ? new Date(b.purchasedAt).getTime() : 0;
+        return bTime - aTime;
+      });
+
+      setDownloads(merged);
     } catch (error) {
       const message =
         error instanceof Error && error.message
@@ -624,7 +688,7 @@ export default function ProfilePage() {
     } finally {
       setDownloadsLoading(false);
     }
-  }, [apiBase, user?.id]);
+  }, [apiBase, user]);
 
   useEffect(() => {
     if (activeTab !== "downloads") return;
@@ -1614,22 +1678,29 @@ export default function ProfilePage() {
   };
 
   const handleDownloadFile = async (item: DownloadEntry) => {
-    if (!item.productId || !item.entitlementId) {
+    if (!item.productId) {
       toast.error("Не удалось определить модель для скачивания.", { className: "sonner-toast" });
       return;
     }
     setDownloadingId(item.id);
     try {
-      const response = await fetch(`${apiBase}/api/downloads/createLink`, {
-        method: "POST",
-        credentials: "include",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          entitlementId: item.entitlementId,
-          productId: item.productId,
-        }),
-      });
+      const response =
+        item.source === "legacy" || !item.entitlementId
+          ? await fetch(`${apiBase}/api/download-token/${encodeURIComponent(item.productId)}`, {
+              method: "GET",
+              credentials: "include",
+              cache: "no-store",
+            })
+          : await fetch(`${apiBase}/api/downloads/createLink`, {
+              method: "POST",
+              credentials: "include",
+              cache: "no-store",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                entitlementId: item.entitlementId,
+                productId: item.productId,
+              }),
+            });
       const data = await response.json().catch(() => null);
       if (!response.ok || !data?.success || typeof data?.downloadUrl !== "string") {
         throw new Error(data?.error || "Не удалось подготовить ссылку для скачивания.");
@@ -2405,6 +2476,9 @@ export default function ProfilePage() {
                           <h3 className="text-xl font-semibold text-white">{download.product}</h3>
                           <p className="mt-1 text-sm text-white/60">
                             {download.format} • Размер файла: {download.fileSize}
+                          </p>
+                          <p className="mt-1 text-[11px] uppercase tracking-[0.2em] text-white/40">
+                            {download.source === "legacy" ? "Legacy доступ" : "Новый доступ"}
                           </p>
                           {download.purchasedAt && (
                             <p className="mt-1 text-xs text-white/45">
