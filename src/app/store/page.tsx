@@ -3628,8 +3628,15 @@ function Header({
   }, [cartCount]);
 
   const handleLogoClick = (_event: ReactMouseEvent<HTMLButtonElement>) => {
-    if (typeof window === "undefined") {
+    const goToPortal = () => {
+      if (typeof window !== "undefined") {
+        window.location.assign("/");
+        return;
+      }
       router.push("/");
+    };
+    if (typeof window === "undefined") {
+      goToPortal();
       return;
     }
     const now = Date.now();
@@ -3638,7 +3645,7 @@ function Header({
     if (armedRecently) {
       logoReturnArmedRef.current = false;
       logoReturnArmedAtRef.current = 0;
-      router.push("/");
+      goToPortal();
       return;
     }
     if (window.scrollY > 32) {
@@ -3649,7 +3656,7 @@ function Header({
     }
     logoReturnArmedRef.current = false;
     logoReturnArmedAtRef.current = 0;
-    router.push("/");
+    goToPortal();
   };
 
   const toggleSearch = () => {
