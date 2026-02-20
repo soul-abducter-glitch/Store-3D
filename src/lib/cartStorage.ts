@@ -1,5 +1,6 @@
 export const LEGACY_CART_KEY = "store3d_cart";
 const CHECKOUT_SELECTION_SUFFIX = "checkout-selection";
+const CART_SYNC_ENDPOINT = "/api/cart";
 
 const normalizeUserId = (value?: string | null) => {
   if (!value) return null;
@@ -44,19 +45,39 @@ export const readCartStorage = (key: string, opts?: { migrateLegacy?: boolean })
   return [];
 };
 
-export const writeCartStorage = (key: string, items: unknown[]) => {
+const syncCartToServer = (items: unknown[]) => {
+  if (typeof window === "undefined") {
+    return;
+  }
+  void fetch(CART_SYNC_ENDPOINT, {
+    method: "PUT",
+    credentials: "include",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      items: Array.isArray(items) ? items : [],
+    }),
+  }).catch(() => null);
+};
+
+export const writeCartStorage = (key: string, items: unknown[], opts?: { syncServer?: boolean }) => {
   if (typeof window === "undefined") {
     return;
   }
   window.localStorage.setItem(key, JSON.stringify(items));
+  if (opts?.syncServer !== false) {
+    syncCartToServer(items);
+  }
   window.dispatchEvent(new CustomEvent("cart-updated"));
 };
 
-export const removeCartStorage = (key: string) => {
+export const removeCartStorage = (key: string, opts?: { syncServer?: boolean }) => {
   if (typeof window === "undefined") {
     return;
   }
   window.localStorage.removeItem(key);
+  if (opts?.syncServer !== false) {
+    syncCartToServer([]);
+  }
   window.dispatchEvent(new CustomEvent("cart-updated"));
 };
 
@@ -133,7 +154,7 @@ export const mergeGuestCartIntoUser = (userId: string) => {
       merged.push(item);
     }
   });
-  writeCartStorage(userKey, merged);
-  removeCartStorage(guestKey);
+  writeCartStorage(userKey, merged, { syncServer: true });
+  removeCartStorage(guestKey, { syncServer: false });
   window.localStorage.removeItem(LEGACY_CART_KEY);
 };

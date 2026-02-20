@@ -1,7 +1,7 @@
 ﻿"use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
 import {
@@ -15,8 +15,6 @@ import {
   RotateCcw,
   X,
   Package,
-  Plus,
-  Minus,
   Save,
   Settings,
   ShoppingCart,
@@ -26,10 +24,8 @@ import {
 } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
 import {
-  clearCheckoutSelection,
   getCartStorageKey,
   readCartStorage,
-  readCheckoutSelection,
   writeCartStorage,
   writeCheckoutSelection,
 } from "@/lib/cartStorage";
@@ -303,7 +299,8 @@ const resolveMediaUrl = (value?: any) => {
 
 export default function ProfilePage() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const [queryTab, setQueryTab] = useState<string>("");
+  const [queryRenameAssetId, setQueryRenameAssetId] = useState<string>("");
   const [activeTab, setActiveTab] = useState<
     "orders" | "downloads" | "ai-assets" | "drafts" | "settings"
   >("orders");
@@ -313,8 +310,6 @@ export default function ProfilePage() {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [ordersError, setOrdersError] = useState<string | null>(null);
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [cartItemCount, setCartItemCount] = useState(0);
-  const [selectedCartItemIds, setSelectedCartItemIds] = useState<string[]>([]);
   const [settingsSaving, setSettingsSaving] = useState(false);
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [settingsSuccess, setSettingsSuccess] = useState<string | null>(null);
@@ -376,99 +371,6 @@ export default function ProfilePage() {
     window.addEventListener("cart-updated", handleCartUpdated);
     return () => window.removeEventListener("cart-updated", handleCartUpdated);
   }, [cartStorageKey, user?.id]);
-
-  const removeFromCart = (id: string) => {
-    setCartItems((prev) => {
-      const next = prev.filter((item) => item.id !== id);
-      if (typeof window !== "undefined") {
-        writeCartStorage(cartStorageKey, next);
-      }
-      return next;
-    });
-  };
-
-  const updateCartQuantity = (id: string, delta: number) => {
-    setCartItems((prev) => {
-      const next = prev
-        .map((item) => {
-          if (item.id !== id) return item;
-          const nextQty = Math.max(0, item.quantity + delta);
-          return { ...item, quantity: nextQty };
-        })
-        .filter((item) => item.quantity > 0);
-      if (typeof window !== "undefined") {
-        writeCartStorage(cartStorageKey, next);
-      }
-      return next;
-    });
-  };
-
-  useEffect(() => {
-    const count = cartItems.reduce((sum, item) => sum + item.quantity, 0);
-    setCartItemCount(count);
-  }, [cartItems]);
-
-  useEffect(() => {
-    const availableIds = new Set(cartItems.map((item) => item.id));
-
-    if (availableIds.size === 0) {
-      setSelectedCartItemIds([]);
-      clearCheckoutSelection(cartStorageKey);
-      return;
-    }
-
-    setSelectedCartItemIds((prev) => {
-      const prevValid = prev.filter((id) => availableIds.has(id));
-      if (prevValid.length > 0) {
-        writeCheckoutSelection(cartStorageKey, prevValid);
-        return prevValid;
-      }
-
-      const stored = readCheckoutSelection(cartStorageKey).filter((id) => availableIds.has(id));
-      if (stored.length > 0) {
-        writeCheckoutSelection(cartStorageKey, stored);
-        return stored;
-      }
-
-      const fallback = cartItems.map((item) => item.id);
-      writeCheckoutSelection(cartStorageKey, fallback);
-      return fallback;
-    });
-  }, [cartItems, cartStorageKey]);
-
-  const selectedCartIdSet = useMemo(() => new Set(selectedCartItemIds), [selectedCartItemIds]);
-  const selectedCartItems = useMemo(
-    () => cartItems.filter((item) => selectedCartIdSet.has(item.id)),
-    [cartItems, selectedCartIdSet]
-  );
-  const selectedItemCount = selectedCartItems.reduce((sum, item) => sum + item.quantity, 0);
-
-  const toggleCartItemSelection = (id: string) => {
-    setSelectedCartItemIds((prev) => {
-      const next = prev.includes(id) ? prev.filter((entry) => entry !== id) : [...prev, id];
-      writeCheckoutSelection(cartStorageKey, next);
-      return next;
-    });
-  };
-
-  const selectAllCartItems = () => {
-    const next = cartItems.map((item) => item.id);
-    setSelectedCartItemIds(next);
-    writeCheckoutSelection(cartStorageKey, next);
-  };
-
-  const clearCartItemsSelection = () => {
-    setSelectedCartItemIds([]);
-    writeCheckoutSelection(cartStorageKey, []);
-  };
-
-  const handleCheckoutSelected = () => {
-    if (selectedCartItems.length === 0) {
-      return;
-    }
-    writeCheckoutSelection(cartStorageKey, selectedCartItemIds);
-    router.push("/checkout");
-  };
 
   const refreshCheckoutDrafts = useCallback(() => {
     setCheckoutDrafts(readCheckoutDraftRecords(user?.id ?? null));
@@ -704,11 +606,24 @@ export default function ProfilePage() {
   }, [fetchAiAssets]);
 
   useEffect(() => {
-    const tab = searchParams.get("tab");
+    if (typeof window === "undefined") return;
+    const applyQuery = () => {
+      const params = new URLSearchParams(window.location.search || "");
+      setQueryTab((params.get("tab") || "").trim());
+      setQueryRenameAssetId((params.get("renameAssetId") || "").trim());
+    };
+
+    applyQuery();
+    window.addEventListener("popstate", applyQuery);
+    return () => window.removeEventListener("popstate", applyQuery);
+  }, []);
+
+  useEffect(() => {
+    const tab = queryTab;
     if (tab === "orders" || tab === "downloads" || tab === "ai-assets" || tab === "drafts" || tab === "settings") {
       setActiveTab(tab);
     }
-  }, [searchParams]);
+  }, [queryTab]);
 
   useEffect(() => {
     if (!editingAiAssetId || !aiAssetInputRef.current) return;
@@ -800,7 +715,7 @@ export default function ProfilePage() {
   );
 
   useEffect(() => {
-    const renameAssetId = (searchParams.get("renameAssetId") || "").trim();
+    const renameAssetId = queryRenameAssetId;
     if (!renameAssetId) return;
     if (activeTab !== "ai-assets") return;
     if (aiAssetsLoading) return;
@@ -811,11 +726,15 @@ export default function ProfilePage() {
     const targetNode = aiAssetCardRefs.current[renameAssetId];
     targetNode?.scrollIntoView({ block: "center", behavior: "smooth" });
 
-    const nextParams = new URLSearchParams(searchParams.toString());
-    nextParams.delete("renameAssetId");
-    const query = nextParams.toString();
-    router.replace(`/profile${query ? `?${query}` : ""}`, { scroll: false });
-  }, [activeTab, aiAssets, aiAssetsLoading, openAiAssetRename, router, searchParams]);
+    setQueryRenameAssetId("");
+    if (typeof window !== "undefined") {
+      const nextParams = new URLSearchParams(window.location.search || "");
+      nextParams.delete("renameAssetId");
+      const query = nextParams.toString();
+      const nextUrl = `/profile${query ? `?${query}` : ""}`;
+      window.history.replaceState(null, "", nextUrl);
+    }
+  }, [activeTab, aiAssets, aiAssetsLoading, openAiAssetRename, queryRenameAssetId]);
 
   const handleLogout = async () => {
     try {
@@ -1852,9 +1771,15 @@ export default function ProfilePage() {
       })
       .filter((item): item is NonNullable<typeof item> => Boolean(item)) ?? [];
 
-  const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
+  const cartItemCount = useMemo(
+    () => cartItems.reduce((sum, item) => sum + item.quantity, 0),
+    [cartItems]
+  );
+  const cartTotal = useMemo(
+    () => cartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0),
+    [cartItems]
+  );
   const cartTotalLabel = formatPrice(cartTotal);
-  const canCheckout = selectedCartItems.length > 0;
 
   if (loading) {
     return (
@@ -1921,6 +1846,18 @@ export default function ProfilePage() {
           </div>
           <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:gap-3">
             <Link
+              href="/cart"
+              className="relative flex items-center gap-2 rounded-full border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/60 hover:text-white sm:px-4 sm:text-xs sm:tracking-[0.3em]"
+            >
+              <ShoppingCart className="h-4 w-4" />
+              Корзина
+              {cartItemCount > 0 && (
+                <span className="rounded-full bg-[#2ED1FF] px-2 py-0.5 text-[9px] font-semibold tracking-[0.2em] text-[#050505]">
+                  {cartItemCount}
+                </span>
+              )}
+            </Link>
+            <Link
               href="/help"
               className="flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300/60 hover:text-cyan-100 sm:px-4 sm:text-xs sm:tracking-[0.3em]"
             >
@@ -1959,163 +1896,22 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div className="mt-5 rounded-[28px] border border-white/10 bg-white/[0.04] px-4 py-4 sm:mt-6 sm:px-6 sm:py-5">
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
-                <ShoppingCart className="h-6 w-6" />
-              </div>
-              <div>
-                <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
-                  Корзина
-                </p>
-                <p className="mt-1 text-lg font-semibold text-white">
-                  {cartItemCount > 0 ? `${cartItemCount} позиций` : "Корзина пуста"}
-                </p>
-                {cartItems.length > 0 && (
-                  <p className="mt-1 text-xs text-white/50">
-                    Выбрано: {selectedItemCount} шт.
-                  </p>
-                )}
-              </div>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <button
-                type="button"
-                onClick={handleCheckoutSelected}
-                disabled={!canCheckout}
-                aria-disabled={!canCheckout}
-                className={`rounded-full px-4 py-2 text-xs uppercase tracking-[0.3em] transition ${
-                  canCheckout
-                    ? "border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 text-[#2ED1FF] hover:border-[#2ED1FF]/70 hover:bg-[#2ED1FF]/20"
-                    : "cursor-not-allowed border border-white/10 bg-white/5 text-white/40"
-                }`}
-              >
-                Оформить заказ
-              </button>
+        {cartItems.length > 0 && (
+          <div className="mt-5 rounded-[20px] border border-[#2ED1FF]/25 bg-[#2ED1FF]/8 px-4 py-3 sm:mt-6 sm:px-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#BFF4FF]">
+                В корзине: {cartItemCount} • Итог: {cartTotalLabel} ₽
+              </p>
               <Link
-                href="/store"
-                className="rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:border-white/20 hover:text-white"
+                href="/cart"
+                className="inline-flex items-center gap-2 rounded-full border border-[#2ED1FF]/45 bg-[#2ED1FF]/15 px-4 py-2 text-[10px] uppercase tracking-[0.24em] text-[#BFF4FF] transition hover:border-[#2ED1FF]/70 hover:text-white"
               >
-                К каталогу
+                <ShoppingCart className="h-4 w-4" />
+                Перейти в корзину
               </Link>
             </div>
           </div>
-
-          <div className="mt-4 space-y-3">
-            {cartItems.length === 0 ? (
-              <p className="text-sm text-white/60">Добавьте товары, чтобы оформить заказ.</p>
-            ) : (
-              <>
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-[11px] uppercase tracking-[0.2em] text-white/50">
-                  <span>
-                    Выбрано {selectedCartItems.length} из {cartItems.length}
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      onClick={selectAllCartItems}
-                      className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/30 hover:text-white"
-                    >
-                      Выбрать все
-                    </button>
-                    <button
-                      type="button"
-                      onClick={clearCartItemsSelection}
-                      className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/30 hover:text-white"
-                    >
-                      Снять выбор
-                    </button>
-                  </div>
-                </div>
-                {cartItems.map((item) => {
-                const lineTotal = formatPrice(item.priceValue * item.quantity);
-                const resolvedThumb =
-                  typeof item.thumbnailUrl === "string"
-                    ? item.thumbnailUrl
-                    : buildCartThumbnail(item.name);
-                const isSelected = selectedCartIdSet.has(item.id);
-                return (
-                  <div
-                    key={item.id}
-                    className="flex flex-wrap items-center gap-3 rounded-2xl border border-white/5 bg-white/[0.03] px-4 py-3 sm:justify-between"
-                  >
-                    <div className="flex w-full items-center gap-3 sm:w-auto">
-                      <label className="flex cursor-pointer items-center justify-center">
-                        <input
-                          type="checkbox"
-                          checked={isSelected}
-                          onChange={() => toggleCartItemSelection(item.id)}
-                          className="h-4 w-4 rounded border-white/30 bg-white/10 text-[#2ED1FF] focus:ring-[#2ED1FF]/60"
-                        />
-                      </label>
-                      <div className="h-14 w-14 overflow-hidden rounded-2xl border border-white/10 bg-white/5">
-                        <img
-                          src={resolvedThumb}
-                          alt={item.name}
-                          className="h-full w-full object-cover"
-                          onError={(event) => {
-                            const img = event.currentTarget;
-                            img.onerror = null;
-                            img.src = buildCartThumbnail(item.name);
-                          }}
-                        />
-                      </div>
-                      <div className="flex-1">
-                        <p className="text-sm font-semibold text-white">{item.name}</p>
-                        <p className="text-xs text-white/60">{item.formatLabel}</p>
-                      </div>
-                    </div>
-                    <div className="flex w-full items-center justify-between gap-3 sm:w-auto sm:justify-end">
-                      <div className="flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-2 py-1">
-                        <button
-                          type="button"
-                          aria-label="Decrease quantity"
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 transition hover:text-white"
-                          onClick={() => updateCartQuantity(item.id, -1)}
-                        >
-                          <Minus className="h-3 w-3" />
-                        </button>
-                        <span className="min-w-[24px] text-center text-xs font-semibold text-white">
-                          {item.quantity}
-                        </span>
-                        <button
-                          type="button"
-                          aria-label="Increase quantity"
-                          className="flex h-7 w-7 items-center justify-center rounded-full border border-white/10 bg-white/10 text-white/70 transition hover:text-white"
-                          onClick={() => updateCartQuantity(item.id, 1)}
-                        >
-                          <Plus className="h-3 w-3" />
-                        </button>
-                      </div>
-                      <div className="text-right">
-                        <p className="text-sm font-semibold text-white">{lineTotal} ₽</p>
-                        <p className="text-[11px] uppercase tracking-[0.2em] text-white/40">
-                          {item.priceLabel} ₽
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        aria-label="Remove item"
-                        className="flex h-10 w-10 items-center justify-center rounded-full border border-white/10 bg-white/5 text-white/70 transition hover:text-white"
-                        onClick={() => removeFromCart(item.id)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    </div>
-                  </div>
-                );
-                })}
-              </>
-            )}
-          </div>
-          {cartItems.length > 0 && (
-            <div className="mt-3 flex items-center justify-between text-sm text-white/70">
-              <span className="uppercase tracking-[0.2em] text-white/50">Итого</span>
-              <span className="text-base font-semibold text-white">{cartTotalLabel} ₽</span>
-            </div>
-          )}
-        </div>
+        )}
 
         <div className="mt-8 flex gap-2 overflow-x-auto border-b border-white/10 pb-1 sm:gap-3">
           <button

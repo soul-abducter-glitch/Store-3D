@@ -2349,12 +2349,12 @@ export default function Home() {
 
   const handleToggleCart = () => {
     setIsSidebarOpen(false);
-    router.push("/profile");
+    router.push("/cart");
   };
 
   const handleCheckout = () => {
     setIsCartOpen(false);
-    router.push("/checkout");
+    router.push("/cart");
   };
 
   const handleLogout = async () => {

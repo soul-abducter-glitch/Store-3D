@@ -1335,7 +1335,7 @@ function PrintOnDemandContent() {
   };
 
   const handleCartOpen = () => {
-    router.push(isLoggedIn ? "/profile" : "/profile?from=checkout");
+    router.push("/cart");
   };
 
   return (
