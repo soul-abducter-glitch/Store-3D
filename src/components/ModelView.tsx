@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useGLTF, useTexture } from "@react-three/drei";
 import type { Material } from "three";
 import { Box3, Color, Mesh, SRGBColorSpace, Sphere, Vector3, type Object3D } from "three";
@@ -49,6 +49,30 @@ type ModelViewProps = {
 const FALLBACK_MODEL = "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
 const TRANSPARENT_PIXEL_DATA_URL =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+
+const getTextureSize = (image: any) => {
+  if (!image || typeof image !== "object") {
+    return { width: 0, height: 0 };
+  }
+  const width = Number(
+    image.width ?? image.videoWidth ?? image.naturalWidth ?? image.displayWidth ?? 0
+  );
+  const height = Number(
+    image.height ?? image.videoHeight ?? image.naturalHeight ?? image.displayHeight ?? 0
+  );
+  return {
+    width: Number.isFinite(width) ? width : 0,
+    height: Number.isFinite(height) ? height : 0,
+  };
+};
+
+const sanitizeTexture = (texture: any) => {
+  if (!texture || typeof texture !== "object") return null;
+  if (!("image" in texture)) return texture;
+  const { width, height } = getTextureSize((texture as any).image);
+  if (width > 0 && height > 0) return texture;
+  return null;
+};
 
 export default function ModelView({
   rawModelUrl,
@@ -127,6 +151,17 @@ export default function ModelView({
   const baseRoughness = 0.85;
   const baseMetalness = 0.05;
   const [isReady, setIsReady] = useState(false);
+  const onBoundsRef = useRef(onBounds);
+  const onStatsRef = useRef(onStats);
+  const onIssueMarkersRef = useRef(onIssueMarkers);
+  const onReadyRef = useRef(onReady);
+
+  useEffect(() => {
+    onBoundsRef.current = onBounds;
+    onStatsRef.current = onStats;
+    onIssueMarkersRef.current = onIssueMarkers;
+    onReadyRef.current = onReady;
+  }, [onBounds, onIssueMarkers, onReady, onStats]);
 
   useEffect(() => {
     if (!hasOverrideMap || !overrideMap) return;
@@ -292,7 +327,7 @@ export default function ModelView({
     return result.slice(0, 3);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     originalMaterials.current = new Map();
     materialStates.current = new Map();
 
@@ -334,7 +369,7 @@ export default function ModelView({
     const maxDim = Math.max(size.x, size.y, size.z);
 
     if (maxDim > 0) {
-      onBounds?.({
+      onBoundsRef.current?.({
         size: maxDim,
         boxSize: [size.x, size.y, size.z],
         radius: sphere.radius,
@@ -356,10 +391,10 @@ export default function ModelView({
       }
     });
     if (polyCount > 0 || meshCount > 0) {
-      onStats?.({ polyCount, meshCount });
+      onStatsRef.current?.({ polyCount, meshCount });
     }
 
-    onIssueMarkers?.(computeIssueMarkers(scene, maxDim));
+    onIssueMarkersRef.current?.(computeIssueMarkers(scene, maxDim));
     
     const storeMaterialState = (material: Material) => {
       if (materialStates.current.has(material.uuid)) {
@@ -391,37 +426,37 @@ export default function ModelView({
         state.color = materialColor.clone();
       }
       if ("map" in material) {
-        state.map = (material as any).map ?? null;
+        state.map = sanitizeTexture((material as any).map);
       }
       if ("normalMap" in material) {
-        state.normalMap = (material as any).normalMap ?? null;
+        state.normalMap = sanitizeTexture((material as any).normalMap);
       }
       if ("roughnessMap" in material) {
-        state.roughnessMap = (material as any).roughnessMap ?? null;
+        state.roughnessMap = sanitizeTexture((material as any).roughnessMap);
       }
       if ("metalnessMap" in material) {
-        state.metalnessMap = (material as any).metalnessMap ?? null;
+        state.metalnessMap = sanitizeTexture((material as any).metalnessMap);
       }
       if ("emissiveMap" in material) {
-        state.emissiveMap = (material as any).emissiveMap ?? null;
+        state.emissiveMap = sanitizeTexture((material as any).emissiveMap);
       }
       if ("aoMap" in material) {
-        state.aoMap = (material as any).aoMap ?? null;
+        state.aoMap = sanitizeTexture((material as any).aoMap);
       }
       if ("alphaMap" in material) {
-        state.alphaMap = (material as any).alphaMap ?? null;
+        state.alphaMap = sanitizeTexture((material as any).alphaMap);
       }
       if ("bumpMap" in material) {
-        state.bumpMap = (material as any).bumpMap ?? null;
+        state.bumpMap = sanitizeTexture((material as any).bumpMap);
       }
       if ("displacementMap" in material) {
-        state.displacementMap = (material as any).displacementMap ?? null;
+        state.displacementMap = sanitizeTexture((material as any).displacementMap);
       }
       if ("lightMap" in material) {
-        state.lightMap = (material as any).lightMap ?? null;
+        state.lightMap = sanitizeTexture((material as any).lightMap);
       }
       if ("envMap" in material) {
-        state.envMap = (material as any).envMap ?? null;
+        state.envMap = sanitizeTexture((material as any).envMap);
       }
       if ("emissive" in material && (material as any).emissive) {
         state.emissive = (material as any).emissive.clone();
@@ -462,9 +497,9 @@ export default function ModelView({
     setIsReady(true);
     if (!readyNotifiedRef.current) {
       readyNotifiedRef.current = true;
-      onReady?.();
+      onReadyRef.current?.();
     }
-  }, [analysisSignal, onBounds, onIssueMarkers, onReady, onStats, scene]);
+  }, [analysisSignal, scene]);
 
   useEffect(() => {
     if (!isReady) return;
@@ -627,7 +662,7 @@ export default function ModelView({
             material.color.copy(overrideColor);
           }
           if ("map" in material) {
-            (material as any).map = hasOverrideMap ? overrideMap : null;
+            (material as any).map = hasOverrideMap ? sanitizeTexture(overrideMap) : null;
           }
           if ("roughness" in material && typeof overrideRoughness === "number") {
             (material as any).roughness = overrideRoughness;

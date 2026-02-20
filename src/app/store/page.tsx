@@ -2152,6 +2152,14 @@ export default function Home() {
     [handleModelReady]
   );
 
+  const handleHeroStats = useCallback(
+    (stats: { polyCount: number; meshCount: number }) => {
+      setHeroPolyCountComputed((prev) => (prev === stats.polyCount ? prev : stats.polyCount));
+      handleModelReady();
+    },
+    [handleModelReady]
+  );
+
   const handleModelRetry = useCallback(() => {
     attemptProxyFallback();
     setHeroModelStalled(false);
@@ -2925,10 +2933,7 @@ export default function Home() {
                           modelScale={currentProduct?.modelScale ?? null}
                           controlsRef={controlsRef}
                           onBounds={handleHeroBounds}
-                          onStats={(stats) => {
-                            setHeroPolyCountComputed(stats.polyCount);
-                            handleModelReady();
-                          }}
+                          onStats={handleHeroStats}
                           onReady={handleModelReady}
                           />
                       </ErrorBoundary>
@@ -4426,7 +4431,19 @@ function Experience({
     }),
     [isLowQuality]
   );
-  const dpr: number | [number, number] = isLowQuality ? 1 : [1, 2];
+  const dpr = useMemo<number | [number, number]>(
+    () => (isLowQuality ? 1 : ([1, 2] as [number, number])),
+    [isLowQuality]
+  );
+  const cameraConfig = useMemo(
+    () => ({
+      position: [5, 5, 5] as [number, number, number],
+      fov: 42,
+      near: 0.1,
+      far: 1000,
+    }),
+    []
+  );
   const environmentIntensity = isLowQuality
     ? Math.max(0.6, lightingConfig.intensity * 0.75)
     : lightingConfig.intensity;
@@ -4485,7 +4502,7 @@ function Experience({
 
   return (
     <Canvas
-      camera={{ position: [5, 5, 5], fov: 42, near: 0.1, far: 1000 }}
+      camera={cameraConfig}
       dpr={dpr}
       className="h-full w-full"
       gl={glConfig}
