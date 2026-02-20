@@ -49,6 +49,11 @@ const toPublicError = (error: unknown, fallback: string) => {
   return fallback;
 };
 
+const normalizeAssetName = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+};
+
 const findAuthorizedAsset = async (
   payload: any,
   request: NextRequest,
@@ -197,6 +202,66 @@ export async function DELETE(
     console.error("[ai/assets:id:delete] failed", error);
     return NextResponse.json(
       { success: false, error: toPublicError(error, "Failed to delete AI asset.") },
+      { status: 500 }
+    );
+  }
+}
+
+export async function PATCH(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
+    const authorized = await findAuthorizedAsset(payload, request, params);
+    if (!authorized.ok) return authorized.response;
+
+    const body = await request.json().catch(() => null);
+    const name = normalizeAssetName(body?.name);
+    if (!name) {
+      return NextResponse.json(
+        { success: false, error: "Введите название." },
+        { status: 400 }
+      );
+    }
+    if (name.length < 2) {
+      return NextResponse.json(
+        { success: false, error: "Название должно быть не короче 2 символов." },
+        { status: 400 }
+      );
+    }
+    if (name.length > 40) {
+      return NextResponse.json(
+        { success: false, error: "Название должно быть не длиннее 40 символов." },
+        { status: 400 }
+      );
+    }
+
+    const updated = await payload.update({
+      collection: "ai_assets",
+      id: authorized.asset.id,
+      overrideAccess: true,
+      data: {
+        title: name,
+      },
+    });
+
+    return NextResponse.json(
+      {
+        success: true,
+        asset: {
+          id: String(updated?.id ?? authorized.asset.id),
+          title: typeof updated?.title === "string" ? updated.title : name,
+          updatedAt: updated?.updatedAt,
+        },
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("[ai/assets:id:patch] failed", error);
+    return NextResponse.json(
+      { success: false, error: toPublicError(error, "Failed to rename AI asset.") },
       { status: 500 }
     );
   }

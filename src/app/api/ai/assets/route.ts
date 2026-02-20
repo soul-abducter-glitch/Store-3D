@@ -62,6 +62,93 @@ const normalizeVersion = (value: unknown, fallback = 1) => {
   return Math.max(1, Math.trunc(parsed));
 };
 
+const ASSET_TITLE_MAX = 40;
+
+const normalizeTitle = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  return value.replace(/\s+/g, " ").trim();
+};
+
+const clampTitle = (value: string) => {
+  if (!value) return "";
+  return value.slice(0, ASSET_TITLE_MAX).trim();
+};
+
+const formatAutoNameStamp = (date = new Date()) => {
+  const day = String(date.getDate()).padStart(2, "0");
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const hours = String(date.getHours()).padStart(2, "0");
+  const minutes = String(date.getMinutes()).padStart(2, "0");
+  return `${day}.${month} ${hours}:${minutes}`;
+};
+
+const extractFilenameBase = (rawUrl: unknown) => {
+  const raw = toNonEmptyString(rawUrl);
+  if (!raw) return "";
+  const withoutQuery = raw.split("?")[0] || raw;
+  const withoutHash = withoutQuery.split("#")[0] || withoutQuery;
+  const parts = withoutHash.split("/");
+  const last = parts[parts.length - 1] || "";
+  if (!last) return "";
+  let decoded = last;
+  try {
+    decoded = decodeURIComponent(last);
+  } catch {
+    decoded = last;
+  }
+  return decoded.replace(/\.[a-z0-9]{2,6}$/i, "");
+};
+
+const normalizeFilenameLabel = (value: string) => {
+  const normalized = value
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!normalized) return "";
+  const hasLetterOrDigit = /[a-zа-яё0-9]/i.test(normalized);
+  if (!hasLetterOrDigit) return "";
+  if (normalized.length < 2) return "";
+  return normalized;
+};
+
+const buildPromptTitleBase = (prompt: unknown) => {
+  const normalized = normalizeTitle(prompt);
+  if (!normalized) return "";
+  const words = normalized.split(" ").filter(Boolean).slice(0, 6);
+  return words.join(" ");
+};
+
+const withVersionSuffix = (label: string, version = 1) => {
+  const suffix = ` • v${Math.max(1, Math.trunc(version))}`;
+  const trimmed = clampTitle(label);
+  if (!trimmed) return clampTitle(`Новая модель${suffix}`);
+  if ((trimmed + suffix).length <= ASSET_TITLE_MAX) return `${trimmed}${suffix}`;
+  const available = Math.max(1, ASSET_TITLE_MAX - suffix.length - 1);
+  return `${trimmed.slice(0, available).trim()}${suffix}`;
+};
+
+const buildAutoAssetTitle = (params: {
+  prompt?: unknown;
+  sourceType?: unknown;
+  sourceUrl?: unknown;
+  version?: number;
+  now?: Date;
+}) => {
+  const version = Math.max(1, Math.trunc(params.version || 1));
+  const promptBase = buildPromptTitleBase(params.prompt);
+  if (promptBase) return withVersionSuffix(promptBase, version);
+
+  const sourceType = toNonEmptyString(params.sourceType).toLowerCase();
+  const filenameBase = normalizeFilenameLabel(extractFilenameBase(params.sourceUrl));
+  if (filenameBase) return withVersionSuffix(filenameBase, version);
+
+  const stamp = formatAutoNameStamp(params.now || new Date());
+  if (sourceType === "image" || toNonEmptyString(params.sourceUrl)) {
+    return withVersionSuffix(`Изображение • ${stamp}`, version);
+  }
+  return withVersionSuffix(`Новая модель • ${stamp}`, version);
+};
+
 const toPublicError = (error: unknown, fallback: string) => {
   const raw = error instanceof Error ? error.message : "";
   if (!raw) return fallback;
@@ -407,6 +494,13 @@ export async function POST(request: NextRequest) {
         toNonEmptyString(previousAsset?.familyId) ||
         (previousAsset ? String(previousAsset.id) : requestedFamilyId);
       const version = previousAsset ? normalizeVersion(previousAsset?.version, 1) + 1 : 1;
+      const explicitTitle = clampTitle(normalizeTitle(body?.title));
+      const autoTitle = buildAutoAssetTitle({
+        prompt: job?.prompt,
+        sourceType: job?.sourceType,
+        sourceUrl: job?.sourceUrl,
+        version,
+      });
 
       const created = await payload.create({
         collection: "ai_assets",
@@ -416,7 +510,7 @@ export async function POST(request: NextRequest) {
           job: jobId as any,
           status: "ready",
           provider: toNonEmptyString(job?.provider) || "mock",
-          title: toNonEmptyString(body?.title) || toNonEmptyString(job?.prompt) || `AI Model #${jobId}`,
+          title: explicitTitle || autoTitle,
           prompt: toNonEmptyString(job?.prompt),
           sourceType:
             job?.sourceType === "url" || job?.sourceType === "image" ? job.sourceType : "none",
@@ -483,6 +577,13 @@ export async function POST(request: NextRequest) {
     const familyId =
       toNonEmptyString(previousAsset?.familyId) || (previousAsset ? String(previousAsset.id) : requestedFamilyId);
     const version = previousAsset ? normalizeVersion(previousAsset?.version, 1) + 1 : 1;
+    const explicitTitle = clampTitle(normalizeTitle(body?.title));
+    const autoTitle = buildAutoAssetTitle({
+      prompt: body?.prompt,
+      sourceType: body?.sourceType,
+      sourceUrl: body?.sourceUrl,
+      version,
+    });
 
     const created = await payload.create({
       collection: "ai_assets",
@@ -491,7 +592,7 @@ export async function POST(request: NextRequest) {
         user: userId as any,
         status: normalizeStatus(body?.status),
         provider: toNonEmptyString(body?.provider) || "manual",
-        title: toNonEmptyString(body?.title) || "AI Model",
+        title: explicitTitle || autoTitle,
         prompt: toNonEmptyString(body?.prompt) || undefined,
         sourceType:
           body?.sourceType === "url" || body?.sourceType === "image" ? body.sourceType : "none",

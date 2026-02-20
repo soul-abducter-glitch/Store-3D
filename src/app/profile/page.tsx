@@ -1,11 +1,9 @@
 ﻿"use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { toast } from "sonner";
-import { Canvas } from "@react-three/fiber";
-import { Environment, OrbitControls } from "@react-three/drei";
 import {
   ArrowLeft,
   Download,
@@ -22,14 +20,11 @@ import {
   Save,
   Settings,
   ShoppingCart,
-  Columns2,
+  Pencil,
   Trash2,
-  ShieldCheck,
-  Wrench,
   User,
 } from "lucide-react";
 import AuthForm from "@/components/AuthForm";
-import ModelView from "@/components/ModelView";
 import {
   clearCheckoutSelection,
   getCartStorageKey,
@@ -173,10 +168,8 @@ type PaymentAudit = {
 const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
 const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const AI_ASSET_REPAIR_MODE_API = (assetId: string) =>
-  `/api/ai/assets/${encodeURIComponent(assetId)}/repair`;
-const AI_ASSET_ROLLBACK_API = (assetId: string) =>
-  `/api/ai/assets/${encodeURIComponent(assetId)}/rollback`;
+const AI_ASSET_NAME_MIN = 2;
+const AI_ASSET_NAME_MAX = 40;
 const DEBUG_ERROR_EMAILS = (process.env.NEXT_PUBLIC_DEBUG_ERROR_EMAILS || "")
   .split(",")
   .map((entry) => entry.trim().toLowerCase())
@@ -187,45 +180,6 @@ const formatPrice = (value?: number) => {
     return "N/A";
   }
   return new Intl.NumberFormat("ru-RU").format(value);
-};
-
-const formatVersionDiffLabel = (value?: AiAssetEntry["versionDiff"]) => {
-  const keys = Array.isArray(value?.changedKeys) ? value.changedKeys : [];
-  if (keys.length === 0) return "Diff: нет изменений метаданных";
-  const localized = keys.map((key) => {
-    if (key === "format") return "format";
-    if (key === "size") return "size";
-    if (key === "checks") return "checks";
-    if (key === "source") return "source";
-    return key;
-  });
-  return `Diff: ${localized.join(", ")}`;
-};
-
-const MEDIA_PUBLIC_BASE_URL = (process.env.NEXT_PUBLIC_MEDIA_PUBLIC_BASE_URL || "")
-  .trim()
-  .replace(/\/$/, "")
-  .toLowerCase();
-
-const getAiAssetStorageState = (asset?: AiAssetEntry | null) => {
-  const mediaId = typeof asset?.mediaId === "string" && asset.mediaId.trim() ? asset.mediaId : "";
-  if (mediaId || asset?.isInMedia) {
-    return { label: "Загружен в media", readyLabel: "Готов к заказу", tone: "text-emerald-300" };
-  }
-
-  const modelUrl = asset?.modelUrl;
-  const url = typeof modelUrl === "string" ? modelUrl.trim() : "";
-  if (!url) {
-    return { label: "Файл не найден", readyLabel: "Нужно пересоздать", tone: "text-red-300" };
-  }
-
-  const lower = url.toLowerCase();
-  const fromMediaApi = lower.includes("/api/media-file/");
-  const fromMediaPath = lower.includes("/media/");
-  const fromMediaBase = Boolean(MEDIA_PUBLIC_BASE_URL) && lower.startsWith(MEDIA_PUBLIC_BASE_URL);
-  const uploadedToMedia = fromMediaApi || fromMediaPath || fromMediaBase;
-
-  return { label: "Внешний .glb", readyLabel: "Откроется через В печать", tone: "text-amber-200" };
 };
 
 const DIGITAL_CANCEL_WINDOW_MINUTES = 30;
@@ -250,43 +204,6 @@ const buildCartThumbnail = (label: string) => {
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="160" height="120" viewBox="0 0 160 120"><defs><linearGradient id="g" x1="0" x2="1" y1="0" y2="1"><stop offset="0%" stop-color="#1f2937"/><stop offset="100%" stop-color="#0f172a"/></linearGradient></defs><rect width="160" height="120" rx="24" fill="url(#g)"/><circle cx="120" cy="24" r="28" fill="rgba(46,209,255,0.25)"/><text x="18" y="70" fill="#E2E8F0" font-family="Arial, sans-serif" font-size="28" font-weight="700">${shortLabel}</text></svg>`;
   return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
 };
-
-function CompareModelStage({ modelUrl }: { modelUrl?: string | null }) {
-  const normalizedUrl = typeof modelUrl === "string" ? modelUrl.trim() : "";
-  if (!normalizedUrl) {
-    return (
-      <div className="flex h-full w-full items-center justify-center text-xs uppercase tracking-[0.2em] text-white/35">
-        Нет 3D-файла
-      </div>
-    );
-  }
-
-  return (
-    <Canvas
-      dpr={[1, 1.5]}
-      camera={{ position: [3.6, 2.8, 4.8], fov: 42 }}
-      className="h-full w-full"
-      gl={{ alpha: true, antialias: true }}
-      onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
-    >
-      <ambientLight intensity={0.7} />
-      <directionalLight position={[4, 6, 3]} intensity={1.05} />
-      <Suspense fallback={null}>
-        <group position={[0, -0.95, 0]}>
-          <ModelView
-            rawModelUrl={normalizedUrl}
-            paintedModelUrl={null}
-            finish="Raw"
-            renderMode="final"
-            accentColor="#2ED1FF"
-          />
-        </group>
-      </Suspense>
-      <OrbitControls enablePan={false} enableZoom enableDamping />
-      <Environment preset="city" />
-    </Canvas>
-  );
-}
 
 const formatLabelForKey = (formatKey: CartItem["formatKey"]) =>
   formatKey === "physical" ? "Печатная модель" : "Цифровой STL";
@@ -386,6 +303,7 @@ const resolveMediaUrl = (value?: any) => {
 
 export default function ProfilePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const [activeTab, setActiveTab] = useState<
     "orders" | "downloads" | "ai-assets" | "drafts" | "settings"
   >("orders");
@@ -420,13 +338,9 @@ export default function ProfilePage() {
   const [deletingAiAssetId, setDeletingAiAssetId] = useState<string | null>(null);
   const [downloadingAiAssetId, setDownloadingAiAssetId] = useState<string | null>(null);
   const [preparingAiAssetId, setPreparingAiAssetId] = useState<string | null>(null);
-  const [analyzingAiAssetId, setAnalyzingAiAssetId] = useState<string | null>(null);
-  const [repairingAiAssetId, setRepairingAiAssetId] = useState<string | null>(null);
-  const [rollingBackAiAssetId, setRollingBackAiAssetId] = useState<string | null>(null);
-  const [compareAssetIds, setCompareAssetIds] = useState<{
-    beforeId: string;
-    afterId: string;
-  } | null>(null);
+  const [renamingAiAssetId, setRenamingAiAssetId] = useState<string | null>(null);
+  const [editingAiAssetId, setEditingAiAssetId] = useState<string | null>(null);
+  const [editingAiAssetDraft, setEditingAiAssetDraft] = useState("");
   const [checkoutDrafts, setCheckoutDrafts] = useState<CheckoutDraftRecord[]>([]);
   const [openingDraftId, setOpeningDraftId] = useState<string | null>(null);
   const [deletingDraftId, setDeletingDraftId] = useState<string | null>(null);
@@ -439,6 +353,8 @@ export default function ProfilePage() {
     Record<string, string>
   >({});
   const apiBase = "";
+  const aiAssetInputRef = useRef<HTMLInputElement | null>(null);
+  const aiAssetCardRefs = useRef<Record<string, HTMLDivElement | null>>({});
   const cartStorageKey = useMemo(() => getCartStorageKey(user?.id ?? null), [user?.id]);
   const checkoutDraftKey = useMemo(() => getCheckoutDraftKey(user?.id ?? null), [user?.id]);
 
@@ -787,64 +703,119 @@ export default function ProfilePage() {
     return () => window.removeEventListener("ai-assets-updated", handleAiAssetsUpdated);
   }, [fetchAiAssets]);
 
-  const aiAssetById = useMemo(() => {
-    const map = new Map<string, AiAssetEntry>();
-    aiAssets.forEach((asset) => {
-      map.set(asset.id, asset);
-    });
-    return map;
-  }, [aiAssets]);
+  useEffect(() => {
+    const tab = searchParams.get("tab");
+    if (tab === "orders" || tab === "downloads" || tab === "ai-assets" || tab === "drafts" || tab === "settings") {
+      setActiveTab(tab);
+    }
+  }, [searchParams]);
 
-  const aiAssetFamilies = useMemo(() => {
-    const map = new Map<string, AiAssetEntry[]>();
-    aiAssets.forEach((asset) => {
-      const key = typeof asset.familyId === "string" && asset.familyId.trim() ? asset.familyId.trim() : asset.id;
-      if (!map.has(key)) {
-        map.set(key, []);
-      }
-      map.get(key)?.push(asset);
-    });
-    map.forEach((items) => {
-      items.sort((a, b) => {
-        const av = typeof a.version === "number" ? a.version : 1;
-        const bv = typeof b.version === "number" ? b.version : 1;
-        return av - bv;
-      });
-    });
-    return map;
-  }, [aiAssets]);
+  useEffect(() => {
+    if (!editingAiAssetId || !aiAssetInputRef.current) return;
+    aiAssetInputRef.current.focus();
+    aiAssetInputRef.current.select();
+  }, [editingAiAssetId]);
 
-  const resolvePreviousVersionAsset = useCallback(
-    (asset: AiAssetEntry) => {
-      if (!asset) return null;
-      if (asset.previousAssetId && aiAssetById.has(asset.previousAssetId)) {
-        return aiAssetById.get(asset.previousAssetId) ?? null;
-      }
-      const familyKey =
-        typeof asset.familyId === "string" && asset.familyId.trim() ? asset.familyId.trim() : asset.id;
-      const family = aiAssetFamilies.get(familyKey) || [];
-      const version = typeof asset.version === "number" ? asset.version : 1;
-      if (family.length <= 1 || version <= 1) return null;
-      const byVersion = family.find((entry) => (typeof entry.version === "number" ? entry.version : 1) === version - 1);
-      return byVersion ?? null;
-    },
-    [aiAssetById, aiAssetFamilies]
-  );
+  const openAiAssetRename = useCallback((asset: AiAssetEntry) => {
+    setEditingAiAssetId(asset.id);
+    setEditingAiAssetDraft(asset.title || "");
+  }, []);
 
-  const handleOpenCompareAiAsset = useCallback(
-    (asset: AiAssetEntry) => {
-      const previous = resolvePreviousVersionAsset(asset);
-      if (!previous) {
-        toast.error("Для сравнения нужна предыдущая версия модели.", { className: "sonner-toast" });
+  const closeAiAssetRename = useCallback(() => {
+    setEditingAiAssetId(null);
+    setEditingAiAssetDraft("");
+  }, []);
+
+  const saveAiAssetName = useCallback(
+    async (assetId: string, rawName: string) => {
+      const normalized = rawName.replace(/\s+/g, " ").trim();
+      if (!normalized) {
+        toast.error("Введите название.", { className: "sonner-toast" });
         return;
       }
-      setCompareAssetIds({
-        beforeId: previous.id,
-        afterId: asset.id,
-      });
+      if (normalized.length < AI_ASSET_NAME_MIN) {
+        toast.error(`Название должно быть не короче ${AI_ASSET_NAME_MIN} символов.`, {
+          className: "sonner-toast",
+        });
+        return;
+      }
+      if (normalized.length > AI_ASSET_NAME_MAX) {
+        toast.error(`Название должно быть не длиннее ${AI_ASSET_NAME_MAX} символов.`, {
+          className: "sonner-toast",
+        });
+        return;
+      }
+
+      const prev = aiAssets.find((entry) => entry.id === assetId);
+      if (!prev) {
+        closeAiAssetRename();
+        return;
+      }
+      if (prev.title === normalized) {
+        closeAiAssetRename();
+        return;
+      }
+
+      closeAiAssetRename();
+      setRenamingAiAssetId(assetId);
+      setAiAssets((current) =>
+        current.map((entry) => (entry.id === assetId ? { ...entry, title: normalized } : entry))
+      );
+
+      try {
+        const response = await fetch(`${apiBase}/api/ai/assets/${encodeURIComponent(assetId)}`, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: normalized }),
+        });
+        const data = await response.json().catch(() => null);
+        if (!response.ok || !data?.success) {
+          throw new Error(
+            typeof data?.error === "string" ? data.error : "Не удалось сохранить название."
+          );
+        }
+      } catch (error) {
+        setAiAssets((current) =>
+          current.map((entry) => (entry.id === assetId ? { ...entry, title: prev.title } : entry))
+        );
+        const message =
+          error instanceof Error && error.message
+            ? error.message
+            : "Не удалось сохранить. Повторить?";
+        toast.error(message, {
+          className: "sonner-toast",
+          action: {
+            label: "Повторить",
+            onClick: () => {
+              void saveAiAssetName(assetId, normalized);
+            },
+          },
+        });
+      } finally {
+        setRenamingAiAssetId((current) => (current === assetId ? null : current));
+      }
     },
-    [resolvePreviousVersionAsset]
+    [aiAssets, apiBase, closeAiAssetRename]
   );
+
+  useEffect(() => {
+    const renameAssetId = (searchParams.get("renameAssetId") || "").trim();
+    if (!renameAssetId) return;
+    if (activeTab !== "ai-assets") return;
+    if (aiAssetsLoading) return;
+    const asset = aiAssets.find((entry) => entry.id === renameAssetId);
+    if (!asset) return;
+
+    openAiAssetRename(asset);
+    const targetNode = aiAssetCardRefs.current[renameAssetId];
+    targetNode?.scrollIntoView({ block: "center", behavior: "smooth" });
+
+    const nextParams = new URLSearchParams(searchParams.toString());
+    nextParams.delete("renameAssetId");
+    const query = nextParams.toString();
+    router.replace(`/profile${query ? `?${query}` : ""}`, { scroll: false });
+  }, [activeTab, aiAssets, aiAssetsLoading, openAiAssetRename, router, searchParams]);
 
   const handleLogout = async () => {
     try {
@@ -1022,6 +993,17 @@ export default function ProfilePage() {
     const hours = String(date.getHours()).padStart(2, "0");
     const minutes = String(date.getMinutes()).padStart(2, "0");
     return `${day}.${month}.${year} ${hours}:${minutes}`;
+  };
+
+  const formatShortDateTime = (value?: string) => {
+    if (!value) return "";
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return "";
+    const day = String(date.getDate()).padStart(2, "0");
+    const month = String(date.getMonth() + 1).padStart(2, "0");
+    const hours = String(date.getHours()).padStart(2, "0");
+    const minutes = String(date.getMinutes()).padStart(2, "0");
+    return `${day}.${month} ${hours}:${minutes}`;
   };
 
   const formatMinorAmount = (amountMinor?: number, currency?: string) => {
@@ -1786,128 +1768,6 @@ export default function ProfilePage() {
     }
   };
 
-  const handleAnalyzeAiAsset = async (asset: AiAssetEntry) => {
-    if (!asset?.id) return;
-    setAnalyzingAiAssetId(asset.id);
-    try {
-      const response = await fetch(`${apiBase}${AI_ASSET_REPAIR_MODE_API(asset.id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ mode: "analyze" }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || "Не удалось выполнить анализ модели.");
-      }
-      const analysis = data?.analysis as
-        | {
-            riskScore?: number;
-            fixAvailable?: boolean;
-            watertightStatus?: string;
-            issues?: Array<{ message?: string }>;
-          }
-        | undefined;
-      const primaryIssue =
-        Array.isArray(analysis?.issues) && analysis.issues[0]?.message
-          ? String(analysis.issues[0].message)
-          : null;
-      const baseMessage = analysis?.fixAvailable
-        ? `Анализ завершен: найден риск (Q:${analysis?.riskScore ?? "?"}).`
-        : `Анализ завершен: критичных дефектов не найдено (Q:${analysis?.riskScore ?? "?"}).`;
-      toast.success(primaryIssue ? `${baseMessage} ${primaryIssue}` : baseMessage, {
-        className: "sonner-toast",
-      });
-      void fetchAiAssets();
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message ? error.message : "Не удалось выполнить анализ модели.";
-      toast.error(message, { className: "sonner-toast" });
-    } finally {
-      setAnalyzingAiAssetId(null);
-    }
-  };
-
-  const handleAutoFixAiAsset = async (asset: AiAssetEntry) => {
-    if (!asset?.id) return;
-    setRepairingAiAssetId(asset.id);
-    try {
-      const response = await fetch(`${apiBase}${AI_ASSET_REPAIR_MODE_API(asset.id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ mode: "repair" }),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || "Не удалось выполнить Auto-Fix.");
-      }
-      const nextAssetId =
-        typeof data?.repairedAsset?.id === "string" ? data.repairedAsset.id : null;
-      toast.success(
-        `Auto-Fix завершен: создана версия ${
-          typeof data?.repairedAsset?.version === "number" ? `v${data.repairedAsset.version}` : "v+1"
-        }.`,
-        { className: "sonner-toast" }
-      );
-      await fetchAiAssets();
-      if (nextAssetId) {
-        setCompareAssetIds({
-          beforeId: asset.id,
-          afterId: nextAssetId,
-        });
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message ? error.message : "Не удалось выполнить Auto-Fix.";
-      toast.error(message, { className: "sonner-toast" });
-    } finally {
-      setRepairingAiAssetId(null);
-    }
-  };
-
-  const handleRollbackAiAsset = async (asset: AiAssetEntry) => {
-    if (!asset?.id) return;
-    setRollingBackAiAssetId(asset.id);
-    try {
-      const response = await fetch(`${apiBase}${AI_ASSET_ROLLBACK_API(asset.id)}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({}),
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success) {
-        throw new Error(data?.error || "Не удалось выполнить rollback версии.");
-      }
-      const nextAssetId =
-        typeof data?.rolledBackAsset?.id === "string" ? data.rolledBackAsset.id : null;
-      toast.success(
-        `Rollback создан: ${
-          typeof data?.rolledBackAsset?.version === "number"
-            ? `новая версия v${data.rolledBackAsset.version}`
-            : "создана новая версия"
-        }.`,
-        { className: "sonner-toast" }
-      );
-      await fetchAiAssets();
-      if (nextAssetId) {
-        setCompareAssetIds({
-          beforeId: asset.id,
-          afterId: nextAssetId,
-        });
-      }
-    } catch (error) {
-      const message =
-        error instanceof Error && error.message
-          ? error.message
-          : "Не удалось выполнить rollback версии.";
-      toast.error(message, { className: "sonner-toast" });
-    } finally {
-      setRollingBackAiAssetId(null);
-    }
-  };
-
   const handleDeleteAiAsset = async (asset: AiAssetEntry) => {
     if (!asset?.id) return;
     setDeletingAiAssetId(asset.id);
@@ -1995,8 +1855,6 @@ export default function ProfilePage() {
   const cartTotal = selectedCartItems.reduce((sum, item) => sum + item.priceValue * item.quantity, 0);
   const cartTotalLabel = formatPrice(cartTotal);
   const canCheckout = selectedCartItems.length > 0;
-  const compareBeforeAsset = compareAssetIds ? aiAssetById.get(compareAssetIds.beforeId) ?? null : null;
-  const compareAfterAsset = compareAssetIds ? aiAssetById.get(compareAssetIds.afterId) ?? null : null;
 
   if (loading) {
     return (
@@ -2793,17 +2651,20 @@ export default function ProfilePage() {
                     className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl"
                   >
                     {(() => {
-                      const storage = getAiAssetStorageState(asset);
-                      const familyKey =
-                        typeof asset.familyId === "string" && asset.familyId.trim()
-                          ? asset.familyId.trim()
-                          : asset.id;
-                      const family = aiAssetFamilies.get(familyKey) || [asset];
-                      const version = typeof asset.version === "number" ? asset.version : 1;
-                      const previousVersion = resolvePreviousVersionAsset(asset);
+                      const editing = editingAiAssetId === asset.id;
+                      const createdLabel = formatShortDateTime(asset.createdAt || asset.updatedAt);
+                      const metaLabel = `${(asset.format || "unknown").toUpperCase()} • ${
+                        asset.status === "archived" ? "Архив" : "Готово"
+                      }${createdLabel ? ` • ${createdLabel}` : ""}`;
+                      const titleLabel = (asset.title || "").trim() || "Новая модель";
                       return (
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                      <div className="flex items-center gap-3">
+                    <div
+                      className="group flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between"
+                      ref={(node) => {
+                        aiAssetCardRefs.current[asset.id] = node;
+                      }}
+                    >
+                      <div className="flex min-w-0 items-center gap-3">
                         {asset.previewUrl ? (
                           <img
                             src={asset.previewUrl}
@@ -2815,49 +2676,58 @@ export default function ProfilePage() {
                             <Cpu className="h-5 w-5" />
                           </div>
                         )}
-                        <div>
-                          <h3 className="text-xl font-semibold text-white">
-                            {asset.title || "AI Model"}
-                          </h3>
-                          <p className="mt-1 text-sm text-white/60">
-                            Формат: {(asset.format || "unknown").toUpperCase()} •{" "}
-                            {asset.status === "archived" ? "Архив" : "Готово"}
-                          </p>
-                          <p className={`mt-1 text-xs ${storage.tone}`}>
-                            {storage.label} • {storage.readyLabel}
-                          </p>
-                          <p className="mt-1 text-xs text-white/45">
-                            Версия v{version} • в цепочке {family.length}
-                            {previousVersion ? ` • база: v${previousVersion.version || 1}` : ""}
-                          </p>
-                          <p className="mt-1 text-xs text-white/45">{formatVersionDiffLabel(asset.versionDiff)}</p>
-                          {asset.fixAvailable && (
-                            <p className="mt-1 inline-flex rounded-full border border-amber-400/40 bg-amber-500/10 px-2 py-0.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-amber-200">
-                              fix available
-                            </p>
+                        <div className="min-w-0">
+                          {editing ? (
+                            <input
+                              ref={aiAssetInputRef}
+                              value={editingAiAssetDraft}
+                              onChange={(event) =>
+                                setEditingAiAssetDraft(event.target.value.slice(0, AI_ASSET_NAME_MAX))
+                              }
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") {
+                                  event.preventDefault();
+                                  void saveAiAssetName(asset.id, editingAiAssetDraft);
+                                } else if (event.key === "Escape") {
+                                  event.preventDefault();
+                                  closeAiAssetRename();
+                                }
+                              }}
+                              onBlur={() => closeAiAssetRename()}
+                              maxLength={AI_ASSET_NAME_MAX}
+                              className="w-full rounded-lg border border-cyan-300/45 bg-white/5 px-2.5 py-1.5 text-xl font-semibold text-white outline-none transition focus:border-cyan-200"
+                              aria-label="Название модели"
+                            />
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => openAiAssetRename(asset)}
+                                className="truncate text-left text-xl font-semibold text-white transition hover:text-cyan-100"
+                                title={titleLabel}
+                              >
+                                {titleLabel}
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => openAiAssetRename(asset)}
+                                className="rounded-full border border-white/20 bg-white/5 p-1 text-white/65 opacity-0 transition hover:border-cyan-300/45 hover:text-cyan-100 group-hover:opacity-100"
+                                aria-label="Переименовать модель"
+                                title="Переименовать"
+                              >
+                                <Pencil className="h-3.5 w-3.5" />
+                              </button>
+                            </div>
                           )}
-                          {asset.createdAt && (
-                            <p className="mt-1 text-xs text-white/45">
-                              Создано: {formatDate(asset.createdAt)}
+                          <p className="mt-1 text-sm text-white/55">{metaLabel}</p>
+                          {editing && (
+                            <p className="mt-1 text-[11px] text-white/45">
+                              Enter - сохранить, Esc - отмена
                             </p>
                           )}
                         </div>
                       </div>
                       <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
-                        <button
-                          type="button"
-                          onClick={() => handleDownloadAiAsset(asset)}
-                          disabled={downloadingAiAssetId === asset.id}
-                          title="Скачать модель"
-                          aria-label="Скачать модель"
-                          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2ED1FF]/20 text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {downloadingAiAssetId === asset.id ? (
-                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
-                          ) : (
-                            <Download className="h-4 w-4" />
-                          )}
-                        </button>
                         <button
                           type="button"
                           onClick={() => void handlePrintAiAsset(asset)}
@@ -2874,60 +2744,22 @@ export default function ProfilePage() {
                         </button>
                         <button
                           type="button"
-                          onClick={() => void handleAnalyzeAiAsset(asset)}
-                          disabled={analyzingAiAssetId === asset.id}
-                          title="Анализ топологии"
-                          aria-label="Анализ топологии"
-                          className="flex h-10 w-10 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-500/10 text-emerald-100 transition hover:border-emerald-300/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+                          onClick={() => handleDownloadAiAsset(asset)}
+                          disabled={downloadingAiAssetId === asset.id}
+                          title="Скачать модель"
+                          aria-label="Скачать модель"
+                          className="flex h-10 w-10 items-center justify-center rounded-full bg-[#2ED1FF]/20 text-[#2ED1FF] transition hover:bg-[#2ED1FF]/30 disabled:cursor-not-allowed disabled:opacity-60"
                         >
-                          {analyzingAiAssetId === asset.id ? (
+                          {downloadingAiAssetId === asset.id ? (
                             <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
                           ) : (
-                            <ShieldCheck className="h-4 w-4" />
+                            <Download className="h-4 w-4" />
                           )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleAutoFixAiAsset(asset)}
-                          disabled={repairingAiAssetId === asset.id}
-                          title="Auto-Fix (создать исправленную версию)"
-                          aria-label="Auto-Fix"
-                          className="flex h-10 w-10 items-center justify-center rounded-full border border-amber-400/30 bg-amber-500/10 text-amber-100 transition hover:border-amber-300/55 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {repairingAiAssetId === asset.id ? (
-                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
-                          ) : (
-                            <Wrench className="h-4 w-4" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleRollbackAiAsset(asset)}
-                          disabled={rollingBackAiAssetId === asset.id}
-                          title="Rollback к этой версии (создать v+1)"
-                          aria-label="Rollback версии"
-                          className="flex h-10 w-10 items-center justify-center rounded-full border border-cyan-300/30 bg-cyan-500/10 text-cyan-100 transition hover:border-cyan-200/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-                        >
-                          {rollingBackAiAssetId === asset.id ? (
-                            <span className="text-[10px] font-[var(--font-jetbrains-mono)]">...</span>
-                          ) : (
-                            <RotateCcw className="h-4 w-4" />
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleOpenCompareAiAsset(asset)}
-                          disabled={!previousVersion}
-                          title={previousVersion ? "Сравнить версии" : "Нет предыдущей версии"}
-                          aria-label="Сравнить версии"
-                          className="flex h-10 w-10 items-center justify-center rounded-full border border-cyan-400/25 bg-cyan-500/5 text-cyan-100/80 transition hover:border-cyan-300/40 hover:text-cyan-100 disabled:cursor-not-allowed disabled:opacity-45"
-                        >
-                          <Columns2 className="h-4 w-4" />
                         </button>
                         <button
                           type="button"
                           onClick={() => void handleDeleteAiAsset(asset)}
-                          disabled={deletingAiAssetId === asset.id}
+                          disabled={deletingAiAssetId === asset.id || renamingAiAssetId === asset.id}
                           title="Удалить модель"
                           aria-label="Удалить модель"
                           className="flex h-10 w-10 items-center justify-center rounded-full border border-red-400/20 bg-transparent text-red-200/80 transition hover:border-red-400/40 hover:bg-red-500/10 disabled:cursor-not-allowed disabled:opacity-60"
@@ -3117,66 +2949,6 @@ export default function ProfilePage() {
           )}
         </div>
 
-        {compareBeforeAsset && compareAfterAsset && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 px-4 backdrop-blur-sm">
-            <div className="w-full max-w-5xl rounded-[28px] border border-white/10 bg-[#0a0f14] p-6">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-cyan-200/70">
-                    Compare View
-                  </p>
-                  <p className="mt-1 text-sm text-white/60">
-                    До/после для версии v{compareAfterAsset.version || 1}
-                  </p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setCompareAssetIds(null)}
-                  className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/70 transition hover:border-white/35 hover:text-white"
-                >
-                  Закрыть
-                </button>
-              </div>
-
-              <div className="grid gap-4 md:grid-cols-2">
-                {[
-                  { key: "before", label: "До", asset: compareBeforeAsset },
-                  { key: "after", label: "После", asset: compareAfterAsset },
-                ].map((entry) => (
-                  <div key={entry.key} className="rounded-2xl border border-white/10 bg-black/25 p-4">
-                    <div className="min-h-[100px]">
-                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.28em] text-white/45">
-                        {entry.label}
-                      </p>
-                      <p className="mt-1 h-[64px] overflow-hidden text-lg font-semibold text-white">
-                        {entry.asset.title || "AI Model"}
-                      </p>
-                      <p className="mt-1 text-xs text-white/50">
-                        v{entry.asset.version || 1} • {(entry.asset.format || "unknown").toUpperCase()}
-                      </p>
-                    </div>
-                    <div className="mt-3 h-56 overflow-hidden rounded-xl border border-white/10 bg-white/5">
-                      <CompareModelStage modelUrl={entry.asset.modelUrl} />
-                    </div>
-                    <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/40">
-                      Потяните мышью для вращения
-                    </p>
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={() => void handlePrintAiAsset(compareAfterAsset)}
-                  className="rounded-full border border-cyan-400/35 bg-cyan-500/10 px-4 py-2 text-xs uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-300/55 hover:text-white"
-                >
-                  В печать (после)
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
       </div>
     </div>
   );

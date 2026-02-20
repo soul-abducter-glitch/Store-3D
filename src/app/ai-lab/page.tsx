@@ -3,6 +3,7 @@
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { Canvas, useFrame } from "@react-three/fiber";
 import { Environment, Grid, OrbitControls, Sparkles } from "@react-three/drei";
 import { motion } from "framer-motion";
@@ -3732,7 +3733,20 @@ function AiLabContent() {
         return;
       }
       if (publishedAssetsByJobId[job.id]) {
-        showSuccess("Already saved in profile library.");
+        const existingAssetId = String(publishedAssetsByJobId[job.id] || "").trim();
+        toast.success("Сохранено в AI библиотеку", {
+          className: "sonner-toast",
+          action: existingAssetId
+            ? {
+                label: "Переименовать",
+                onClick: () => {
+                  router.push(
+                    `/profile?tab=ai-assets&renameAssetId=${encodeURIComponent(existingAssetId)}`
+                  );
+                },
+              }
+            : undefined,
+        });
         return;
       }
 
@@ -3744,7 +3758,6 @@ function AiLabContent() {
           credentials: "include",
           body: JSON.stringify({
             jobId: job.id,
-            title: (job.prompt || "AI Model").trim().slice(0, 90),
             previousAssetId: job.parentAssetId || undefined,
           }),
         });
@@ -3759,7 +3772,17 @@ function AiLabContent() {
         }));
         setActiveHistoryJobId(job.id);
         setActiveVersionId(String(data.asset.id));
-        showSuccess("Saved to profile AI library.");
+        toast.success("Сохранено в AI библиотеку", {
+          className: "sonner-toast",
+          action: {
+            label: "Переименовать",
+            onClick: () => {
+              router.push(
+                `/profile?tab=ai-assets&renameAssetId=${encodeURIComponent(String(data.asset.id))}`
+              );
+            },
+          },
+        });
         if (typeof window !== "undefined") {
           window.dispatchEvent(new Event("ai-assets-updated"));
         }
@@ -3772,7 +3795,7 @@ function AiLabContent() {
         );
       }
     },
-    [fetchPublishedAssets, publishedAssetsByJobId, pushUiError, showError, showSuccess]
+    [fetchPublishedAssets, publishedAssetsByJobId, pushUiError, router, showError]
   );
 
   const waitForPipelineJob = useCallback(
