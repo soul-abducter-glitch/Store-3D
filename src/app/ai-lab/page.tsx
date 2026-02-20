@@ -5008,48 +5008,6 @@ function AiLabContent() {
                     </div>
                   )}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLabPanelTab("assets");
-                    setToolsMenuOpen(false);
-                  }}
-                  className={`rounded-full border px-3 py-1.5 transition ${
-                    labPanelTab === "assets"
-                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
-                      : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
-                  }`}
-                >
-                  Ассеты
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLabPanelTab("history");
-                    setToolsMenuOpen(false);
-                  }}
-                  className={`rounded-full border px-3 py-1.5 transition ${
-                    labPanelTab === "history"
-                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
-                      : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
-                  }`}
-                >
-                  История
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setLabPanelTab("queue");
-                    setToolsMenuOpen(false);
-                  }}
-                  className={`rounded-full border px-3 py-1.5 transition ${
-                    labPanelTab === "queue"
-                      ? "border-[#2ED1FF]/60 bg-[#0b1014] text-[#BFF4FF]"
-                      : "border-white/15 bg-white/5 hover:border-white/35 hover:text-white"
-                  }`}
-                >
-                  Очередь
-                </button>
               </nav>
             </div>
             <div className="flex items-center gap-2">

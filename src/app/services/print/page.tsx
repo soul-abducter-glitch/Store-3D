@@ -1344,38 +1344,38 @@ function PrintOnDemandContent() {
       <div className="pointer-events-none fixed inset-0 bg-[radial-gradient(circle_at_24%_0%,rgba(46,209,255,0.12)_0%,rgba(5,5,5,0)_45%),radial-gradient(circle_at_85%_8%,rgba(212,175,55,0.08)_0%,rgba(5,5,5,0)_42%)]" />
 
       <header className="fixed inset-x-0 top-0 z-40 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-16 max-w-[1680px] items-center justify-between px-4 sm:px-6">
+        <div className="mx-auto flex h-14 max-w-[1680px] items-center justify-between gap-2 px-3 sm:h-16 sm:px-6">
           <button
             type="button"
             onClick={() => router.push("/store")}
             aria-label="Go to store"
             className="rounded-xl border border-[#2ED1FF]/35 bg-[#0b1014]/85 px-3 py-1.5 text-left transition hover:border-[#7FE7FF]/70"
           >
-            <p className="text-sm font-semibold tracking-[0.2em] text-[#BFF4FF]">3D STORE</p>
-            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55">
+            <p className="text-xs font-semibold tracking-[0.16em] text-[#BFF4FF] sm:text-sm sm:tracking-[0.2em]">3D STORE</p>
+            <p className="hidden text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/55 sm:block">
               Печать на заказ
             </p>
           </button>
 
-          <nav className="flex items-center gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.22em] sm:gap-3">
+          <nav className="flex max-w-[58vw] items-center gap-1.5 overflow-x-auto pb-0.5 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] sm:max-w-none sm:gap-3 sm:text-[10px] sm:tracking-[0.22em]">
             <button
               type="button"
               onClick={() => router.push("/store")}
-              className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
+              className="whitespace-nowrap rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-2.5 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF] sm:px-3"
             >
               Магазин
             </button>
             <button
               type="button"
               onClick={handleCartOpen}
-              className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
+              className="whitespace-nowrap rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-2.5 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF] sm:px-3"
             >
               Корзина {cartCount > 0 ? `(${cartCount})` : ""}
             </button>
             <button
               type="button"
               onClick={() => router.push("/profile")}
-              className="rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-3 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF]"
+              className="whitespace-nowrap rounded-full border border-[#2ED1FF]/40 bg-[#0b1014] px-2.5 py-1.5 text-white/75 transition hover:border-[#7FE7FF]/70 hover:text-[#BFF4FF] sm:px-3"
             >
               Профиль
             </button>
@@ -1383,8 +1383,8 @@ function PrintOnDemandContent() {
         </div>
       </header>
 
-      <div className="fixed inset-x-0 top-16 z-30 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl">
-        <div className="mx-auto flex h-14 max-w-[1680px] items-center px-4 sm:px-6">
+      <div className="fixed inset-x-0 top-14 z-30 border-b border-white/10 bg-[#04080d]/85 backdrop-blur-xl sm:top-16">
+        <div className="mx-auto flex h-12 max-w-[1680px] items-center px-3 sm:h-14 sm:px-6">
           <ol className="grid w-full grid-cols-2 gap-2 sm:grid-cols-4">
             {STEPS.map((step, index) => {
               const active = index === 1;
@@ -1392,7 +1392,7 @@ function PrintOnDemandContent() {
               return (
                 <li
                   key={step}
-                  className={`rounded-md border px-2 py-1 text-center text-xs font-semibold uppercase tracking-[0.13em] ${
+                  className={`rounded-md border px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-[0.08em] sm:text-xs sm:tracking-[0.13em] ${
                     active
                       ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
                       : done
@@ -1408,7 +1408,7 @@ function PrintOnDemandContent() {
         </div>
       </div>
 
-      <main className="mx-auto max-w-[1680px] px-4 pb-8 pt-[142px] sm:px-6">
+      <main className="mx-auto max-w-[1680px] px-3 pb-8 pt-[118px] sm:px-6 sm:pt-[142px]">
         <div className="mb-4 rounded-xl border border-[#2ED1FF]/35 bg-[#2ED1FF]/10 px-3 py-2 text-sm text-[#BFF4FF]">
           {notice}
           <p className="mt-1 text-xs text-[#BFF4FF]/80">Статус загрузки: {uploadStatus}</p>

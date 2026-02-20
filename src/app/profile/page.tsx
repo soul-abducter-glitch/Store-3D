@@ -2017,7 +2017,7 @@ export default function ProfilePage() {
           <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
         </div>
 
-        <div className="relative z-10 mx-auto max-w-[600px] px-6 py-24">
+        <div className="relative z-10 mx-auto max-w-[600px] px-4 py-16 sm:px-6 sm:py-24">
           <div className="mb-8 flex items-center justify-between">
             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
               Доступ к системе
@@ -2031,7 +2031,7 @@ export default function ProfilePage() {
             </Link>
           </div>
 
-          <div className="rounded-[32px] border border-white/5 bg-white/[0.03] p-8 backdrop-blur-xl">
+          <div className="rounded-[32px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl sm:p-8">
             <AuthForm />
           </div>
         </div>
@@ -2047,7 +2047,7 @@ export default function ProfilePage() {
         <div className="absolute right-[-15%] top-10 h-[420px] w-[420px] rounded-full bg-[radial-gradient(circle,rgba(212,175,55,0.16),transparent_70%)] blur-2xl" />
       </div>
 
-      <div className="relative z-10 mx-auto max-w-[1200px] px-6 pb-24 pt-16">
+      <div className="relative z-10 mx-auto max-w-[1200px] px-4 pb-16 pt-10 sm:px-6 sm:pb-24 sm:pt-16">
         <div className="flex flex-wrap items-center justify-between gap-4">
           <div>
             <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/50">
@@ -2056,15 +2056,15 @@ export default function ProfilePage() {
             <Link
               href="/store"
               aria-label="Перейти в магазин"
-              className="mt-3 inline-flex text-3xl font-semibold text-white transition hover:text-cyan-100"
+              className="mt-2 inline-flex text-2xl font-semibold text-white transition hover:text-cyan-100 sm:mt-3 sm:text-3xl"
             >
               Профиль 3D-STORE
             </Link>
           </div>
-          <div className="flex gap-3">
+          <div className="flex w-full flex-wrap gap-2 sm:w-auto sm:gap-3">
             <Link
               href="/help"
-              className="flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-cyan-200 transition hover:border-cyan-300/60 hover:text-cyan-100"
+              className="flex items-center gap-2 rounded-full border border-cyan-400/30 bg-cyan-500/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-cyan-200 transition hover:border-cyan-300/60 hover:text-cyan-100 sm:px-4 sm:text-xs sm:tracking-[0.3em]"
             >
               <LifeBuoy className="h-4 w-4" />
               Поддержка
@@ -2072,14 +2072,14 @@ export default function ProfilePage() {
             <button
               type="button"
               onClick={handleLogout}
-              className="flex items-center gap-2 rounded-full border border-white/10 bg-red-500/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-red-400 transition hover:bg-red-500/20 hover:text-red-300"
+              className="flex items-center gap-2 rounded-full border border-white/10 bg-red-500/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-red-400 transition hover:bg-red-500/20 hover:text-red-300 sm:px-4 sm:text-xs sm:tracking-[0.3em]"
             >
               <LogOut className="h-4 w-4" />
               Выход
             </button>
             <Link
               href="/store"
-              className="flex items-center gap-2 rounded-full border border-white/10 px-4 py-2 text-xs uppercase tracking-[0.3em] text-white/60 transition hover:text-white"
+              className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:text-white sm:px-4 sm:text-xs sm:tracking-[0.3em]"
             >
               <ArrowLeft className="h-4 w-4" />
               Назад в магазин
@@ -2087,7 +2087,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div className="mt-10 flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-white/10 bg-white/[0.04] px-6 py-5">
+        <div className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-[28px] border border-white/10 bg-white/[0.04] px-4 py-4 sm:mt-10 sm:px-6 sm:py-5">
           <div className="flex items-center gap-4">
             <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/10">
               <User className="h-6 w-6 text-white/70" />
@@ -2101,7 +2101,7 @@ export default function ProfilePage() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-[28px] border border-white/10 bg-white/[0.04] px-6 py-5">
+        <div className="mt-5 rounded-[28px] border border-white/10 bg-white/[0.04] px-4 py-4 sm:mt-6 sm:px-6 sm:py-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-full bg-[#2ED1FF]/15 text-[#2ED1FF]">
