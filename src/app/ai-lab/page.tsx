@@ -7332,7 +7332,7 @@ function AiLabContent() {
                   onClick={() => {
                     if (!maskEditorReference) return;
                     closeMaskEditor();
-                    void handleRemoveBackgroundReference(maskEditorReference.id);
+                    void handleRemoveReferenceBackground(maskEditorReference.id);
                   }}
                   disabled={!maskEditorReference || removingReferenceBgId === maskEditorReference?.id}
                   className="rounded-full border border-emerald-300/45 bg-emerald-500/10 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100 transition hover:border-emerald-200 disabled:cursor-not-allowed disabled:opacity-45"
