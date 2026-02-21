@@ -44,6 +44,13 @@ import ModelView, {
 } from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import { resolveGenerationEtaMinutes, resolveGenerationTokenCost } from "@/lib/aiGenerationProfile";
+import {
+  BILLING_MODE,
+  billingProvider,
+  mockBillingEnabled,
+  realBillingEnabled,
+  type BillingUIState,
+} from "@/lib/aiBilling";
 
 type SynthesisMode = "image" | "text";
 type AiReferenceItem = {
@@ -196,15 +203,6 @@ type AiTokenEvent = {
   createdAt: string;
 };
 
-type AiSubscriptionPlan = {
-  code: "s" | "m" | "l";
-  label: string;
-  monthlyTokens: number;
-  monthlyAmountCents: number;
-  proAccess: boolean;
-  configured: boolean;
-};
-
 type AiSubscriptionState = {
   id: string;
   stripeCustomerId: string;
@@ -256,10 +254,7 @@ const BLENDER_BRIDGE_ENABLED = ["1", "true", "yes", "on"].includes(
 );
 const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
-const AI_TOKENS_TOPUP_API_URL = "/api/ai/tokens/topup";
 const AI_SUBSCRIPTION_ME_API_URL = "/api/ai/subscriptions/me";
-const AI_SUBSCRIPTION_CHECKOUT_API_URL = "/api/ai/subscriptions/checkout";
-const AI_SUBSCRIPTION_PORTAL_API_URL = "/api/ai/subscriptions/portal";
 const MAX_INPUT_REFERENCES = 4;
 const AI_BG_REMOVE_MODE = (process.env.NEXT_PUBLIC_AI_BG_REMOVE_MODE || "client")
   .trim()
@@ -290,10 +285,12 @@ const APPEARANCE_PRESET_PBR: Record<
   plastic: { roughness: 0.52, metalness: 0.08 },
   hologram: { roughness: 0.18, metalness: 0.64 },
 };
-const TOPUP_PACKS: Array<{ id: string; title: string; credits: number; note: string }> = [
-  { id: "starter", title: "STARTER", credits: 50, note: "STRIPE TEST" },
-  { id: "pro", title: "PRO", credits: 200, note: "STRIPE TEST" },
-  { id: "max", title: "MAX", credits: 500, note: "STRIPE TEST" },
+const MOCK_TOPUP_MIN = 1;
+const MOCK_TOPUP_MAX = 100000;
+const MOCK_TOPUP_PACKS: Array<{ id: string; title: string; amount: number; note: string }> = [
+  { id: "starter", title: "+50", amount: 50, note: "Быстрый тест" },
+  { id: "pro", title: "+200", amount: 200, note: "Расширенный тест" },
+  { id: "max", title: "+500", amount: 500, note: "Нагрузочный тест" },
 ];
 const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   queued: "SERVER_QUEUE",
@@ -441,13 +438,35 @@ function BlenderBadgeIcon({ className = "h-3.5 w-3.5" }: { className?: string })
   );
 }
 
-const formatMoneyFromCents = (cents?: number) => {
-  if (typeof cents !== "number" || !Number.isFinite(cents)) return "0";
-  return new Intl.NumberFormat("ru-RU", {
-    style: "currency",
-    currency: "RUB",
-    maximumFractionDigits: 2,
-  }).format(cents / 100);
+const parseMockTopupAmount = (value: unknown) => {
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)) {
+    return value;
+  }
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!/^\d+$/.test(trimmed)) return null;
+  const parsed = Number.parseInt(trimmed, 10);
+  if (!Number.isFinite(parsed)) return null;
+  return parsed;
+};
+
+const validateMockTopupAmount = (value: unknown) => {
+  const amount = parseMockTopupAmount(value);
+  if (amount === null) {
+    return { ok: false as const, error: "Введите целое число токенов." };
+  }
+  if (amount < MOCK_TOPUP_MIN) {
+    return { ok: false as const, error: `Минимум ${MOCK_TOPUP_MIN} токен.` };
+  }
+  if (amount > MOCK_TOPUP_MAX) {
+    return { ok: false as const, error: `Максимум ${MOCK_TOPUP_MAX} токенов.` };
+  }
+  return { ok: true as const, amount };
+};
+
+const realBillingReasonLabel = (reason?: string) => {
+  if (reason === "api_not_connected") return "Недоступно до подключения API.";
+  return "Пока недоступно.";
 };
 
 const sanitizeFilenameBase = (raw: string, fallback = "reference") => {
@@ -1197,15 +1216,6 @@ const tokenReasonLabel: Record<AiTokenEvent["reason"], string> = {
   adjust: "Коррекция",
 };
 
-const subscriptionStatusLabel = (value?: string) => {
-  const raw = String(value || "").trim().toLowerCase();
-  if (raw === "active") return "ACTIVE";
-  if (raw === "past_due") return "PAST DUE";
-  if (raw === "canceled") return "CANCELED";
-  if (raw === "incomplete") return "INCOMPLETE";
-  return raw ? raw.toUpperCase() : "NO PLAN";
-};
-
 function NeuralCore({ active, progress = 0 }: { active: boolean; progress?: number }) {
   const groupRef = useRef<Group | null>(null);
   const geometryRef = useRef<BufferGeometry | null>(null);
@@ -1617,13 +1627,21 @@ function AiLabContent() {
   const [tokenEvents, setTokenEvents] = useState<AiTokenEvent[]>([]);
   const [tokenEventsLoading, setTokenEventsLoading] = useState(false);
   const [topupOpen, setTopupOpen] = useState(false);
-  const [topupTab, setTopupTab] = useState<"onetime" | "subscription">("onetime");
-  const [topupLoadingPack, setTopupLoadingPack] = useState<string | null>(null);
-  const [subscriptionMode, setSubscriptionMode] = useState<"off" | "stripe">("off");
+  const [mockCustomAmountInput, setMockCustomAmountInput] = useState("");
   const [subscription, setSubscription] = useState<AiSubscriptionState | null>(null);
-  const [subscriptionPlans, setSubscriptionPlans] = useState<AiSubscriptionPlan[]>([]);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
-  const [subscriptionAction, setSubscriptionAction] = useState<"checkout" | "portal" | null>(null);
+  const [billingUIState, setBillingUIState] = useState<BillingUIState>({
+    tokenBalance: 0,
+    billingMode: BILLING_MODE,
+    mockTopup: {
+      status: "idle",
+    },
+    realBilling: {
+      enabled: realBillingEnabled,
+      status: realBillingEnabled ? "idle" : "disabled",
+      reason: realBillingEnabled ? undefined : "api_not_connected",
+    },
+  });
   const [focusMode, setFocusMode] = useState(false);
   const [panelCollapsed, setPanelCollapsed] = useState(false);
   const [tokensPopoverOpen, setTokensPopoverOpen] = useState(false);
@@ -1737,6 +1755,7 @@ function AiLabContent() {
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const jobHistoryRequestInFlightRef = useRef(false);
+  const mockTopupInFlightRef = useRef(false);
   const validInputReferences = useMemo(
     () => inputReferences.filter(isAiReferenceItem),
     [inputReferences]
@@ -1918,37 +1937,12 @@ function AiLabContent() {
         if (!response.ok) {
           if (response.status === 401) {
             setSubscription(null);
-            setSubscriptionPlans([]);
-            setSubscriptionMode("off");
             return;
           }
           throw new Error(
             typeof data?.error === "string" ? data.error : "Failed to fetch subscription status."
           );
         }
-
-        const mode = data?.mode === "stripe" ? "stripe" : "off";
-        setSubscriptionMode(mode);
-        const plans = Array.isArray(data?.plans) ? (data.plans as AiSubscriptionPlan[]) : [];
-        setSubscriptionPlans(
-          plans
-            .filter((plan) => plan && typeof plan === "object")
-            .map((plan) => ({
-              code: plan.code,
-              label: String(plan.label || "").trim() || `Plan ${String(plan.code || "").toUpperCase()}`,
-              monthlyTokens:
-                typeof plan.monthlyTokens === "number" && Number.isFinite(plan.monthlyTokens)
-                  ? Math.max(0, Math.trunc(plan.monthlyTokens))
-                  : 0,
-              monthlyAmountCents:
-                typeof plan.monthlyAmountCents === "number" && Number.isFinite(plan.monthlyAmountCents)
-                  ? Math.max(0, Math.trunc(plan.monthlyAmountCents))
-                  : 0,
-              proAccess: Boolean(plan.proAccess),
-              configured: Boolean(plan.configured),
-            }))
-            .filter((plan) => plan.code === "s" || plan.code === "m" || plan.code === "l")
-        );
         const rawSubscription =
           data?.subscription && typeof data.subscription === "object" ? data.subscription : null;
         if (!rawSubscription) {
@@ -1995,114 +1989,99 @@ function AiLabContent() {
     [pushUiError]
   );
 
-  const handleSubscriptionCheckout = useCallback(
-    async (planCode: "s" | "m" | "l") => {
-      if (subscriptionAction) return;
-      setSubscriptionAction("checkout");
-      try {
-        const response = await fetch(AI_SUBSCRIPTION_CHECKOUT_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ planCode }),
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(
-            typeof data?.error === "string"
-              ? data.error
-              : "Failed to start subscription checkout."
-          );
-        }
-        if (typeof data?.checkoutUrl === "string" && data.checkoutUrl) {
-          showSuccess("Redirecting to Stripe Subscription Checkout (test mode)...");
-          if (typeof window !== "undefined") {
-            window.location.href = data.checkoutUrl;
-          }
-          return;
-        }
-        showSuccess("Subscription checkout session created.");
-      } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Failed to start subscription checkout.");
-      } finally {
-        setSubscriptionAction(null);
-      }
-    },
-    [pushUiError, showSuccess, subscriptionAction]
-  );
-
-  const handleOpenSubscriptionPortal = useCallback(async () => {
-    if (subscriptionAction) return;
-    setSubscriptionAction("portal");
-    try {
-      const response = await fetch(AI_SUBSCRIPTION_PORTAL_API_URL, {
-        method: "POST",
-        credentials: "include",
-      });
-      const data = await response.json().catch(() => null);
-      if (!response.ok) {
-        throw new Error(
-          typeof data?.error === "string"
-            ? data.error
-            : "Failed to open subscription portal."
-        );
-      }
-      if (typeof data?.url === "string" && data.url) {
-        if (typeof window !== "undefined") {
-          window.location.href = data.url;
-        }
+  const handleMockTopup = useCallback(
+    async (rawAmount: unknown, source: "package" | "manual", packageId?: string) => {
+      if (!mockBillingEnabled) {
+        const message = "Mock-режим пополнения сейчас отключен.";
+        setBillingUIState((prev) => ({
+          ...prev,
+          mockTopup: {
+            ...prev.mockTopup,
+            status: "error",
+            selectedPackageId: packageId,
+            errorMessage: message,
+          },
+        }));
+        pushUiError(message);
         return;
       }
-      showSuccess("Subscription portal is ready.");
-    } catch (error) {
-      pushUiError(error instanceof Error ? error.message : "Failed to open subscription portal.");
-    } finally {
-      setSubscriptionAction(null);
-    }
-  }, [pushUiError, showSuccess, subscriptionAction]);
+      if (billingUIState.mockTopup.status === "loading" || mockTopupInFlightRef.current) return;
+      const validation = validateMockTopupAmount(rawAmount);
+      if (!validation.ok) {
+        setBillingUIState((prev) => ({
+          ...prev,
+          mockTopup: {
+            ...prev.mockTopup,
+            status: "error",
+            selectedPackageId: packageId,
+            customAmount: source === "manual" ? parseMockTopupAmount(rawAmount) ?? undefined : undefined,
+            errorMessage: validation.error,
+          },
+        }));
+        return;
+      }
 
-  const handleTopup = useCallback(
-    async (packId: string) => {
-      if (topupLoadingPack) return;
-      setTopupLoadingPack(packId);
+      const amount = validation.amount;
+      setBillingUIState((prev) => ({
+        ...prev,
+        mockTopup: {
+          status: "loading",
+          selectedPackageId: packageId,
+          customAmount: source === "manual" ? amount : undefined,
+          errorMessage: undefined,
+        },
+      }));
+      mockTopupInFlightRef.current = true;
       try {
-        const response = await fetch(AI_TOKENS_TOPUP_API_URL, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          credentials: "include",
-          body: JSON.stringify({ packId }),
+        const result = await billingProvider.mockTopup({
+          amount,
+          source: source === "package" ? `package:${packageId || "unknown"}` : "manual",
         });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) {
-          throw new Error(typeof data?.error === "string" ? data.error : "Failed to top up tokens.");
-        }
-        if (typeof data?.checkoutUrl === "string" && data.checkoutUrl) {
-          showSuccess("Redirecting to Stripe Checkout (test mode)...");
-          if (typeof window !== "undefined") {
-            window.location.href = data.checkoutUrl;
-          }
-          return;
-        }
-        if (typeof data?.tokens === "number" && Number.isFinite(data.tokens)) {
-          setTokens(Math.max(0, Math.trunc(data.tokens)));
-        } else {
-          void fetchTokens(true);
-        }
+        setTokens(Math.max(0, Math.trunc(result.newBalance)));
+        setBillingUIState((prev) => ({
+          ...prev,
+          tokenBalance: Math.max(0, Math.trunc(result.newBalance)),
+          mockTopup: {
+            status: "success",
+            selectedPackageId: packageId,
+            customAmount: source === "manual" ? amount : undefined,
+          },
+        }));
+        showSuccess("Токены начислены (mock).");
         void fetchTokenHistory(true);
-        const added =
-          typeof data?.creditsAdded === "number" && Number.isFinite(data.creditsAdded)
-            ? Math.max(0, Math.trunc(data.creditsAdded))
-            : null;
-        showSuccess(added ? `Balance updated: +${added} tokens` : "Balance updated");
-        setTopupOpen(false);
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Failed to top up tokens.");
+        const message = error instanceof Error ? error.message : "Не удалось пополнить токены (mock).";
+        setBillingUIState((prev) => ({
+          ...prev,
+          mockTopup: {
+            status: "error",
+            selectedPackageId: packageId,
+            customAmount: source === "manual" ? amount : undefined,
+            errorMessage: message,
+          },
+        }));
+        pushUiError(message);
       } finally {
-        setTopupLoadingPack(null);
+        mockTopupInFlightRef.current = false;
       }
     },
-    [fetchTokenHistory, fetchTokens, pushUiError, showSuccess, topupLoadingPack]
+    [billingUIState.mockTopup.status, fetchTokenHistory, pushUiError, showSuccess]
   );
+
+  const handleMockPackageTopup = useCallback(
+    (pack: { id: string; amount: number }) => {
+      void handleMockTopup(pack.amount, "package", pack.id);
+    },
+    [handleMockTopup]
+  );
+
+  const handleMockCustomTopupSubmit = useCallback(() => {
+    void handleMockTopup(mockCustomAmountInput, "manual");
+  }, [handleMockTopup, mockCustomAmountInput]);
+
+  const handleRealBillingPreviewClick = useCallback(() => {
+    pushUiError("Пока недоступно. Подключаем реальный API.");
+  }, [pushUiError]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -3377,6 +3356,14 @@ function AiLabContent() {
     []
   );
 
+  useEffect(() => {
+    setBillingUIState((prev) => {
+      const normalized = Math.max(0, Math.trunc(tokens));
+      if (prev.tokenBalance === normalized) return prev;
+      return { ...prev, tokenBalance: normalized };
+    });
+  }, [tokens]);
+
   const handleSelectAsset = (asset: GeneratedAsset) => {
     if (!asset.modelUrl) {
       showError("Файл модели недоступен. Загрузите модель заново.");
@@ -4499,6 +4486,9 @@ function AiLabContent() {
   const canUseProQuality = subscriptionLoading
     ? true
     : Boolean(subscription?.isActive && subscription?.proAccess);
+  const isMockTopupLoading = billingUIState.mockTopup.status === "loading";
+  const isMockTopupEnabled = mockBillingEnabled;
+  const isRealBillingDisabled = !billingUIState.realBilling.enabled;
   const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
   const estimatedEtaMinutes = resolveGenerationEtaMinutes(baseEtaMinutes, {
     quality: qualityPreset,
@@ -5053,8 +5043,13 @@ function AiLabContent() {
                   type="button"
                   onClick={(event) => {
                     event.stopPropagation();
-                    setTopupTab("onetime");
                     setTopupOpen(true);
+                    setBillingUIState((prev) => ({
+                      ...prev,
+                      mockTopup: {
+                        status: "idle",
+                      },
+                    }));
                     setTokensPopoverOpen(false);
                     setQuickSettingsOpen(false);
                     setToolsMenuOpen(false);
@@ -6746,133 +6741,158 @@ function AiLabContent() {
 
       {topupOpen && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm">
-          <div className="w-full max-w-[680px] rounded-[28px] border border-emerald-400/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
-            <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-emerald-200">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.7)]" />
+          <div className="w-full max-w-[920px] rounded-[28px] border border-[#2ED1FF]/35 bg-[#05070a]/95 p-6 shadow-[0_30px_80px_rgba(0,0,0,0.6)]">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="flex items-center gap-3 text-[12px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.35em] text-cyan-200">
+                  <span className="h-2 w-2 rounded-full bg-cyan-400 shadow-[0_0_12px_rgba(34,211,238,0.8)]" />
                   [ ПОПОЛНЕНИЕ ТОКЕНОВ ]
-            </div>
-            <p className="mt-4 text-sm text-white/75">One-time пакеты или ежемесячная подписка.</p>
-            <div className="mt-4 grid grid-cols-2 gap-2 rounded-2xl border border-white/10 bg-black/30 p-2">
-              <button
-                type="button"
-                onClick={() => setTopupTab("onetime")}
-                className={`rounded-xl px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] transition ${
-                  topupTab === "onetime"
-                    ? "border border-emerald-400/60 bg-emerald-500/10 text-emerald-100"
-                    : "border border-white/10 text-white/55 hover:text-white"
-                }`}
-              >
-                One-time
-              </button>
-              <button
-                type="button"
-                onClick={() => setTopupTab("subscription")}
-                className={`rounded-xl px-3 py-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] transition ${
-                  topupTab === "subscription"
-                    ? "border border-cyan-400/60 bg-cyan-500/10 text-cyan-100"
-                    : "border border-white/10 text-white/55 hover:text-white"
-                }`}
-              >
-                Subscription
-              </button>
+                </div>
+                <p className="mt-3 text-sm text-white/70">
+                  Режим: <span className="font-semibold text-cyan-100">{billingUIState.billingMode}</span>
+                </p>
+              </div>
+              <p className="text-xs font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/55">
+                Токены: {tokensLoading ? "..." : billingUIState.tokenBalance}
+              </p>
             </div>
 
-            {topupTab === "onetime" ? (
-              <div className="mt-5 grid gap-3 sm:grid-cols-3">
-                {TOPUP_PACKS.map((pack) => {
-                  const isLoading = topupLoadingPack === pack.id;
-                  const disabled = Boolean(topupLoadingPack) || Boolean(subscriptionAction);
-                  return (
-                    <button
-                      key={pack.id}
-                      type="button"
-                      onClick={() => {
-                        void handleTopup(pack.id);
-                      }}
-                      disabled={disabled}
-                      className="rounded-2xl border border-emerald-400/40 bg-emerald-500/5 px-4 py-3 text-left transition hover:border-emerald-300 hover:bg-emerald-500/10 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] text-emerald-100">
-                        {pack.title}
-                      </p>
-                      <p className="mt-2 text-lg font-semibold text-white">+{pack.credits}</p>
-                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                        {isLoading ? "обработка..." : pack.note}
-                      </p>
-                    </button>
-                  );
-                })}
-              </div>
-            ) : (
-              <div className="mt-5 space-y-3">
-                {subscriptionMode !== "stripe" ? (
-                  <div className="rounded-2xl border border-amber-400/35 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">
-                    Режим подписки отключен. Для включения установите AI_SUBSCRIPTIONS_MODE=stripe.
-                  </div>
-                ) : subscriptionLoading ? (
-                  <div className="rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-white/60">
-                    Загрузка тарифов подписки...
-                  </div>
-                ) : (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-3">
-                      {subscriptionPlans.map((plan) => {
-                        const selected = subscription?.planCode === plan.code;
-                        const disabled = !plan.configured || Boolean(subscriptionAction);
-                        return (
-                          <button
-                            key={plan.code}
-                            type="button"
-                            disabled={disabled}
-                            onClick={() => void handleSubscriptionCheckout(plan.code)}
-                            className={`rounded-2xl border px-4 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
-                              selected
-                                ? "border-cyan-300/60 bg-cyan-500/15"
-                                : "border-cyan-400/35 bg-cyan-500/5 hover:border-cyan-300/60"
-                            }`}
-                          >
-                            <p className="text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.25em] text-cyan-100">
-                              {plan.label}
-                            </p>
-                            <p className="mt-2 text-lg font-semibold text-white">
-                              {plan.monthlyTokens} / мес
-                            </p>
-                            <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/50">
-                              {formatMoneyFromCents(plan.monthlyAmountCents)} •{" "}
-                              {plan.proAccess ? "pro+standard" : "standard"}
-                            </p>
-                            <p className="mt-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/45">
-                              {subscriptionAction === "checkout" ? "обработка..." : selected ? "текущий" : "сменить"}
-                            </p>
-                          </button>
-                        );
-                      })}
-                    </div>
-                    <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-white/10 bg-black/25 px-4 py-3">
-                      <p className="text-xs text-white/70">
-                        {subscription?.planCode
-                          ? `${subscription.planLabel} • ${subscriptionStatusLabel(subscription.status)}`
-                          : "No active subscription"}
-                      </p>
-                      <button
-                        type="button"
-                        onClick={() => void handleOpenSubscriptionPortal()}
-                        disabled={subscriptionAction === "portal" || !subscription?.stripeCustomerId}
-                        className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/75 transition hover:border-white/35 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
-                      >
-                        {subscriptionAction === "portal" ? "..." : "Портал подписки"}
-                      </button>
-                    </div>
-                  </>
+            <div className="mt-5 grid gap-4 lg:grid-cols-2">
+              <section className="rounded-2xl border border-emerald-400/35 bg-emerald-500/5 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-emerald-100">Тестовое пополнение токенов</h3>
+                  <span className="rounded-full border border-emerald-300/45 bg-emerald-500/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100">
+                    MOCK ACTIVE
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-white/65">Для разработки и проверки сценариев AI Lab.</p>
+                {!isMockTopupEnabled && (
+                  <p className="mt-2 text-xs text-amber-200">
+                    Mock-пополнение отключено в текущем окружении.
+                  </p>
                 )}
-              </div>
-            )}
+
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  {MOCK_TOPUP_PACKS.map((pack) => {
+                    const selected = billingUIState.mockTopup.selectedPackageId === pack.id;
+                    return (
+                      <button
+                        key={pack.id}
+                        type="button"
+                        onClick={() => handleMockPackageTopup(pack)}
+                        disabled={!isMockTopupEnabled || isMockTopupLoading}
+                        className={`rounded-xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                          selected
+                            ? "border-emerald-300/70 bg-emerald-500/20"
+                            : "border-emerald-400/35 bg-emerald-500/5 hover:border-emerald-300/65 hover:bg-emerald-500/15"
+                        }`}
+                      >
+                        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-100">
+                          {pack.title}
+                        </p>
+                        <p className="mt-2 text-xs text-white/55">{isMockTopupLoading ? "обработка..." : pack.note}</p>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                <div className="mt-4 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                  <label
+                    htmlFor="mock-topup-amount"
+                    className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
+                  >
+                    Количество токенов
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      id="mock-topup-amount"
+                      type="text"
+                      inputMode="numeric"
+                      placeholder="Например: 150"
+                      value={mockCustomAmountInput}
+                      onChange={(event) => {
+                        const digitsOnly = event.target.value.replace(/[^\d]/g, "").slice(0, 6);
+                        setMockCustomAmountInput(digitsOnly);
+                        setBillingUIState((prev) => ({
+                          ...prev,
+                          mockTopup: {
+                            ...prev.mockTopup,
+                            status: prev.mockTopup.status === "error" ? "idle" : prev.mockTopup.status,
+                            errorMessage: undefined,
+                          },
+                        }));
+                      }}
+                      disabled={!isMockTopupEnabled || isMockTopupLoading}
+                      className="w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleMockCustomTopupSubmit}
+                      disabled={!isMockTopupEnabled || isMockTopupLoading}
+                      className="rounded-xl border border-emerald-300/45 bg-emerald-500/15 px-4 py-2 text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-50 transition hover:border-emerald-200/70 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isMockTopupLoading ? "..." : "Пополнить"}
+                    </button>
+                  </div>
+                  {billingUIState.mockTopup.errorMessage ? (
+                    <p className="text-xs text-rose-300">{billingUIState.mockTopup.errorMessage}</p>
+                  ) : (
+                    <p className="text-[11px] text-white/50">
+                      Допустимо только целое число от {MOCK_TOPUP_MIN} до {MOCK_TOPUP_MAX}.
+                    </p>
+                  )}
+                  {billingUIState.mockTopup.status === "success" && (
+                    <p className="text-xs text-emerald-200">Токены начислены (mock).</p>
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.04] p-4 opacity-85">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <h3 className="text-sm font-semibold text-cyan-100">Реальное пополнение / Подписка</h3>
+                  <span className="rounded-full border border-amber-300/45 bg-amber-500/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-100">
+                    Скоро
+                  </span>
+                </div>
+                <p className="mt-2 text-xs text-white/65">
+                  {realBillingReasonLabel(billingUIState.realBilling.reason)} Функция появится после интеграции платежного API.
+                </p>
+                <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                  {["S", "M", "L"].map((planCode) => (
+                    <button
+                      key={planCode}
+                      type="button"
+                      disabled
+                      className="rounded-xl border border-cyan-300/25 bg-cyan-500/5 px-3 py-3 text-left text-xs text-white/45 disabled:cursor-not-allowed"
+                      title="Пока недоступно. Подключаем реальный API."
+                    >
+                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100/70">
+                        PLAN {planCode}
+                      </p>
+                      <p className="mt-2">Подписка</p>
+                    </button>
+                  ))}
+                </div>
+                <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-3">
+                  <p className="text-xs text-white/50">
+                    {isRealBillingDisabled ? "Недоступно до подключения API." : "Реальный API подключен."}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleRealBillingPreviewClick}
+                    className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
+                  >
+                    Почему недоступно?
+                  </button>
+                </div>
+              </section>
+            </div>
 
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={() => setTopupOpen(false)}
-                disabled={Boolean(topupLoadingPack) || Boolean(subscriptionAction)}
+                disabled={isMockTopupLoading}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Закрыть
