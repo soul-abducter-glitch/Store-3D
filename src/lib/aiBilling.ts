@@ -39,24 +39,11 @@ const normalizeBillingMode = (value: unknown): BillingMode => {
   return "hybrid_preview";
 };
 
-const toBoolean = (value: unknown, fallback: boolean) => {
-  if (typeof value !== "string") return fallback;
-  const normalized = value.trim().toLowerCase();
-  if (["1", "true", "yes", "on"].includes(normalized)) return true;
-  if (["0", "false", "no", "off"].includes(normalized)) return false;
-  return fallback;
-};
-
 export const BILLING_MODE: BillingMode = normalizeBillingMode(
   process.env.NEXT_PUBLIC_BILLING_MODE || "hybrid_preview"
 );
 
-const mockBillingAllowedInProd = toBoolean(process.env.NEXT_PUBLIC_MOCK_BILLING_IN_PROD || "", false);
-const isProduction = process.env.NODE_ENV === "production";
-
-export const mockBillingEnabled =
-  (BILLING_MODE === "mock_only" || BILLING_MODE === "hybrid_preview") &&
-  (!isProduction || mockBillingAllowedInProd);
+export const mockBillingEnabled = BILLING_MODE === "mock_only" || BILLING_MODE === "hybrid_preview";
 export const realBillingEnabled = BILLING_MODE === "real";
 
 const toUiMessage = (value: unknown, fallback: string) => {
