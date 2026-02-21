@@ -1,7 +1,11 @@
 ﻿import type { Access, CollectionConfig } from "payload";
+import {
+  normalizeTrimmedText,
+  validateAccountName,
+  validateDefaultShippingAddress,
+  validateNewAccountPassword,
+} from "@/lib/accountValidation";
 
-const NAME_REGEX = /^[A-Za-zА-Яа-яЁё][A-Za-zА-Яа-яЁё\s'-]{1,49}$/;
-const PASSWORD_REGEX = /^(?=.*[A-Za-zА-Яа-яЁё])(?=.*\d)(?=.*[^A-Za-zА-Яа-яЁё\d]).{8,}$/;
 const DEFAULT_AI_CREDITS = (() => {
   const parsed = Number.parseInt(process.env.AI_TOKENS_DEFAULT || "", 10);
   if (!Number.isFinite(parsed) || parsed <= 0) return 120;
@@ -9,13 +13,8 @@ const DEFAULT_AI_CREDITS = (() => {
 })();
 
 const validatePassword = (value: unknown) => {
-  if (typeof value !== "string" || !value) {
-    return "Пароль обязателен.";
-  }
-  if (!PASSWORD_REGEX.test(value)) {
-    return "Пароль: минимум 8 символов, буквы, цифры и спецсимвол.";
-  }
-  return true;
+  const error = validateNewAccountPassword(value);
+  return error ? error : true;
 };
 
 const normalizeId = (value: unknown) => {
@@ -87,6 +86,9 @@ export const Users: CollectionConfig = {
       if (typeof data.name === "string") {
         data.name = data.name.trim();
       }
+      if (typeof data.shippingAddress === "string") {
+        data.shippingAddress = data.shippingAddress.trim();
+      }
       const shouldValidatePassword =
         operation === "create" || (typeof data.password === "string" && data.password.length > 0);
       if (shouldValidatePassword) {
@@ -104,20 +106,18 @@ export const Users: CollectionConfig = {
       type: "text",
       label: "Имя",
       validate: (value: unknown) => {
-        const name = typeof value === "string" ? value.trim() : "";
-        if (!name) {
-          return "Имя обязательно.";
-        }
-        if (!NAME_REGEX.test(name)) {
-          return "Имя: только буквы, пробелы, дефис или апостроф.";
-        }
-        return true;
+        const error = validateAccountName(value);
+        return error ? error : true;
       },
     },
     {
       name: "shippingAddress",
       type: "textarea",
       label: "Адрес доставки",
+      validate: (value: unknown) => {
+        const error = validateDefaultShippingAddress(normalizeTrimmedText(value));
+        return error ? error : true;
+      },
     },
     {
       name: "purchasedProducts",
