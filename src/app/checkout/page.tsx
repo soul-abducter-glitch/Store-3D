@@ -2558,7 +2558,7 @@ const CheckoutPage = () => {
               href="/store"
               className="rounded-full border border-white/10 px-3 py-1.5 text-[10px] uppercase tracking-[0.25em] text-white/70 transition hover:text-white"
             >
-              Назад в магазин
+              Назад в каталог
             </Link>
           </div>
         </div>

@@ -130,7 +130,7 @@ const GiftClaimPage = () => {
               href="/store"
               className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/5 px-6 py-3 text-xs uppercase tracking-[0.3em] text-white/70 transition hover:text-white"
             >
-              В магазин
+              В каталог
             </Link>
           </div>
         </div>
@@ -140,4 +140,3 @@ const GiftClaimPage = () => {
 };
 
 export default GiftClaimPage;
-

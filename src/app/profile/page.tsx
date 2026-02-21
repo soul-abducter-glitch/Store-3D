@@ -1966,7 +1966,7 @@ export default function ProfilePage() {
             </p>
             <Link
               href="/store"
-              aria-label="Перейти в магазин"
+              aria-label="Перейти в каталог"
               className="mt-2 inline-flex text-2xl font-semibold text-white transition hover:text-cyan-100 sm:mt-3 sm:text-3xl"
             >
               Профиль 3D-STORE
@@ -2005,7 +2005,7 @@ export default function ProfilePage() {
               className="flex items-center gap-2 rounded-full border border-white/10 px-3 py-2 text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:text-white sm:px-4 sm:text-xs sm:tracking-[0.3em]"
             >
               <ArrowLeft className="h-4 w-4" />
-              Назад в магазин
+              Назад в каталог
             </Link>
           </div>
         </div>

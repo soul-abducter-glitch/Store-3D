@@ -897,20 +897,20 @@ function PrintOnDemandContent() {
       storeHistoryModels[0];
     setSourceTab("store");
     if (!next) {
-      setNoticeWith("Выберите модель в магазине и нажмите «Печать на заказ».");
+      setNoticeWith("Выберите модель в каталоге и нажмите «Печать на заказ».");
       router.push("/store");
       return;
     }
     setSourceName(next.name);
     setSourceThumb(null);
     if (!next.fileUrl) {
-      setNoticeWith(`Выбрано из магазина: ${next.name}`);
+      setNoticeWith(`Выбрано из каталога: ${next.name}`);
       return;
     }
     void loadModelFromUrl(next.fileUrl, next.name, "store", next.mediaId).catch((error) => {
       setUploadError(error instanceof Error ? error.message : "Не удалось загрузить модель.");
       setUploadStatus("idle");
-      setNoticeWith("Не удалось загрузить модель из магазина.");
+      setNoticeWith("Не удалось загрузить модель из каталога.");
     });
   };
 
@@ -1468,7 +1468,7 @@ function PrintOnDemandContent() {
               )}
               {sourceTab === "store" && storeHistoryModels.length === 0 && (
                 <p className="mt-3 text-xs text-white/50">
-                  История моделей из магазина пока пуста. Выберите модель в магазине и нажмите
+                  История моделей из каталога пока пуста. Выберите модель в каталоге и нажмите
                   «Печать на заказ».
                 </p>
               )}

@@ -183,9 +183,9 @@ export default function Home() {
     },
   ];
   const heroActions = [
-    { label: "НАЧАТЬ В AI LAB", hint: "Генерация 3D по тексту и референсам", href: "/ai-lab", variant: "primary" },
+    { label: "СОЗДАТЬ 3D", hint: "AI Lab · текст/изображение -> модель", href: "/ai-lab", variant: "primary" },
     { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", variant: "secondary" },
-    { label: "КАТАЛОГ STL", hint: "Цифровые файлы для печати", href: "/store", variant: "ghost" },
+    { label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store", variant: "ghost" },
   ] as const;
 
   return (
@@ -382,9 +382,17 @@ export default function Home() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.55 }}
-            className="mt-6 w-full max-w-3xl rounded-2xl border border-[#2ED1FF]/22 bg-[#060d12]/64 p-2.5 shadow-[0_0_24px_rgba(46,209,255,0.14)] backdrop-blur-xl"
+            className="mt-6 w-full max-w-3xl rounded-2xl border border-[#2ED1FF]/24 bg-[#051018]/70 p-3 shadow-[0_0_20px_rgba(46,209,255,0.12),inset_0_1px_0_rgba(190,245,255,0.08)] backdrop-blur-xl"
           >
-            <div className="grid gap-2 sm:grid-cols-3">
+            <div className="mb-2.5 flex items-center justify-between px-1.5">
+              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#92E9FF]/75">
+                START ACTION
+              </span>
+              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
+                HERO ROUTES
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
               {heroActions.map((action) => {
                 const isPrimary = action.variant === "primary";
                 const isSecondary = action.variant === "secondary";
@@ -393,19 +401,19 @@ export default function Home() {
                     key={action.label}
                     href={action.href}
                     className={[
-                      "group relative flex min-h-[56px] items-center justify-between rounded-xl px-3 py-2 text-left transition touch-manipulation",
+                      "group relative flex min-h-[78px] items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition touch-manipulation",
                       isPrimary
-                        ? "hero-cta-pulse border border-[#2ED1FF]/85 bg-[linear-gradient(120deg,#0B1D27,#123444)] text-[#D6F8FF] shadow-[0_0_22px_rgba(46,209,255,0.35)] hover:border-[#8BEAFF] hover:text-white"
+                        ? "hero-cta-pulse border-[#2ED1FF]/80 bg-[linear-gradient(115deg,#071B26,#0E2C3D)] text-[#D9F9FF] shadow-[0_0_18px_rgba(46,209,255,0.24),inset_0_0_0_1px_rgba(140,232,255,0.22)] hover:border-[#96EEFF] hover:shadow-[0_0_22px_rgba(46,209,255,0.3)] hover:text-white"
                         : isSecondary
-                          ? "border border-[#2ED1FF]/45 bg-[#0a141b]/88 text-white/90 hover:border-[#7CE6FF]/75 hover:text-white"
-                          : "border border-white/20 bg-white/[0.03] text-white/78 hover:border-white/45 hover:text-white",
+                          ? "border-[#2ED1FF]/48 bg-[linear-gradient(115deg,#07141d,#0a1e2b)] text-white/90 shadow-[inset_0_0_0_1px_rgba(120,220,255,0.14)] hover:border-[#7CE6FF]/72 hover:text-white"
+                          : "border-white/22 bg-[linear-gradient(115deg,rgba(8,16,24,0.9),rgba(10,20,30,0.84))] text-white/80 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] hover:border-white/42 hover:text-white",
                     ].join(" ")}
                   >
-                    <span className="flex flex-col">
-                      <span className="text-[10px] font-semibold uppercase tracking-[0.22em]">{action.label}</span>
-                      <span className="mt-1 text-[9px] uppercase tracking-[0.2em] text-white/60">{action.hint}</span>
+                    <span className="flex flex-col gap-1">
+                      <span className="text-base font-semibold uppercase tracking-[0.06em] leading-none">{action.label}</span>
+                      <span className="text-[11px] leading-snug text-white/58">{action.hint}</span>
                     </span>
-                    <ChevronDown className="h-4 w-4 -rotate-90 text-[#2ED1FF] transition group-hover:translate-x-0.5" />
+                    <ChevronDown className="h-4 w-4 -rotate-90 text-[#2ED1FF] transition group-hover:translate-x-1" />
                   </Link>
                 );
               })}

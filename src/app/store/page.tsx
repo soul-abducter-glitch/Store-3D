@@ -2791,7 +2791,7 @@ export default function Home() {
             transition={{ duration: 0.6, delay: 0.65 }}
             className="mt-8 rounded-full border border-[#2ED1FF]/50 bg-[#0b0b0b]/80 px-8 py-3 text-sm font-semibold text-white shadow-[0_0_24px_rgba(46,209,255,0.25)] transition hover:border-[#2ED1FF] hover:shadow-[0_0_32px_rgba(46,209,255,0.45)]"
           >
-            В магазин
+            В каталог
           </motion.button>
           <motion.button
             type="button"
