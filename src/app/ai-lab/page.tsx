@@ -222,6 +222,7 @@ const DEFAULT_TOKEN_COST = 10;
 const GALLERY_LIMIT = 12;
 const GALLERY_STORAGE_KEY = "aiLabGallery";
 const LAB_PANEL_TAB_STORAGE_KEY = "aiLabPanelTab";
+const PREVIEW_TOOLS_HINT_STORAGE_KEY = "aiLabPreviewToolsHintSeen";
 const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_OFFSET = -0.95;
 const MODEL_STAGE_TARGET_SIZE = 2.2;
@@ -1765,6 +1766,10 @@ function AiLabContent() {
   const [prompt, setPrompt] = useState("");
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [inputReferences, setInputReferences] = useState<AiReferenceItem[]>([]);
+  const [previewToolsPinned, setPreviewToolsPinned] = useState(false);
+  const [previewToolsFlashVisible, setPreviewToolsFlashVisible] = useState(false);
+  const [previewToolsHintVisible, setPreviewToolsHintVisible] = useState(false);
+  const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const [localPreviewModel, setLocalPreviewModel] = useState<string | null>(null);
   const [localPreviewLabel, setLocalPreviewLabel] = useState<string | null>(null);
   const [uploadedModelName, setUploadedModelName] = useState<string | null>(null);
@@ -1932,9 +1937,14 @@ function AiLabContent() {
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const jobHistoryRequestInFlightRef = useRef(false);
   const mockTopupInFlightRef = useRef(false);
+  const previousPrimaryReferenceIdRef = useRef<string | null>(null);
   const validInputReferences = useMemo(
     () => inputReferences.filter(isAiReferenceItem),
     [inputReferences]
+  );
+  const primaryInputReference = useMemo(
+    () => validInputReferences[0] ?? null,
+    [validInputReferences]
   );
   const maskEditorReference = useMemo(
     () =>
@@ -1967,8 +1977,48 @@ function AiLabContent() {
   }, []);
 
   useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const media = window.matchMedia("(max-width: 1023px)");
+    const apply = () => setIsNarrowViewport(media.matches);
+    apply();
+    const onChange = () => apply();
+    media.addEventListener?.("change", onChange);
+    return () => media.removeEventListener?.("change", onChange);
+  }, []);
+
+  useEffect(() => {
     showErrorRef.current = showError;
   }, [showError]);
+
+  useEffect(() => {
+    const currentPrimaryId = primaryInputReference?.id ?? null;
+    if (!currentPrimaryId) {
+      previousPrimaryReferenceIdRef.current = null;
+      setPreviewToolsPinned(false);
+      setPreviewToolsFlashVisible(false);
+      return;
+    }
+    if (previousPrimaryReferenceIdRef.current === currentPrimaryId) return;
+    previousPrimaryReferenceIdRef.current = currentPrimaryId;
+    setPreviewToolsFlashVisible(true);
+    if (isNarrowViewport) {
+      setPreviewToolsPinned(true);
+    }
+    if (typeof window === "undefined") return;
+    const timer = window.setTimeout(() => setPreviewToolsFlashVisible(false), 3800);
+    return () => window.clearTimeout(timer);
+  }, [isNarrowViewport, primaryInputReference?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!primaryInputReference?.id) return;
+    const hintSeen = window.localStorage.getItem(PREVIEW_TOOLS_HINT_STORAGE_KEY) === "1";
+    if (hintSeen) return;
+    setPreviewToolsHintVisible(true);
+    window.localStorage.setItem(PREVIEW_TOOLS_HINT_STORAGE_KEY, "1");
+    const timer = window.setTimeout(() => setPreviewToolsHintVisible(false), 5200);
+    return () => window.clearTimeout(timer);
+  }, [primaryInputReference?.id]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -5142,6 +5192,39 @@ function AiLabContent() {
         proAccess: code !== "s",
         configured: false,
       }));
+  const primaryReferenceSource = (primaryInputReference?.previewUrl || primaryInputReference?.url || "").trim();
+  const primaryReferenceIsLocalImage = primaryReferenceSource.startsWith("data:image/");
+  const primaryReferenceHasMask = Boolean(
+    primaryInputReference &&
+      typeof primaryInputReference.originalUrl === "string" &&
+      primaryInputReference.originalUrl.startsWith("data:image/") &&
+      primaryInputReference.originalUrl !== primaryReferenceSource
+  );
+  const primaryRemoveBgDisabledReason = !primaryInputReference
+    ? "Сначала загрузите изображение."
+    : !primaryReferenceIsLocalImage
+      ? "Удаление фона доступно только для локально загруженных изображений."
+      : removingReferenceBgId || smartMaskingReferenceId
+        ? "Дождитесь завершения текущей обработки."
+        : "";
+  const primaryMaskDisabledReason = !primaryInputReference
+    ? "Сначала загрузите изображение."
+    : !primaryReferenceIsLocalImage
+      ? "Редактор маски доступен только для локально загруженных изображений."
+      : maskEditorLoading || maskApplying
+        ? "Редактор маски сейчас занят. Подождите завершения."
+        : "";
+  const isRemovingPrimaryBackground = Boolean(
+    primaryInputReference && removingReferenceBgId === primaryInputReference.id
+  );
+  const previewToolsOverlayVisible = Boolean(
+    uploadPreview &&
+      (previewToolsFlashVisible || (isNarrowViewport && previewToolsPinned))
+  );
+  const maskActionLabel = primaryReferenceHasMask ? "Редактировать маску" : "Маска";
+  const maskActionTooltip = primaryReferenceHasMask
+    ? "Открыть редактор и доработать текущую маску."
+    : "Открыть редактор маски для ручной обработки.";
   const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
   const estimatedEtaMinutes = resolveGenerationEtaMinutes(baseEtaMinutes, {
     quality: qualityPreset,
@@ -5982,12 +6065,21 @@ function AiLabContent() {
                     </button>
                   </div>
                   <div
-                    className={`relative flex min-h-[170px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
+                    className={`group relative flex min-h-[170px] cursor-pointer flex-col items-center justify-center gap-3 rounded-2xl border border-dashed p-4 text-center transition ${
                       dragActive
                         ? "border-[#2ED1FF]/70 bg-[#0b1014]/70 shadow-[0_0_24px_rgba(46,209,255,0.35)]"
                         : "border-white/20 bg-[radial-gradient(circle_at_center,rgba(46,209,255,0.06),transparent_60%)] hover:border-white/40"
                     }`}
-                    onClick={handleBrowse}
+                    onClick={() => {
+                      if (uploadPreview && isNarrowViewport) {
+                        if (!previewToolsPinned) {
+                          setPreviewToolsPinned(true);
+                          setPreviewToolsHintVisible(false);
+                          return;
+                        }
+                      }
+                      handleBrowse();
+                    }}
                     onDragOver={(event) => {
                       event.preventDefault();
                       setDragActive(true);
@@ -6018,7 +6110,60 @@ function AiLabContent() {
                       }}
                     />
                     {uploadPreview ? (
-                      <img src={uploadPreview} alt="Preview" className="h-full w-full rounded-xl border border-white/10 object-cover" />
+                      <>
+                        <img
+                          src={uploadPreview}
+                          alt="Preview"
+                          className="h-full w-full rounded-xl border border-white/10 object-cover"
+                        />
+                        <div
+                          className={`absolute right-3 top-3 z-10 flex max-w-[calc(100%-1.5rem)] flex-wrap justify-end gap-2 transition ${
+                            previewToolsOverlayVisible
+                              ? "opacity-100"
+                              : "pointer-events-none opacity-0 group-hover:pointer-events-auto group-hover:opacity-100"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPreviewToolsPinned(true);
+                              setPreviewToolsHintVisible(false);
+                              if (!primaryInputReference || primaryRemoveBgDisabledReason) return;
+                              void handleRemoveReferenceBackground(primaryInputReference.id);
+                            }}
+                            disabled={Boolean(primaryRemoveBgDisabledReason)}
+                            title={primaryRemoveBgDisabledReason || "Удалить фон на этом изображении."}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-cyan-300/55 bg-[#07131a]/90 px-2.5 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-cyan-100 shadow-[0_0_14px_rgba(34,211,238,0.22)] transition hover:border-cyan-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <Wand2 className="h-3.5 w-3.5" />
+                            <span>{isRemovingPrimaryBackground ? "Обработка..." : "Убрать фон"}</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPreviewToolsPinned(true);
+                              setPreviewToolsHintVisible(false);
+                              if (!primaryInputReference || primaryMaskDisabledReason) return;
+                              void handleOpenMaskEditor(primaryInputReference.id);
+                            }}
+                            disabled={Boolean(primaryMaskDisabledReason)}
+                            title={primaryMaskDisabledReason || maskActionTooltip}
+                            className="inline-flex items-center gap-1.5 rounded-full border border-violet-300/55 bg-[#120a1d]/90 px-2.5 py-1.5 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-violet-100 shadow-[0_0_14px_rgba(167,139,250,0.2)] transition hover:border-violet-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                          >
+                            <Scissors className="h-3.5 w-3.5" />
+                            <span>{maskActionLabel}</span>
+                          </button>
+                        </div>
+                        {previewToolsHintVisible && (
+                          <div className="pointer-events-none absolute bottom-3 left-3 rounded-full border border-cyan-300/35 bg-[#07131a]/90 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_14px_rgba(34,211,238,0.18)]">
+                            {isNarrowViewport
+                              ? "Нажмите на превью, чтобы открыть инструменты"
+                              : "Наведите на превью, чтобы открыть инструменты"}
+                          </div>
+                        )}
+                      </>
                     ) : (
                       <>
                         <UploadCloud className="h-8 w-8 text-[#2ED1FF]" />
@@ -6083,9 +6228,10 @@ function AiLabContent() {
                                       type="button"
                                       onClick={() => void handleOpenMaskEditor(ref.id)}
                                       disabled={Boolean(maskEditorLoading || maskApplying)}
+                                      title="Открыть редактор маски"
                                       className="rounded-full border border-violet-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
                                     >
-                                      Ручная
+                                      Маска
                                     </button>
                                     <button
                                       type="button"
