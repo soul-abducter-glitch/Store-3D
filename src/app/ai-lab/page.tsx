@@ -18,6 +18,7 @@ import {
   Rocket,
   Scissors,
   Settings2,
+  Trash2,
   UserCog,
   UploadCloud,
   UserRound,
@@ -397,6 +398,11 @@ const toUiErrorMessage = (value: unknown) => {
     return "Внутренняя ошибка AI сервиса. Попробуйте позже.";
   }
   return raw;
+};
+
+const confirmDangerAction = (message: string) => {
+  if (typeof window === "undefined") return true;
+  return window.confirm(message);
 };
 
 const formatJobDate = (value?: string) => {
@@ -2681,13 +2687,22 @@ function AiLabContent() {
     [pushUiError, validInputReferences.length]
   );
 
-  const handleRemoveInputReference = useCallback((refId: string) => {
-    setInputReferences((prev) => {
-      const next = prev.filter((item) => isAiReferenceItem(item) && item.id !== refId);
-      setUploadPreview(next[0]?.previewUrl ?? null);
-      return next;
-    });
-  }, []);
+  const handleRemoveInputReference = useCallback(
+    (refId: string) => {
+      const targetRef = validInputReferences.find((item) => item.id === refId);
+      const refName = targetRef?.name?.trim() || "референс";
+      if (!confirmDangerAction(`Удалить ${refName}? Это действие нельзя отменить.`)) {
+        return;
+      }
+      setInputReferences((prev) => {
+        const next = prev.filter((item) => isAiReferenceItem(item) && item.id !== refId);
+        setUploadPreview(next[0]?.previewUrl ?? null);
+        return next;
+      });
+      showSuccess("Референс удален.");
+    },
+    [showSuccess, validInputReferences]
+  );
 
   const clearInputReferences = useCallback(() => {
     setInputReferences([]);
@@ -3908,6 +3923,9 @@ function AiLabContent() {
       showError("Сначала дождитесь завершения текущей генерации или остановите мониторинг.");
       return;
     }
+    if (!confirmDangerAction("Очистить текущую генерацию и рабочую область?")) {
+      return;
+    }
     setShowResult(false);
     setResultAsset(null);
     setServerJob(null);
@@ -4088,6 +4106,9 @@ function AiLabContent() {
 
   const handleRemoveGalleryAsset = useCallback(
     (asset: GeneratedAsset) => {
+      if (!confirmDangerAction(`Удалить "${asset.name}" из AI витрины?`)) {
+        return;
+      }
       setGallery((prev) => prev.filter((item) => item.id !== asset.id));
       if (generatedPreviewLabel === asset.name && generatedPreviewModel === asset.modelUrl) {
         setGeneratedPreviewModel(null);
@@ -4368,6 +4389,9 @@ function AiLabContent() {
 
   const handleDeleteHistoryJob = useCallback(
     async (job: AiGenerationJob) => {
+      if (!confirmDangerAction(`Удалить задачу ${job.id.slice(0, 8)} из истории?`)) {
+        return;
+      }
       setHistoryAction({ id: job.id, type: "delete" });
       try {
         const response = await fetch(`${AI_GENERATE_API_URL}/${encodeURIComponent(job.id)}`, {
@@ -5225,6 +5249,27 @@ function AiLabContent() {
   const maskActionTooltip = primaryReferenceHasMask
     ? "Открыть редактор и доработать текущую маску."
     : "Открыть редактор маски для ручной обработки.";
+  const hasWorkspaceDataToClear = Boolean(
+    prompt.trim() ||
+      validInputReferences.length > 0 ||
+      generatedPreviewModel ||
+      generatedPreviewLabel ||
+      localPreviewModel ||
+      localPreviewLabel ||
+      uploadedModelName ||
+      previewParam ||
+      serverJob ||
+      latestCompletedJob ||
+      resultAsset ||
+      showResult ||
+      activeHistoryJobId ||
+      activeVersionId
+  );
+  const resetWorkspaceDisabledReason = serverJobLoading || isSynthRunning
+    ? "Дождитесь завершения текущей генерации."
+    : !hasWorkspaceDataToClear
+      ? "Сейчас нечего очищать."
+      : "";
   const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
   const estimatedEtaMinutes = resolveGenerationEtaMinutes(baseEtaMinutes, {
     quality: qualityPreset,
@@ -6006,9 +6051,6 @@ function AiLabContent() {
                   key={id}
                   type="button"
                   onClick={() => {
-                    if (id === "create") {
-                      handleStartNewGeneration();
-                    }
                     setRightPanelMainBlock(id);
                   }}
                   className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition ${
@@ -6155,6 +6197,22 @@ function AiLabContent() {
                             <Scissors className="h-3.5 w-3.5" />
                             <span>{maskActionLabel}</span>
                           </button>
+                          <button
+                            type="button"
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setPreviewToolsPinned(true);
+                              setPreviewToolsHintVisible(false);
+                              if (resetWorkspaceDisabledReason) return;
+                              handleStartNewGeneration();
+                            }}
+                            disabled={Boolean(resetWorkspaceDisabledReason)}
+                            title={resetWorkspaceDisabledReason || "Очистить предыдущую генерацию и рабочую область."}
+                            className="inline-flex h-8 w-8 items-center justify-center rounded-full border border-rose-300/55 bg-[#210c16]/90 text-rose-100 shadow-[0_0_14px_rgba(244,63,94,0.18)] transition hover:border-rose-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                            aria-label="Очистить генерацию"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
                         </div>
                         {previewToolsHintVisible && (
                           <div className="pointer-events-none absolute bottom-3 left-3 rounded-full border border-cyan-300/35 bg-[#07131a]/90 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_14px_rgba(34,211,238,0.18)]">
@@ -6210,28 +6268,11 @@ function AiLabContent() {
                                   <div className="mt-1 flex flex-wrap gap-1">
                                     <button
                                       type="button"
-                                      onClick={() => void handleRemoveReferenceBackground(ref.id)}
-                                      disabled={Boolean(removingReferenceBgId || smartMaskingReferenceId)}
-                                      className="rounded-full border border-cyan-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-cyan-100 transition hover:border-cyan-300 disabled:cursor-not-allowed disabled:opacity-45"
-                                    >
-                                      RM BG
-                                    </button>
-                                    <button
-                                      type="button"
                                       onClick={() => void handleSmartMaskReference(ref.id)}
                                       disabled={Boolean(removingReferenceBgId || smartMaskingReferenceId)}
                                       className="rounded-full border border-amber-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
                                     >
                                       MASK+
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => void handleOpenMaskEditor(ref.id)}
-                                      disabled={Boolean(maskEditorLoading || maskApplying)}
-                                      title="Открыть редактор маски"
-                                      className="rounded-full border border-violet-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-300 disabled:cursor-not-allowed disabled:opacity-45"
-                                    >
-                                      Маска
                                     </button>
                                     <button
                                       type="button"
@@ -7504,9 +7545,9 @@ function AiLabContent() {
                         </div>
                       )}
                     </div>
-                    <div className="flex w-full items-center justify-between gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-white/60">
-                      <span className="truncate">{asset.name}</span>
-                      <span className="text-white/30">{asset.format.toUpperCase()}</span>
+                    <div className="flex w-full min-w-0 items-center justify-between gap-2 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/60">
+                      <span className="min-w-0 flex-1 truncate">{asset.name}</span>
+                      <span className="shrink-0 text-white/30">{asset.format.toUpperCase()}</span>
                     </div>
                     <div className="flex w-full items-center gap-2">
                       <button
@@ -7515,9 +7556,9 @@ function AiLabContent() {
                           event.stopPropagation();
                           handleDownload(asset);
                         }}
-                        className="min-w-0 w-full truncate rounded-full border border-[#2ED1FF]/40 px-1.5 py-1 text-center text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                        className="min-w-0 flex-1 rounded-full border border-[#2ED1FF]/40 px-2 py-1 text-center text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                       >
-                        СКАЧАТЬ
+                        Скачать
                       </button>
                       <button
                         type="button"
@@ -7525,10 +7566,11 @@ function AiLabContent() {
                           event.stopPropagation();
                           handleRemoveGalleryAsset(asset);
                         }}
-                        className="rounded-full border border-rose-400/40 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.16em] text-rose-200 transition hover:border-rose-300"
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-rose-400/40 text-rose-200 transition hover:border-rose-300 hover:text-rose-100"
                         title="Удалить из витрины"
+                        aria-label="Удалить из витрины"
                       >
-                        УДАЛИТЬ
+                        <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
                   </div>
