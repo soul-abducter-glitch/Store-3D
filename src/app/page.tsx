@@ -187,11 +187,6 @@ export default function Home() {
     { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", variant: "secondary" },
     { label: "КАТАЛОГ STL", hint: "Цифровые файлы для печати", href: "/store", variant: "ghost" },
   ] as const;
-  const heroRoutes = [
-    { label: "Создать 3D (AI Lab)", tag: "AI LAB", href: "/ai-lab", icon: Sparkles },
-    { label: "Купить цифровой STL", tag: "CATALOG", href: "/store", icon: ShoppingCart },
-    { label: "Заказать печать модели", tag: "PRINT", href: "/services/print", icon: Printer },
-  ] as const;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white font-[var(--font-inter)]">
@@ -387,16 +382,8 @@ export default function Home() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.55 }}
-            className="mt-6 w-full max-w-3xl rounded-2xl border border-[#2ED1FF]/25 bg-[#060d12]/72 p-3 shadow-[0_0_30px_rgba(46,209,255,0.15)] backdrop-blur-xl"
+            className="mt-6 w-full max-w-3xl rounded-2xl border border-[#2ED1FF]/22 bg-[#060d12]/64 p-2.5 shadow-[0_0_24px_rgba(46,209,255,0.14)] backdrop-blur-xl"
           >
-            <div className="mb-3 flex items-center justify-between gap-2 px-1">
-              <span className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.38em] text-[#9FEFFF]/80">
-                NEXT_ACTION
-              </span>
-              <span className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.34em] text-white/45">
-                3 ROUTES READY
-              </span>
-            </div>
             <div className="grid gap-2 sm:grid-cols-3">
               {heroActions.map((action) => {
                 const isPrimary = action.variant === "primary";
@@ -423,53 +410,6 @@ export default function Home() {
                 );
               })}
             </div>
-          </motion.div>
-
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.75 }}
-            className="mt-4 w-full max-w-4xl"
-          >
-            <div className="grid gap-2 sm:grid-cols-3">
-              {heroRoutes.map((route) => (
-                <Link
-                  key={route.label}
-                  href={route.href}
-                  className="group flex items-center gap-3 rounded-2xl border border-white/12 bg-[#071017]/68 px-3 py-3 text-left transition hover:border-[#2ED1FF]/55 hover:bg-[#09161f]/88"
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#2ED1FF]/35 bg-[#08141c]/85">
-                    <route.icon className="h-4 w-4 text-[#8AE9FF]" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-[#8AE9FF]/80">
-                      {route.tag}
-                    </p>
-                    <p className="mt-1 text-xs font-medium text-white/88 group-hover:text-white">{route.label}</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          </motion.div>
-
-          <motion.div
-            className="mt-5 flex w-full max-w-3xl flex-wrap items-center justify-center gap-2 rounded-full border border-white/10 bg-black/26 px-3 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 backdrop-blur-sm"
-            animate={{ y: [0, 6, 0] }}
-            transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
-          >
-            <span className="text-[9px] font-[var(--font-jetbrains-mono)] tracking-[0.34em] text-white/45">
-              ПЕРЕХОДЫ
-            </span>
-            {heroRoutes.map((route) => (
-              <Link
-                key={`jump-${route.tag}`}
-                href={route.href}
-                className="flex items-center gap-1.5 rounded-full border border-transparent px-2.5 py-1 text-[10px] tracking-[0.28em] text-white/75 transition hover:border-[#2ED1FF]/45 hover:text-white"
-              >
-                <ChevronDown className="h-3.5 w-3.5 text-[#2ED1FF]" />
-                <span>{route.tag}</span>
-              </Link>
-            ))}
           </motion.div>
         </div>
       </section>
