@@ -110,7 +110,7 @@ export default function ProfileSettingsPanel() {
       });
       const data = await readJson(response);
       if (!response.ok || !data?.profile) {
-        throw new Error("\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u043e\u0444\u0438\u043b\u044c.");
+        throw new Error("Не удалось загрузить профиль.");
       }
 
       const profile: AccountProfile = {
@@ -132,7 +132,7 @@ export default function ProfileSettingsPanel() {
       setAddressErrors({});
     } catch (error) {
       const message =
-        error instanceof Error && error.message ? error.message : "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043f\u0440\u043e\u0444\u0438\u043b\u044c.";
+        error instanceof Error && error.message ? error.message : "Не удалось загрузить профиль.";
       setLoadError(message);
     } finally {
       setLoading(false);
@@ -169,7 +169,7 @@ export default function ProfileSettingsPanel() {
         const formError =
           typeof data?.error === "string" && data.error !== "validation_error"
             ? data.error
-            : "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0443.";
+            : "Не удалось сохранить изменения. Повторите попытку.";
         setProfileErrors({
           ...(fieldError ? { name: fieldError } : {}),
           form: fieldError ? undefined : formError,
@@ -193,9 +193,9 @@ export default function ProfileSettingsPanel() {
       setProfileInitial(nextProfile);
       setProfileName(nextProfile.name);
       setProfileErrors({});
-      toast.success("\u041f\u0440\u043e\u0444\u0438\u043b\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d");
+      toast.success("Профиль сохранён");
     } catch {
-      setProfileErrors({ form: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0443." });
+      setProfileErrors({ form: "Не удалось сохранить изменения. Повторите попытку." });
     } finally {
       setProfileSaving(false);
     }
@@ -231,7 +231,7 @@ export default function ProfileSettingsPanel() {
           form:
             fieldError || !data?.error
               ? undefined
-              : "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0430\u0434\u0440\u0435\u0441. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0443.",
+              : "Не удалось сохранить адрес. Повторите попытку.",
         });
         return;
       }
@@ -247,9 +247,9 @@ export default function ProfileSettingsPanel() {
         setProfileInitial({ ...profileInitial, defaultShippingAddress: nextAddress });
       }
       setAddressErrors({});
-      toast.success("\u0410\u0434\u0440\u0435\u0441 \u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d");
+      toast.success("Адрес сохранён");
     } catch {
-      setAddressErrors({ form: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0441\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u0430\u0434\u0440\u0435\u0441. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0443." });
+      setAddressErrors({ form: "Не удалось сохранить адрес. Повторите попытку." });
     } finally {
       setAddressSaving(false);
     }
@@ -258,14 +258,14 @@ export default function ProfileSettingsPanel() {
   const validatePasswordForm = () => {
     const errors: typeof passwordErrors = {};
     if (!passwordForm.currentPassword) {
-      errors.currentPassword = "\u0412\u0432\u0435\u0434\u0438\u0442\u0435 \u0442\u0435\u043a\u0443\u0449\u0438\u0439 \u043f\u0430\u0440\u043e\u043b\u044c";
+      errors.currentPassword = "Введите текущий пароль";
     }
     const newPasswordError = validateNewAccountPassword(passwordForm.newPassword);
     if (newPasswordError) {
       errors.newPassword = newPasswordError;
     }
     if (passwordForm.confirmNewPassword !== passwordForm.newPassword) {
-      errors.confirmNewPassword = "\u041f\u0430\u0440\u043e\u043b\u0438 \u043d\u0435 \u0441\u043e\u0432\u043f\u0430\u0434\u0430\u044e\u0442";
+      errors.confirmNewPassword = "Пароли не совпадают";
     }
     return errors;
   };
@@ -327,15 +327,15 @@ export default function ProfileSettingsPanel() {
           form:
             typeof data?.error === "string" && data.error !== "validation_error"
               ? data.error
-              : "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0443.",
+              : "Не удалось изменить пароль. Повторите попытку.",
         });
         return;
       }
 
-      toast.success("\u041f\u0430\u0440\u043e\u043b\u044c \u0438\u0437\u043c\u0435\u043d\u0451\u043d");
+      toast.success("Пароль изменён");
       resetPasswordSection();
     } catch {
-      setPasswordErrors({ form: "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0438\u0437\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c. \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u0435 \u043f\u043e\u043f\u044b\u0442\u043a\u0443." });
+      setPasswordErrors({ form: "Не удалось изменить пароль. Повторите попытку." });
     } finally {
       setPasswordSaving(false);
     }
@@ -344,7 +344,7 @@ export default function ProfileSettingsPanel() {
   if (loading) {
     return (
       <div className="rounded-[24px] border border-white/5 bg-white/[0.03] p-8 text-sm text-white/60 backdrop-blur-xl">
-        \u0417\u0430\u0433\u0440\u0443\u0436\u0430\u0435\u043c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438...
+        Загружаем настройки...
       </div>
     );
   }
@@ -352,13 +352,13 @@ export default function ProfileSettingsPanel() {
   if (loadError || !profileInitial) {
     return (
       <div className="rounded-[24px] border border-red-500/25 bg-red-500/10 p-8 text-sm text-red-100 backdrop-blur-xl">
-        <p>{loadError || "\u041d\u0435 \u0443\u0434\u0430\u043b\u043e\u0441\u044c \u0437\u0430\u0433\u0440\u0443\u0437\u0438\u0442\u044c \u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438."}</p>
+        <p>{loadError || "Не удалось загрузить настройки."}</p>
         <button
           type="button"
           onClick={() => void loadProfile()}
           className="mt-4 rounded-full border border-red-300/35 px-4 py-2 text-[10px] uppercase tracking-[0.24em] text-red-100 transition hover:bg-red-500/20"
         >
-          \u041f\u043e\u0432\u0442\u043e\u0440\u0438\u0442\u044c
+          Повторить
         </button>
       </div>
     );
@@ -380,23 +380,23 @@ export default function ProfileSettingsPanel() {
     <div className="space-y-4">
       {hasUnsavedChanges && (
         <div className="rounded-2xl border border-amber-300/25 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
-          \u0423 \u0432\u0430\u0441 \u0435\u0441\u0442\u044c \u043d\u0435\u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f.
+          У вас есть несохранённые изменения.
         </div>
       )}
 
       <section className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl sm:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold text-white">\u041f\u0440\u043e\u0444\u0438\u043b\u044c</h3>
+          <h3 className="text-lg font-semibold text-white">Профиль</h3>
           {profileDirty && (
             <span className="rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-amber-100">
-              \u0415\u0441\u0442\u044c \u043d\u0435\u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f
+              Есть несохранённые изменения
             </span>
           )}
         </div>
 
         <div className="mt-5 grid gap-4 md:grid-cols-2">
           <div className="space-y-2">
-            <label className="text-xs uppercase tracking-[0.3em] text-white/50">\u0418\u043c\u044f</label>
+            <label className="text-xs uppercase tracking-[0.3em] text-white/50">Имя</label>
             <input
               type="text"
               value={profileName}
@@ -420,14 +420,14 @@ export default function ProfileSettingsPanel() {
                 type="button"
                 disabled
                 className="shrink-0 rounded-full border border-white/15 px-4 py-2 text-[10px] uppercase tracking-[0.2em] text-white/50"
-                title="\u0424\u0443\u043d\u043a\u0446\u0438\u044f \u0431\u0443\u0434\u0435\u0442 \u0434\u043e\u0441\u0442\u0443\u043f\u043d\u0430 \u043f\u043e\u0437\u0436\u0435"
+                title="Функция будет доступна позже"
               >
-                \u0418\u0437\u043c\u0435\u043d\u0438\u0442\u044c email
+                Изменить email
               </button>
             </div>
             {typeof profileInitial.emailVerified === "boolean" && (
               <p className="text-xs text-white/45">
-                {profileInitial.emailVerified ? "Email \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d" : "Email \u043d\u0435 \u043f\u043e\u0434\u0442\u0432\u0435\u0440\u0436\u0434\u0451\u043d"}
+                {profileInitial.emailVerified ? "Email подтверждён" : "Email не подтверждён"}
               </p>
             )}
           </div>
@@ -442,7 +442,7 @@ export default function ProfileSettingsPanel() {
             disabled={profileSaving || !profileDirty || Boolean(profileNameClientError)}
             className="rounded-full bg-[#2ED1FF] px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-[#050505] transition hover:bg-[#8fe6ff] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/50"
           >
-            {profileSaving ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..." : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
+            {profileSaving ? "Сохраняем..." : "Сохранить"}
           </button>
           <button
             type="button"
@@ -453,23 +453,23 @@ export default function ProfileSettingsPanel() {
             disabled={profileSaving || !profileDirty}
             className="rounded-full border border-white/20 px-5 py-2 text-[10px] uppercase tracking-[0.24em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            \u041e\u0442\u043c\u0435\u043d\u0430
+            Отмена
           </button>
         </div>
       </section>
 
       <section className="rounded-[24px] border border-white/5 bg-white/[0.03] p-6 backdrop-blur-xl sm:p-8">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h3 className="text-lg font-semibold text-white">\u0410\u0434\u0440\u0435\u0441 \u0434\u043e\u0441\u0442\u0430\u0432\u043a\u0438 \u043f\u043e \u0443\u043c\u043e\u043b\u0447\u0430\u043d\u0438\u044e</h3>
+          <h3 className="text-lg font-semibold text-white">Адрес доставки по умолчанию</h3>
           {addressDirty && (
             <span className="rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-amber-100">
-              \u0415\u0441\u0442\u044c \u043d\u0435\u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f
+              Есть несохранённые изменения
             </span>
           )}
         </div>
 
         <div className="mt-5 space-y-2">
-          <label className="text-xs uppercase tracking-[0.3em] text-white/50">\u0410\u0434\u0440\u0435\u0441</label>
+          <label className="text-xs uppercase tracking-[0.3em] text-white/50">Адрес</label>
           <textarea
             value={addressValue}
             onChange={(event) => {
@@ -491,7 +491,7 @@ export default function ProfileSettingsPanel() {
             disabled={addressSaving || !addressDirty || Boolean(addressClientError)}
             className="rounded-full bg-[#2ED1FF] px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-[#050505] transition hover:bg-[#8fe6ff] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/50"
           >
-            {addressSaving ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..." : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c"}
+            {addressSaving ? "Сохраняем..." : "Сохранить"}
           </button>
           <button
             type="button"
@@ -502,7 +502,7 @@ export default function ProfileSettingsPanel() {
             disabled={addressSaving || addressValue.length === 0}
             className="rounded-full border border-white/20 px-5 py-2 text-[10px] uppercase tracking-[0.24em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
           >
-            \u041e\u0447\u0438\u0441\u0442\u0438\u0442\u044c
+            Очистить
           </button>
         </div>
       </section>
@@ -511,11 +511,11 @@ export default function ProfileSettingsPanel() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <LockKeyhole className="h-5 w-5 text-cyan-100" />
-            <h3 className="text-lg font-semibold text-white">\u0411\u0435\u0437\u043e\u043f\u0430\u0441\u043d\u043e\u0441\u0442\u044c</h3>
+            <h3 className="text-lg font-semibold text-white">Безопасность</h3>
           </div>
           {passwordOpen && passwordDirty && (
             <span className="rounded-full border border-amber-300/35 bg-amber-500/10 px-3 py-1 text-[10px] uppercase tracking-[0.2em] text-amber-100">
-              \u0415\u0441\u0442\u044c \u043d\u0435\u0441\u043e\u0445\u0440\u0430\u043d\u0451\u043d\u043d\u044b\u0435 \u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u044f
+              Есть несохранённые изменения
             </span>
           )}
           {!passwordOpen && (
@@ -524,7 +524,7 @@ export default function ProfileSettingsPanel() {
               onClick={() => setPasswordOpen(true)}
               className="rounded-full border border-cyan-300/35 bg-cyan-500/10 px-4 py-2 text-[10px] uppercase tracking-[0.24em] text-cyan-100 transition hover:border-cyan-200/60 hover:bg-cyan-500/20"
             >
-              \u0421\u043c\u0435\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c
+              Сменить пароль
             </button>
           )}
         </div>
@@ -533,7 +533,7 @@ export default function ProfileSettingsPanel() {
           <div className="mt-5 space-y-4">
             <div className="space-y-2">
               <label className="text-xs uppercase tracking-[0.3em] text-white/50">
-                \u0422\u0435\u043a\u0443\u0449\u0438\u0439 \u043f\u0430\u0440\u043e\u043b\u044c
+                Текущий пароль
               </label>
               <div className="relative">
                 <input
@@ -559,7 +559,7 @@ export default function ProfileSettingsPanel() {
                     }))
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 transition hover:text-white"
-                  aria-label="\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u0438\u043b\u0438 \u0441\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"
+                  aria-label="Показать или скрыть пароль"
                 >
                   {showPassword.currentPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -578,7 +578,7 @@ export default function ProfileSettingsPanel() {
 
             <div className="space-y-2">
               <label className="text-xs uppercase tracking-[0.3em] text-white/50">
-                \u041d\u043e\u0432\u044b\u0439 \u043f\u0430\u0440\u043e\u043b\u044c
+                Новый пароль
               </label>
               <div className="relative">
                 <input
@@ -602,7 +602,7 @@ export default function ProfileSettingsPanel() {
                     setShowPassword((prev) => ({ ...prev, newPassword: !prev.newPassword }))
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 transition hover:text-white"
-                  aria-label="\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u0438\u043b\u0438 \u0441\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"
+                  aria-label="Показать или скрыть пароль"
                 >
                   {showPassword.newPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -611,7 +611,7 @@ export default function ProfileSettingsPanel() {
                   )}
                 </button>
               </div>
-              <p className="text-[11px] text-white/45">\u041c\u0438\u043d\u0438\u043c\u0443\u043c 8 \u0441\u0438\u043c\u0432\u043e\u043b\u043e\u0432, \u0431\u0443\u043a\u0432\u044b \u0438 \u0446\u0438\u0444\u0440\u044b</p>
+              <p className="text-[11px] text-white/45">Минимум 8 символов, буквы и цифры</p>
               {(passwordSubmitted || passwordErrors.newPassword) &&
                 (passwordErrors.newPassword || passwordClientErrors.newPassword) && (
                   <p className="text-xs text-red-200">
@@ -622,7 +622,7 @@ export default function ProfileSettingsPanel() {
 
             <div className="space-y-2">
               <label className="text-xs uppercase tracking-[0.3em] text-white/50">
-                \u041f\u043e\u0432\u0442\u043e\u0440 \u043d\u043e\u0432\u043e\u0433\u043e \u043f\u0430\u0440\u043e\u043b\u044f
+                Повтор нового пароля
               </label>
               <div className="relative">
                 <input
@@ -651,7 +651,7 @@ export default function ProfileSettingsPanel() {
                     }))
                   }
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-white/60 transition hover:text-white"
-                  aria-label="\u041f\u043e\u043a\u0430\u0437\u0430\u0442\u044c \u0438\u043b\u0438 \u0441\u043a\u0440\u044b\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"
+                  aria-label="Показать или скрыть пароль"
                 >
                   {showPassword.confirmNewPassword ? (
                     <EyeOff className="h-4 w-4" />
@@ -677,7 +677,7 @@ export default function ProfileSettingsPanel() {
                 disabled={passwordSaving || !passwordDirty || passwordHasClientErrors}
                 className="rounded-full bg-[#2ED1FF] px-5 py-2 text-[10px] font-semibold uppercase tracking-[0.24em] text-[#050505] transition hover:bg-[#8fe6ff] disabled:cursor-not-allowed disabled:bg-white/10 disabled:text-white/50"
               >
-                {passwordSaving ? "\u0421\u043e\u0445\u0440\u0430\u043d\u044f\u0435\u043c..." : "\u0421\u043e\u0445\u0440\u0430\u043d\u0438\u0442\u044c \u043f\u0430\u0440\u043e\u043b\u044c"}
+                {passwordSaving ? "Сохраняем..." : "Сохранить пароль"}
               </button>
               <button
                 type="button"
@@ -685,7 +685,7 @@ export default function ProfileSettingsPanel() {
                 disabled={passwordSaving}
                 className="rounded-full border border-white/20 px-5 py-2 text-[10px] uppercase tracking-[0.24em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                \u041e\u0442\u043c\u0435\u043d\u0430
+                Отмена
               </button>
             </div>
           </div>
