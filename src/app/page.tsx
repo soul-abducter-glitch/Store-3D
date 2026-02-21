@@ -182,6 +182,16 @@ export default function Home() {
       },
     },
   ];
+  const heroActions = [
+    { label: "НАЧАТЬ В AI LAB", hint: "Генерация 3D по тексту и референсам", href: "/ai-lab", variant: "primary" },
+    { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", variant: "secondary" },
+    { label: "КАТАЛОГ STL", hint: "Цифровые файлы для печати", href: "/store", variant: "ghost" },
+  ] as const;
+  const heroRoutes = [
+    { label: "Создать 3D (AI Lab)", tag: "AI LAB", href: "/ai-lab", icon: Sparkles },
+    { label: "Купить цифровой STL", tag: "CATALOG", href: "/store", icon: ShoppingCart },
+    { label: "Заказать печать модели", tag: "PRINT", href: "/services/print", icon: Printer },
+  ] as const;
 
   return (
     <div className="relative min-h-screen overflow-hidden bg-[#050505] text-white font-[var(--font-inter)]">
@@ -288,7 +298,7 @@ export default function Home() {
       </header>
 
       <section
-        className="relative z-10 flex min-h-screen items-center justify-center overflow-hidden px-4 pt-24 sm:px-6"
+        className="relative z-10 flex min-h-screen items-center justify-center overflow-hidden px-4 pb-20 pt-28 sm:px-6 sm:pt-32"
         onMouseMove={handleHeroParallax}
         onMouseLeave={resetHeroParallax}
       >
@@ -345,8 +355,9 @@ export default function Home() {
           <span style={{ top: "50%", right: "18%" }}>[ DATA_SYNC: PAYLOAD_DB_v3 ]</span>
           <span style={{ top: "62%", left: "22%" }}>[ RENDER_ENGINE: WEBGL_CORE ]</span>
         </div>
+        <div className="pointer-events-none absolute inset-x-[4%] bottom-[12%] top-[16%] -z-10 hero-copy-safe" />
 
-        <div className="relative mx-auto flex max-w-4xl flex-col items-center text-center">
+        <div className="relative mx-auto flex w-full max-w-5xl flex-col items-center text-center">
           <motion.p
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
@@ -359,7 +370,7 @@ export default function Home() {
             initial={{ opacity: 0, y: 24, filter: "blur(18px)" }}
             animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
             transition={{ duration: 0.9, ease: "easeOut", delay: 0.2 }}
-            className="mt-4 text-3xl font-bold tracking-tight text-white sm:text-5xl lg:text-6xl"
+            className="mt-4 max-w-4xl text-3xl font-bold tracking-tight text-white drop-shadow-[0_10px_28px_rgba(0,0,0,0.65)] sm:text-5xl lg:text-6xl"
           >
             МАТЕРИАЛИЗАЦИЯ ИДЕЙ
           </motion.h1>
@@ -367,22 +378,98 @@ export default function Home() {
             initial={{ opacity: 0, y: 16 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.45 }}
-            className="mt-5 max-w-3xl rounded-2xl border border-white/10 bg-black/18 px-5 py-3 text-sm text-white/85 shadow-[0_6px_18px_rgba(0,0,0,0.28)] backdrop-blur-md sm:text-base"
+            className="mt-5 max-w-3xl rounded-2xl border border-white/12 bg-black/28 px-5 py-3 text-sm text-white/90 shadow-[0_8px_24px_rgba(0,0,0,0.45)] backdrop-blur-md sm:text-base"
           >
             Премиальный маркетплейс 3D-активов. Коллекционные изделия и цифровые файлы для печати. От концепта до физического объекта.
           </motion.p>
+
           <motion.div
-            className="mt-10 flex flex-col items-center gap-2 text-xs uppercase tracking-[0.35em] text-white/70 transition hover:text-white"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.7, delay: 0.55 }}
+            className="mt-6 w-full max-w-3xl rounded-2xl border border-[#2ED1FF]/25 bg-[#060d12]/72 p-3 shadow-[0_0_30px_rgba(46,209,255,0.15)] backdrop-blur-xl"
+          >
+            <div className="mb-3 flex items-center justify-between gap-2 px-1">
+              <span className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.38em] text-[#9FEFFF]/80">
+                NEXT_ACTION
+              </span>
+              <span className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.34em] text-white/45">
+                3 ROUTES READY
+              </span>
+            </div>
+            <div className="grid gap-2 sm:grid-cols-3">
+              {heroActions.map((action) => {
+                const isPrimary = action.variant === "primary";
+                const isSecondary = action.variant === "secondary";
+                return (
+                  <Link
+                    key={action.label}
+                    href={action.href}
+                    className={[
+                      "group relative flex min-h-[56px] items-center justify-between rounded-xl px-3 py-2 text-left transition touch-manipulation",
+                      isPrimary
+                        ? "hero-cta-pulse border border-[#2ED1FF]/85 bg-[linear-gradient(120deg,#0B1D27,#123444)] text-[#D6F8FF] shadow-[0_0_22px_rgba(46,209,255,0.35)] hover:border-[#8BEAFF] hover:text-white"
+                        : isSecondary
+                          ? "border border-[#2ED1FF]/45 bg-[#0a141b]/88 text-white/90 hover:border-[#7CE6FF]/75 hover:text-white"
+                          : "border border-white/20 bg-white/[0.03] text-white/78 hover:border-white/45 hover:text-white",
+                    ].join(" ")}
+                  >
+                    <span className="flex flex-col">
+                      <span className="text-[10px] font-semibold uppercase tracking-[0.22em]">{action.label}</span>
+                      <span className="mt-1 text-[9px] uppercase tracking-[0.2em] text-white/60">{action.hint}</span>
+                    </span>
+                    <ChevronDown className="h-4 w-4 -rotate-90 text-[#2ED1FF] transition group-hover:translate-x-0.5" />
+                  </Link>
+                );
+              })}
+            </div>
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6, delay: 0.75 }}
+            className="mt-4 w-full max-w-4xl"
+          >
+            <div className="grid gap-2 sm:grid-cols-3">
+              {heroRoutes.map((route) => (
+                <Link
+                  key={route.label}
+                  href={route.href}
+                  className="group flex items-center gap-3 rounded-2xl border border-white/12 bg-[#071017]/68 px-3 py-3 text-left transition hover:border-[#2ED1FF]/55 hover:bg-[#09161f]/88"
+                >
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-[#2ED1FF]/35 bg-[#08141c]/85">
+                    <route.icon className="h-4 w-4 text-[#8AE9FF]" />
+                  </div>
+                  <div className="min-w-0">
+                    <p className="text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.32em] text-[#8AE9FF]/80">
+                      {route.tag}
+                    </p>
+                    <p className="mt-1 text-xs font-medium text-white/88 group-hover:text-white">{route.label}</p>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          </motion.div>
+
+          <motion.div
+            className="mt-5 flex w-full max-w-3xl flex-wrap items-center justify-center gap-2 rounded-full border border-white/10 bg-black/26 px-3 py-2 text-[10px] uppercase tracking-[0.3em] text-white/70 backdrop-blur-sm"
             animate={{ y: [0, 6, 0] }}
             transition={{ duration: 2.6, repeat: Infinity, ease: "easeInOut" }}
           >
-            <Link
-              href="/store"
-              className="flex flex-col items-center gap-2 text-xs uppercase tracking-[0.35em] text-white/70 transition hover:text-white touch-manipulation"
-            >
-              <span>В МАГАЗИН</span>
-              <ChevronDown className="h-5 w-5 text-[#2ED1FF]" />
-            </Link>
+            <span className="text-[9px] font-[var(--font-jetbrains-mono)] tracking-[0.34em] text-white/45">
+              ПЕРЕХОДЫ
+            </span>
+            {heroRoutes.map((route) => (
+              <Link
+                key={`jump-${route.tag}`}
+                href={route.href}
+                className="flex items-center gap-1.5 rounded-full border border-transparent px-2.5 py-1 text-[10px] tracking-[0.28em] text-white/75 transition hover:border-[#2ED1FF]/45 hover:text-white"
+              >
+                <ChevronDown className="h-3.5 w-3.5 text-[#2ED1FF]" />
+                <span>{route.tag}</span>
+              </Link>
+            ))}
           </motion.div>
         </div>
       </section>

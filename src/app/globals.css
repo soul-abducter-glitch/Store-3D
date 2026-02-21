@@ -75,8 +75,8 @@
     position: absolute;
     bottom: -10%;
     border-radius: 999px;
-    background: rgba(46, 209, 255, 0.9);
-    box-shadow: 0 0 12px rgba(46, 209, 255, 0.65);
+    background: rgba(46, 209, 255, 0.72);
+    box-shadow: 0 0 10px rgba(46, 209, 255, 0.45);
     animation-name: hero-float;
     animation-timing-function: linear;
     animation-iteration-count: infinite;
@@ -89,7 +89,7 @@
     height: min(52vw, 520px);
     transform: translate(-50%, -50%);
     border-radius: 999px;
-    background: radial-gradient(circle, rgba(46, 209, 255, 0.25) 0%, rgba(46, 209, 255, 0) 70%);
+    background: radial-gradient(circle, rgba(46, 209, 255, 0.18) 0%, rgba(46, 209, 255, 0) 70%);
     filter: blur(2px);
     mix-blend-mode: screen;
     animation: hero-pulse 6s ease-in-out infinite;
@@ -116,7 +116,7 @@
     mask: radial-gradient(circle, transparent 58%, black 60%);
     -webkit-mask: radial-gradient(circle, transparent 58%, black 60%);
     mix-blend-mode: screen;
-    opacity: 0.6;
+    opacity: 0.46;
     animation: hero-rotate 18s linear infinite;
   }
 
@@ -129,8 +129,8 @@
     -webkit-mask-position: center;
     -webkit-mask-repeat: no-repeat;
     mix-blend-mode: screen;
-    opacity: 0.8;
-    filter: drop-shadow(0 0 24px rgba(46, 209, 255, 0.65));
+    opacity: 0.62;
+    filter: drop-shadow(0 0 18px rgba(46, 209, 255, 0.45));
     animation: hero-mask-pulse 5.5s ease-in-out infinite;
   }
 
@@ -143,7 +143,7 @@
     border-radius: 999px;
     background: radial-gradient(circle, rgba(46, 209, 255, 0.18), transparent 65%);
     mix-blend-mode: screen;
-    opacity: 0.7;
+    opacity: 0.48;
     animation: hero-sweep 8s ease-in-out infinite;
   }
 
@@ -167,9 +167,9 @@
         rgba(46, 209, 255, 0.38) 315deg,
         rgba(46, 209, 255, 0) 360deg
       );
-    filter: blur(1px) drop-shadow(0 0 22px rgba(46, 209, 255, 0.5));
+    filter: blur(1px) drop-shadow(0 0 18px rgba(46, 209, 255, 0.4));
     mix-blend-mode: screen;
-    opacity: 0.6;
+    opacity: 0.38;
     animation: hero-rays 16s linear infinite;
   }
 
@@ -189,7 +189,7 @@
     );
     mask: radial-gradient(circle, transparent 60%, black 62%);
     -webkit-mask: radial-gradient(circle, transparent 60%, black 62%);
-    opacity: 0.25;
+    opacity: 0.16;
     mix-blend-mode: screen;
     animation: hero-glitch 6s steps(5, end) infinite;
   }
@@ -219,8 +219,8 @@
     mask: radial-gradient(circle, transparent 58%, black 60%, black 82%, transparent 84%);
     -webkit-mask: radial-gradient(circle, transparent 58%, black 60%, black 82%, transparent 84%);
     mix-blend-mode: screen;
-    opacity: 0.8;
-    filter: blur(0.3px) drop-shadow(0 0 18px rgba(46, 209, 255, 0.65));
+    opacity: 0.56;
+    filter: blur(0.3px) drop-shadow(0 0 14px rgba(46, 209, 255, 0.48));
     animation: hero-holo-arcs 22s linear infinite;
   }
 
@@ -230,14 +230,18 @@
       radial-gradient(26% 26% at 18% 32%, rgba(255, 140, 72, 0.14), rgba(255, 140, 72, 0) 58%),
       radial-gradient(18% 18% at 82% 18%, rgba(255, 210, 150, 0.12), rgba(255, 210, 150, 0) 55%);
     mix-blend-mode: screen;
-    opacity: 0.65;
+    opacity: 0.45;
   }
 
   .hero-bracket {
     position: absolute;
     width: 28px;
     height: 28px;
-    border-color: rgba(46, 209, 255, 0.45);
+    border-color: rgba(46, 209, 255, 0.28);
+  }
+
+  .hero-brackets {
+    opacity: 0.7;
   }
 
   .hero-bracket--tl {
@@ -275,8 +279,17 @@
       rgba(255, 255, 255, 0.08) 48%,
       transparent 100%
     );
-    opacity: 0.18;
+    opacity: 0.11;
     animation: hero-scanline 12s linear infinite;
+  }
+
+  .hero-copy-safe {
+    background: radial-gradient(
+      ellipse at 50% 42%,
+      rgba(5, 11, 15, 0.76) 0%,
+      rgba(5, 11, 15, 0.56) 38%,
+      rgba(5, 11, 15, 0) 88%
+    );
   }
 
   .hero-data-tags span {
@@ -285,7 +298,7 @@
     font-size: 10px;
     letter-spacing: 0.28em;
     text-transform: uppercase;
-    color: rgba(255, 255, 255, 0.55);
+    color: rgba(255, 255, 255, 0.38);
   }
 
   .hero-cta-pulse {
@@ -332,6 +345,30 @@
   @media (max-width: 768px) {
     .hero-tooltip {
       display: none;
+    }
+
+    .hero-data-tags {
+      display: none;
+    }
+
+    .hero-brackets {
+      opacity: 0.45;
+    }
+
+    .hero-copy-safe {
+      background: radial-gradient(
+        ellipse at 50% 40%,
+        rgba(5, 11, 15, 0.82) 0%,
+        rgba(5, 11, 15, 0.64) 45%,
+        rgba(5, 11, 15, 0.08) 100%
+      );
+    }
+  }
+
+  @media (max-width: 1024px) {
+    .hero-data-tags span {
+      font-size: 9px;
+      letter-spacing: 0.22em;
     }
   }
 
