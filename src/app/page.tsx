@@ -349,17 +349,9 @@ export default function Home() {
             initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.7, delay: 0.55 }}
-            className="hero-action-panel mt-7 w-full max-w-5xl"
+            className="mt-7 w-full max-w-5xl"
           >
-            <div className="mb-2.5 flex items-center justify-between px-1.5">
-              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#92E9FF]/75">
-                START ACTION
-              </span>
-              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
-                HERO ROUTES
-              </span>
-            </div>
-            <div className="grid gap-2 md:grid-cols-3">
+            <div className="grid gap-2.5 md:grid-cols-3">
               {heroActions.map((action, index) => (
                 <Link
                   key={action.label}
@@ -370,7 +362,7 @@ export default function Home() {
                     <span className="text-base font-semibold uppercase tracking-[0.06em] leading-none">
                       {action.label}
                     </span>
-                    <span className="text-[11px] leading-snug text-white/60">{action.hint}</span>
+                    <span className="text-[11px] leading-snug text-white/68">{action.hint}</span>
                   </span>
                   <span className="hero-action-arrow">›</span>
                 </Link>
