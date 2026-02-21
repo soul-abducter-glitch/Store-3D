@@ -36,20 +36,20 @@ const GiftClaimPage = () => {
       const data = await response.json().catch(() => null);
       if (response.status === 401) {
         setStatus("unauthorized");
-        setMessage("Войдите в профиль, чтобы получить подарок.");
+        setMessage("Войдите в профиль, чтобы принять подарок.");
         return;
       }
       if (!response.ok || !data?.success) {
         setStatus("error");
-        setMessage(data?.error || "Не удалось активировать подарок.");
+        setMessage(data?.error || "Не удалось принять подарок.");
         return;
       }
       setStatus("success");
       setProductName(typeof data?.productName === "string" ? data.productName : null);
       setMessage(
         data?.alreadyOwned
-          ? "Модель уже есть в вашей библиотеке."
-          : "Подарок активирован. Модель добавлена в библиотеку."
+          ? "У вас уже есть доступ к этой модели. Подарок отмечен как принятый."
+          : "Подарок принят. Модель добавлена в цифровую библиотеку."
       );
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("orders-updated"));
@@ -68,9 +68,11 @@ const GiftClaimPage = () => {
           <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full border border-[#2ED1FF]/40 bg-[#2ED1FF]/10 text-[#BFF4FF]">
             <Gift className="h-6 w-6" />
           </div>
-          <h1 className="mt-5 text-center text-3xl font-semibold text-white">Подарочная ссылка</h1>
+          <h1 className="mt-5 text-center text-3xl font-semibold text-white">Принять подарок</h1>
           <p className="mt-2 text-center text-sm text-white/60">
-            {productName ? `Модель: ${productName}` : "Получите цифровую модель в библиотеку."}
+            {productName
+              ? `Модель: ${productName}`
+              : "Подарок передает право на скачивание модели в вашу библиотеку."}
           </p>
 
           {message && (
@@ -95,7 +97,7 @@ const GiftClaimPage = () => {
                 className="inline-flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#0b1014] px-6 py-3 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#7FE7FF] hover:text-white"
               >
                 <CheckCircle2 className="h-4 w-4" />
-                Активировать подарок
+                Принять подарок
               </button>
             )}
             {status === "loading" && (
@@ -118,10 +120,10 @@ const GiftClaimPage = () => {
             )}
             {status === "success" && (
               <Link
-                href="/profile"
+                href="/profile?tab=downloads"
                 className="inline-flex items-center gap-2 rounded-full border border-[#2ED1FF]/50 bg-[#2ED1FF]/10 px-6 py-3 text-xs uppercase tracking-[0.3em] text-[#BFF4FF] transition hover:border-[#7FE7FF] hover:text-white"
               >
-                Перейти в библиотеку
+                Открыть библиотеку
               </Link>
             )}
             <Link
@@ -138,3 +140,4 @@ const GiftClaimPage = () => {
 };
 
 export default GiftClaimPage;
+

@@ -80,9 +80,14 @@ export const DigitalEntitlements: CollectionConfig = {
         data.variantId = data.variantId.trim().slice(0, 80);
       }
 
-      if (data.status !== "ACTIVE" && data.status !== "REVOKED") {
-        data.status = "ACTIVE";
-      }
+      const rawStatus = String(data.status || "").trim().toUpperCase();
+      const allowedStatuses = new Set([
+        "ACTIVE",
+        "REVOKED",
+        "TRANSFER_PENDING",
+        "TRANSFERRED",
+      ]);
+      data.status = allowedStatuses.has(rawStatus) ? rawStatus : "ACTIVE";
 
       if (data.status === "REVOKED" && !data.revokedAt) {
         data.revokedAt = new Date().toISOString();
@@ -92,7 +97,14 @@ export const DigitalEntitlements: CollectionConfig = {
     }],
     beforeChange: [({ data, originalDoc, operation }) => {
       if (!data || typeof data !== "object") return data;
-      const nextStatus = data.status === "REVOKED" ? "REVOKED" : "ACTIVE";
+      const rawStatus = String(data.status || originalDoc?.status || "").trim().toUpperCase();
+      const nextStatus =
+        rawStatus === "REVOKED" ||
+        rawStatus === "TRANSFER_PENDING" ||
+        rawStatus === "TRANSFERRED"
+          ? rawStatus
+          : "ACTIVE";
+      data.status = nextStatus;
       if (nextStatus === "REVOKED") {
         data.revokedAt = data.revokedAt || new Date().toISOString();
       } else if (operation === "update" && originalDoc?.status === "REVOKED") {
@@ -158,6 +170,8 @@ export const DigitalEntitlements: CollectionConfig = {
       options: [
         { label: "Active", value: "ACTIVE" },
         { label: "Revoked", value: "REVOKED" },
+        { label: "Transfer Pending", value: "TRANSFER_PENDING" },
+        { label: "Transferred", value: "TRANSFERRED" },
       ],
     },
     {

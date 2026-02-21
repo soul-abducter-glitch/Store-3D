@@ -44,6 +44,7 @@ export const ensureDigitalDownloadsSchema = async (payload: PayloadLike) => {
 
   for (const schema of schemas) {
     const entitlementsTable = qualifiedTable(schema, "digital_entitlements");
+    const giftTransfersTable = qualifiedTable(schema, "gift_transfers");
     const linkEventsTable = qualifiedTable(schema, "download_link_events");
     const downloadEventsTable = qualifiedTable(schema, "download_events");
     const lockRelsTable = qualifiedTable(schema, "payload_locked_documents_rels");
@@ -61,6 +62,29 @@ export const ensureDigitalDownloadsSchema = async (payload: PayloadLike) => {
         "order_id" integer NOT NULL,
         "status" varchar NOT NULL DEFAULT 'ACTIVE',
         "revoked_at" timestamptz,
+        "meta" jsonb,
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+      `
+    );
+
+    await executeRaw(
+      payload,
+      `
+      CREATE TABLE IF NOT EXISTS ${giftTransfersTable} (
+        "id" serial PRIMARY KEY,
+        "entitlement_id" integer NOT NULL,
+        "product_id" integer NOT NULL,
+        "sender_user_id" integer NOT NULL,
+        "recipient_user_id" integer,
+        "recipient_email" varchar NOT NULL,
+        "message" text,
+        "status" varchar NOT NULL DEFAULT 'PENDING',
+        "expires_at" timestamptz NOT NULL,
+        "accepted_at" timestamptz,
+        "expired_at" timestamptz,
+        "canceled_at" timestamptz,
         "meta" jsonb,
         "updated_at" timestamptz DEFAULT now(),
         "created_at" timestamptz DEFAULT now()
@@ -127,6 +151,26 @@ export const ensureDigitalDownloadsSchema = async (payload: PayloadLike) => {
       payload,
       `CREATE INDEX IF NOT EXISTS "digital_entitlements_status_idx" ON ${entitlementsTable} ("status")`
     );
+    await executeRaw(
+      payload,
+      `CREATE INDEX IF NOT EXISTS "gift_transfers_entitlement_idx" ON ${giftTransfersTable} ("entitlement_id")`
+    );
+    await executeRaw(
+      payload,
+      `CREATE INDEX IF NOT EXISTS "gift_transfers_sender_user_idx" ON ${giftTransfersTable} ("sender_user_id")`
+    );
+    await executeRaw(
+      payload,
+      `CREATE INDEX IF NOT EXISTS "gift_transfers_recipient_email_idx" ON ${giftTransfersTable} ("recipient_email")`
+    );
+    await executeRaw(
+      payload,
+      `CREATE INDEX IF NOT EXISTS "gift_transfers_status_idx" ON ${giftTransfersTable} ("status")`
+    );
+    await executeRaw(
+      payload,
+      `CREATE INDEX IF NOT EXISTS "gift_transfers_expires_at_idx" ON ${giftTransfersTable} ("expires_at")`
+    );
 
     await executeRaw(
       payload,
@@ -154,6 +198,7 @@ export const ensureDigitalDownloadsSchema = async (payload: PayloadLike) => {
         BEGIN
           IF to_regclass('${schema}.payload_locked_documents_rels') IS NOT NULL THEN
             ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "digital_entitlements_id" integer;
+            ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "gift_transfers_id" integer;
             ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "download_link_events_id" integer;
             ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "download_events_id" integer;
           END IF;

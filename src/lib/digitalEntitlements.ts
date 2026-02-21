@@ -1,4 +1,6 @@
-﻿export type EntitlementOwnerType = "USER" | "EMAIL";
+﻿import { normalizeEntitlementStatus as normalizeGiftEntitlementStatus } from "@/lib/giftTransfers";
+
+export type EntitlementOwnerType = "USER" | "EMAIL";
 
 const normalizeText = (value: unknown) => {
   if (typeof value !== "string") return "";
@@ -63,6 +65,7 @@ const collectDigitalEntitlementKeys = (items: unknown) => {
 };
 
 const normalizeStatus = (value: unknown) => normalizeText(value).toLowerCase();
+const normalizeEntitlementStatus = (value: unknown) => normalizeGiftEntitlementStatus(value);
 
 export const isPaidOrderForEntitlement = (order: any) => {
   const paymentStatus = normalizeStatus(order?.paymentStatus);
@@ -153,7 +156,10 @@ export const syncDigitalEntitlementsForOrder = async (args: {
     for (const entry of currentKeys) {
       const key = entitlementKey(entry.productId, entry.variantId);
       const matches = existingByKey.get(key) ?? [];
-      const active = matches.find((doc) => normalizeStatus(doc?.status) === "active") ?? null;
+      const active =
+        matches.find((doc) => normalizeEntitlementStatus(doc?.status) === "ACTIVE") ?? null;
+      const existingNonRevoked =
+        matches.find((doc) => normalizeEntitlementStatus(doc?.status) !== "REVOKED") ?? null;
 
       if (active) {
         const patch: Record<string, unknown> = {};
@@ -175,11 +181,6 @@ export const syncDigitalEntitlementsForOrder = async (args: {
           patch.ownerEmail = owner.ownerEmail;
         }
 
-        if (normalizeStatus(active?.status) === "revoked") {
-          patch.status = "ACTIVE";
-          patch.revokedAt = null;
-        }
-
         if (Object.keys(patch).length > 0) {
           await payload.update({
             collection: "digital_entitlements",
@@ -189,6 +190,11 @@ export const syncDigitalEntitlementsForOrder = async (args: {
           });
           updated += 1;
         }
+        continue;
+      }
+
+      if (existingNonRevoked) {
+        // Preserve transfer lifecycle states and avoid duplicate entitlements for the same key.
         continue;
       }
 
@@ -235,7 +241,7 @@ export const syncDigitalEntitlementsForOrder = async (args: {
     for (const [key, docs] of existingByKey.entries()) {
       if (!revokeKeys.has(key)) continue;
       for (const row of docs) {
-        if (normalizeStatus(row?.status) !== "active") continue;
+        if (normalizeEntitlementStatus(row?.status) === "REVOKED") continue;
         await payload.update({
           collection: "digital_entitlements",
           id: row.id,
@@ -424,7 +430,7 @@ export const toEntitlementPublic = (doc: any) => {
     ownerType: String(doc?.ownerType || "").toUpperCase() === "EMAIL" ? "EMAIL" : "USER",
     ownerEmail: normalizeEmail(doc?.ownerEmail),
     ownerUserId: normalizeIdString(doc?.ownerUser),
-    status: String(doc?.status || "").toUpperCase() === "REVOKED" ? "REVOKED" : "ACTIVE",
+    status: normalizeEntitlementStatus(doc?.status),
     variantId: normalizeVariantId(doc?.variantId),
     createdAt: doc?.createdAt,
     updatedAt: doc?.updatedAt,

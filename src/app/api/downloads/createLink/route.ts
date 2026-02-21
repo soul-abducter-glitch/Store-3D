@@ -10,6 +10,7 @@ import {
 } from "@/lib/digitalEntitlements";
 import { issueDownloadLinkForEntitlement } from "@/lib/digitalDownloads";
 import { verifyDigitalGuestToken } from "@/lib/digitalGuestTokens";
+import { expirePendingGiftTransfers } from "@/lib/giftTransfers";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -67,6 +68,14 @@ export async function POST(request: NextRequest) {
       { success: false, error: "Требуется авторизация или гостевая ссылка." },
       { status: 401 }
     );
+  }
+
+  if (user?.id) {
+    await expirePendingGiftTransfers({
+      payload,
+      scopeWhere: { senderUser: { equals: user.id as any } },
+      limit: 100,
+    }).catch(() => null);
   }
 
   const entitlement = await resolveEntitlementForAccess({

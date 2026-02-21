@@ -1,8 +1,7 @@
 import { createHmac, timingSafeEqual } from "crypto";
 
 export type GiftTokenPayload = {
-  giverUserId: string;
-  productId: string;
+  transferId: string;
   recipientEmail: string;
   productName?: string;
   iat: number;
@@ -70,7 +69,7 @@ export const verifyGiftToken = (token: string) => {
 
   try {
     const payload = JSON.parse(base64UrlDecode(encodedPayload)) as GiftTokenPayload;
-    if (!payload?.giverUserId || !payload?.productId || !payload?.recipientEmail || !payload?.exp) {
+    if (!payload?.transferId || !payload?.recipientEmail || !payload?.exp) {
       return { valid: false as const, error: "Token payload is invalid." };
     }
     if (payload.exp < Math.floor(Date.now() / 1000)) {
@@ -81,4 +80,3 @@ export const verifyGiftToken = (token: string) => {
     return { valid: false as const, error: "Token payload cannot be parsed." };
   }
 };
-

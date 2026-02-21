@@ -701,7 +701,13 @@ export async function GET(
       return denyEntitlement(403, "owner_mismatch", "Download link is invalid.");
     }
     if (entitlementStatus !== "ACTIVE") {
-      return denyEntitlement(403, "entitlement_revoked", "Доступ к файлу отозван.");
+      const reasonMessage =
+        entitlementStatus === "TRANSFER_PENDING"
+          ? "Передача подарка ожидает принятия."
+          : entitlementStatus === "TRANSFERRED"
+            ? "Лицензия передана другому пользователю."
+            : "Доступ к файлу отозван.";
+      return denyEntitlement(403, "entitlement_revoked", reasonMessage);
     }
     if (entitlementOrderId === null) {
       return denyEntitlement(403, "missing_order", "Покупка не подтверждена.");

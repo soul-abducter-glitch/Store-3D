@@ -9,6 +9,12 @@ import {
   normalizeRelationshipId,
   toEntitlementPublic,
 } from "@/lib/digitalEntitlements";
+import {
+  expirePendingGiftTransfers,
+  normalizeEntitlementStatus,
+  normalizeGiftTransferStatus,
+  normalizeString,
+} from "@/lib/giftTransfers";
 import { verifyDigitalGuestToken } from "@/lib/digitalGuestTokens";
 
 export const dynamic = "force-dynamic";
@@ -94,6 +100,29 @@ const parseAuthUser = async (payload: any, request: NextRequest) => {
   }
 };
 
+const buildTransferBlockedReason = (args: {
+  entitlementStatus: ReturnType<typeof normalizeEntitlementStatus>;
+  pendingTransfer: any | null;
+}) => {
+  const { entitlementStatus, pendingTransfer } = args;
+  if (entitlementStatus === "REVOKED") return "Доступ к файлу отозван";
+  if (entitlementStatus === "TRANSFERRED") return "Лицензия передана другому пользователю";
+  if (entitlementStatus === "TRANSFER_PENDING") {
+    const expiresAt = normalizeString(pendingTransfer?.expiresAt);
+    if (expiresAt) {
+      return `Передача подарка ожидает принятия до ${new Date(expiresAt).toLocaleString("ru-RU")}`;
+    }
+    return "Передача подарка ожидает принятия";
+  }
+  return "";
+};
+
+const isProductGiftable = (product: any) => {
+  const explicit = product?.giftable;
+  if (explicit === false) return false;
+  return true;
+};
+
 export async function GET(request: NextRequest) {
   const payload = await getPayloadClient();
   const user = await parseAuthUser(payload, request);
@@ -129,6 +158,14 @@ export async function GET(request: NextRequest) {
       { success: false, error: "Требуется авторизация или гостевая ссылка." },
       { status: 401 }
     );
+  }
+
+  if (user?.id) {
+    await expirePendingGiftTransfers({
+      payload,
+      scopeWhere: { senderUser: { equals: user.id as any } },
+      limit: 200,
+    }).catch(() => null);
   }
 
   const ownerConditions: any[] = [];
@@ -168,6 +205,14 @@ export async function GET(request: NextRequest) {
   });
   const entitlementDocs = Array.isArray(entitlementsResult?.docs) ? entitlementsResult.docs : [];
 
+  const entitlementIds = Array.from(
+    new Set(
+      entitlementDocs
+        .map((row: any) => normalizeRelationshipId(row?.id))
+        .filter((id: string | number | null): id is string | number => id !== null)
+        .map((id) => String(id))
+    )
+  );
   const productIds = Array.from(
     new Set(
       entitlementDocs
@@ -185,7 +230,7 @@ export async function GET(request: NextRequest) {
     )
   );
 
-  const [productsById, ordersById] = await Promise.all([
+  const [productsById, ordersById, pendingTransfersByEntitlementId] = await Promise.all([
     (async () => {
       const entries = await Promise.all(
         productIds.map(async (id) => {
@@ -222,12 +267,43 @@ export async function GET(request: NextRequest) {
       );
       return new Map<string, any>(entries);
     })(),
+    (async () => {
+      if (!entitlementIds.length) return new Map<string, any>();
+      const pendingResult = await payload.find({
+        collection: "gift_transfers",
+        depth: 0,
+        limit: 500,
+        sort: "-createdAt",
+        overrideAccess: true,
+        where: {
+          and: [
+            { status: { equals: "PENDING" } },
+            { entitlement: { in: entitlementIds as any } },
+          ],
+        },
+      });
+      const docs = Array.isArray(pendingResult?.docs) ? pendingResult.docs : [];
+      const map = new Map<string, any>();
+      for (const transfer of docs) {
+        const status = normalizeGiftTransferStatus(transfer?.status);
+        if (status !== "PENDING") continue;
+        const entitlementId = normalizeRelationshipId(transfer?.entitlement);
+        if (entitlementId === null) continue;
+        const key = String(entitlementId);
+        if (!map.has(key)) {
+          map.set(key, transfer);
+        }
+      }
+      return map;
+    })(),
   ]);
 
   const items = entitlementDocs.map((doc: any) => {
     const entitlement = toEntitlementPublic(doc);
     const product = productsById.get(entitlement.productId) || null;
     const order = ordersById.get(entitlement.orderId) || null;
+    const entitlementStatus = normalizeEntitlementStatus(entitlement.status);
+    const pendingTransfer = pendingTransfersByEntitlementId.get(String(entitlement.id)) || null;
 
     const paintedModel = product?.paintedModel as MediaDoc | null | undefined;
     const rawModel = product?.rawModel as MediaDoc | null | undefined;
@@ -240,14 +316,36 @@ export async function GET(request: NextRequest) {
         ? product.format.trim()
         : "Digital STL";
     const paid = isPaidOrderForEntitlement(order);
-    const active = entitlement.status === "ACTIVE";
+    const active = entitlementStatus === "ACTIVE";
     const hasFile = Boolean(selectedMedia && (selectedMedia.filename || selectedMedia.url));
     const canDownload = active && paid && hasFile;
 
     let blockedReason = "";
-    if (!active) blockedReason = "Доступ к файлу отозван";
-    else if (!paid) blockedReason = "Покупка не подтверждена";
-    else if (!hasFile) blockedReason = "Файл временно недоступен";
+    if (!active) {
+      blockedReason = buildTransferBlockedReason({ entitlementStatus, pendingTransfer });
+    } else if (!paid) {
+      blockedReason = "Покупка не подтверждена";
+    } else if (!hasFile) {
+      blockedReason = "Файл временно недоступен";
+    }
+
+    const isGuest = !user?.id && Boolean(guestEmail);
+    const pendingOutgoing =
+      pendingTransfer &&
+      user?.id &&
+      String(normalizeRelationshipId(pendingTransfer?.senderUser) ?? "") === String(user.id);
+    const pendingIncoming =
+      pendingTransfer &&
+      user?.email &&
+      normalizeEmail(pendingTransfer?.recipientEmail) === user.email;
+    const giftable =
+      Boolean(user?.id) &&
+      !isGuest &&
+      active &&
+      paid &&
+      hasFile &&
+      !pendingTransfer &&
+      isProductGiftable(product);
 
     const fileSize = formatFileSize(
       typeof selectedMedia?.filesize === "number" ? selectedMedia.filesize : undefined
@@ -271,6 +369,11 @@ export async function GET(request: NextRequest) {
       purchasedAt: order?.paidAt || order?.createdAt || entitlement.createdAt || null,
       lastUpdatedAt: entitlement.updatedAt || null,
       orderId: entitlement.orderId,
+      giftable,
+      giftStatus: pendingOutgoing ? "pending_outgoing" : pendingIncoming ? "pending_incoming" : "none",
+      giftTransferId: pendingTransfer ? String(pendingTransfer.id) : null,
+      giftRecipientEmail: pendingTransfer ? normalizeEmail(pendingTransfer.recipientEmail) : null,
+      giftExpiresAt: pendingTransfer?.expiresAt || null,
     };
   });
 
@@ -283,3 +386,4 @@ export async function GET(request: NextRequest) {
     { status: 200 }
   );
 }
+

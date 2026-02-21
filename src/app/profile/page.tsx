@@ -87,9 +87,23 @@ type DownloadEntry = {
   fileSize: string;
   previewUrl: string;
   ready: boolean;
-  status: "ACTIVE" | "REVOKED";
+  status: "ACTIVE" | "REVOKED" | "TRANSFER_PENDING" | "TRANSFERRED";
   blockedReason?: string;
   purchasedAt?: string | null;
+  giftable?: boolean;
+  giftStatus?: "none" | "pending_outgoing" | "pending_incoming";
+  giftTransferId?: string | null;
+  giftRecipientEmail?: string | null;
+  giftExpiresAt?: string | null;
+};
+
+type GiftDraft = {
+  itemId: string;
+  entitlementId: string;
+  productId: string;
+  productName: string;
+  recipientEmail: string;
+  message: string;
 };
 
 type AiAssetEntry = {
@@ -358,6 +372,9 @@ export default function ProfilePage() {
   const [cancelingOrderItemKey, setCancelingOrderItemKey] = useState<string | null>(null);
   const [reorderingOrderId, setReorderingOrderId] = useState<string | null>(null);
   const [creatingGiftForId, setCreatingGiftForId] = useState<string | null>(null);
+  const [giftDialogOpen, setGiftDialogOpen] = useState(false);
+  const [giftDialogError, setGiftDialogError] = useState<string | null>(null);
+  const [giftDraft, setGiftDraft] = useState<GiftDraft | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [downloads, setDownloads] = useState<DownloadEntry[]>([]);
   const [downloadsLoading, setDownloadsLoading] = useState(false);
@@ -617,6 +634,15 @@ export default function ProfilePage() {
           const entitlementId = String(entry?.entitlementId || "").trim();
           if (!productId || !entitlementId) return null;
           const ready = Boolean(entry?.canDownload);
+          const rawStatus = String(entry?.status || "").toUpperCase();
+          const entitlementStatus: DownloadEntry["status"] =
+            rawStatus === "REVOKED"
+              ? "REVOKED"
+              : rawStatus === "TRANSFER_PENDING"
+                ? "TRANSFER_PENDING"
+                : rawStatus === "TRANSFERRED"
+                  ? "TRANSFERRED"
+                  : "ACTIVE";
           return {
             id: String(entry?.id || entitlementId),
             source: "entitlement",
@@ -631,12 +657,24 @@ export default function ProfilePage() {
             fileSize: String(entry?.fileSize || "N/A"),
             previewUrl: typeof entry?.previewUrl === "string" ? entry.previewUrl : "",
             ready,
-            status: String(entry?.status || "").toUpperCase() === "REVOKED" ? "REVOKED" : "ACTIVE",
+            status: entitlementStatus,
             blockedReason:
               typeof entry?.blockedReason === "string" && entry.blockedReason.trim()
                 ? entry.blockedReason.trim()
                 : undefined,
             purchasedAt: typeof entry?.purchasedAt === "string" ? entry.purchasedAt : null,
+            giftable: Boolean(entry?.giftable),
+            giftStatus:
+              entry?.giftStatus === "pending_outgoing" || entry?.giftStatus === "pending_incoming"
+                ? entry.giftStatus
+                : "none",
+            giftTransferId:
+              entry?.giftTransferId !== null && entry?.giftTransferId !== undefined
+                ? String(entry.giftTransferId)
+                : null,
+            giftRecipientEmail:
+              typeof entry?.giftRecipientEmail === "string" ? entry.giftRecipientEmail : null,
+            giftExpiresAt: typeof entry?.giftExpiresAt === "string" ? entry.giftExpiresAt : null,
           } satisfies DownloadEntry;
         })
         .filter((entry: DownloadEntry | null): entry is DownloadEntry => Boolean(entry));
@@ -649,6 +687,10 @@ export default function ProfilePage() {
       for (const entitlement of entitlementDownloads) {
         const existing = mergedByProductId.get(entitlement.productId);
         if (!existing) {
+          mergedByProductId.set(entitlement.productId, entitlement);
+          continue;
+        }
+        if (existing.source === "legacy") {
           mergedByProductId.set(entitlement.productId, entitlement);
           continue;
         }
@@ -1479,64 +1521,98 @@ export default function ProfilePage() {
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  const handleCreateGiftLink = async (item: { id: string; product: string; productId?: string }) => {
-    if (!item.productId) {
+  const handleCreateGiftLink = (item: DownloadEntry) => {
+    if (!item.productId || !item.entitlementId) {
       toast.error("Не удалось определить модель для подарка.", { className: "sonner-toast" });
       return;
     }
+    if (!item.giftable) {
+      toast.error(
+        item.blockedReason || "Сейчас нельзя передать этот файл в подарок.",
+        { className: "sonner-toast" }
+      );
+      return;
+    }
 
-    const recipientEmail = window.prompt("Введите email получателя подарка:")?.trim().toLowerCase();
+    setGiftDialogError(null);
+    setGiftDraft({
+      itemId: item.id,
+      entitlementId: item.entitlementId,
+      productId: item.productId,
+      productName: item.product,
+      recipientEmail: "",
+      message: "",
+    });
+    setGiftDialogOpen(true);
+  };
+
+  const closeGiftDialog = () => {
+    if (creatingGiftForId) return;
+    setGiftDialogOpen(false);
+    setGiftDialogError(null);
+    setGiftDraft(null);
+  };
+
+  const handleSubmitGiftTransfer = async () => {
+    if (!giftDraft || creatingGiftForId) {
+      return;
+    }
+
+    const recipientEmail = giftDraft.recipientEmail.trim().toLowerCase();
     if (!recipientEmail) {
+      setGiftDialogError("Укажите email получателя.");
       return;
     }
     if (!EMAIL_REGEX.test(recipientEmail)) {
-      toast.error("Некорректный email получателя.", { className: "sonner-toast" });
+      setGiftDialogError("Некорректный email получателя.");
+      return;
+    }
+    if (user?.email && recipientEmail === String(user.email).toLowerCase()) {
+      setGiftDialogError("Нельзя отправить подарок самому себе.");
       return;
     }
 
-    setCreatingGiftForId(item.id);
+    setCreatingGiftForId(giftDraft.itemId);
+    setGiftDialogError(null);
     try {
       const response = await fetch(`${apiBase}/api/gift/create`, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          productId: item.productId,
+          entitlementId: giftDraft.entitlementId,
+          productId: giftDraft.productId,
           recipientEmail,
+          message: giftDraft.message.trim(),
         }),
       });
       const data = await response.json().catch(() => null);
-      if (!response.ok || !data?.success || typeof data?.giftUrl !== "string") {
-        throw new Error(data?.error || "Не удалось создать подарочную ссылку.");
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || "Не удалось создать передачу подарка.");
       }
 
-      const link = data.giftUrl;
-      let copied = false;
-      if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-        try {
-          await navigator.clipboard.writeText(link);
-          copied = true;
-        } catch {
-          copied = false;
+      const emailSent = data?.emailSent === true;
+      toast.success(
+        emailSent
+          ? `Подарок для "${giftDraft.productName}" отправлен на email получателя.`
+          : `Передача подарка создана. Отправьте ссылку получателю вручную.`,
+        { className: "sonner-toast" }
+      );
+
+      if (!emailSent && typeof data?.giftUrl === "string") {
+        if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(data.giftUrl).catch(() => null);
         }
       }
 
-      if (!copied) {
-        window.prompt("Скопируйте ссылку вручную:", link);
-      }
-
-      toast.success(
-        copied
-          ? `Подарочная ссылка для "${item.product}" скопирована.`
-          : `Подарочная ссылка для "${item.product}" создана.`,
-        { className: "sonner-toast" }
-      );
+      closeGiftDialog();
+      await fetchDownloads();
     } catch (error) {
       const message =
         error instanceof Error && error.message
           ? error.message
-          : "Не удалось создать подарочную ссылку.";
-      toast.error(message, { className: "sonner-toast" });
+          : "Не удалось создать передачу подарка.";
+      setGiftDialogError(message);
     } finally {
       setCreatingGiftForId(null);
     }
@@ -2426,6 +2502,15 @@ export default function ProfilePage() {
                           {download.blockedReason && (
                             <p className="mt-1 text-xs text-amber-200">{download.blockedReason}</p>
                           )}
+                          {download.giftStatus === "pending_outgoing" && (
+                            <p className="mt-1 text-xs text-cyan-100/80">
+                              Передача подарка ожидает принятия
+                              {download.giftExpiresAt
+                                ? ` до ${formatDate(download.giftExpiresAt)}`
+                                : ""}
+                              .
+                            </p>
+                          )}
                           {resumePaymentMeta && (
                             <>
                               <span
@@ -2471,11 +2556,20 @@ export default function ProfilePage() {
                         <button
                           type="button"
                           onClick={() => handleCreateGiftLink(download)}
-                          disabled={!download.productId || creatingGiftForId === download.id}
+                          disabled={
+                            !download.productId ||
+                            !download.entitlementId ||
+                            !download.giftable ||
+                            creatingGiftForId === download.id
+                          }
                           className="flex w-full items-center justify-center gap-2 rounded-full border border-white/15 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/80 transition hover:border-[#2ED1FF]/50 hover:text-[#BFF4FF] disabled:cursor-not-allowed disabled:opacity-60 sm:w-auto"
                         >
                           <Gift className="h-4 w-4" />
-                          {creatingGiftForId === download.id ? "Создаем..." : "Подарить"}
+                          {creatingGiftForId === download.id
+                            ? "Создаем..."
+                            : download.giftStatus === "pending_outgoing"
+                              ? "Ожидает принятия"
+                              : "Подарить"}
                         </button>
                       </div>
                     </div>
@@ -2731,6 +2825,104 @@ export default function ProfilePage() {
           )}
           {activeTab === "settings" && (
             <ProfileSettingsPanel />
+          )}
+
+          {giftDialogOpen && giftDraft && (
+            <div className="fixed inset-0 z-[80] flex items-center justify-center px-4 py-6">
+              <button
+                type="button"
+                onClick={closeGiftDialog}
+                className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+                aria-label="Закрыть окно передачи подарка"
+              />
+              <div className="relative z-[1] w-full max-w-xl rounded-[24px] border border-white/15 bg-[#070A10] p-6 shadow-[0_20px_60px_rgba(0,0,0,0.45)]">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.24em] text-cyan-200/75">
+                      Передача доступа
+                    </p>
+                    <h3 className="mt-2 text-xl font-semibold text-white">
+                      Подарить: {giftDraft.productName}
+                    </h3>
+                    <p className="mt-2 text-sm text-white/65">
+                      Подарок передает право на скачивание. У вас доступ будет заблокирован до
+                      принятия или истечения срока.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeGiftDialog}
+                    className="rounded-full border border-white/20 p-2 text-white/70 transition hover:text-white"
+                    aria-label="Закрыть"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+
+                <div className="mt-5 space-y-4">
+                  <label className="block space-y-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-white/55">
+                      Email получателя
+                    </span>
+                    <input
+                      type="email"
+                      value={giftDraft.recipientEmail}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setGiftDraft((prev) => (prev ? { ...prev, recipientEmail: value } : prev));
+                        setGiftDialogError(null);
+                      }}
+                      placeholder="name@example.com"
+                      className="w-full rounded-xl border border-white/15 bg-black/35 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-300/60"
+                    />
+                  </label>
+
+                  <label className="block space-y-2">
+                    <span className="text-xs uppercase tracking-[0.2em] text-white/55">
+                      Сообщение (опционально)
+                    </span>
+                    <textarea
+                      value={giftDraft.message}
+                      onChange={(event) => {
+                        const value = event.target.value.slice(0, 500);
+                        setGiftDraft((prev) => (prev ? { ...prev, message: value } : prev));
+                      }}
+                      rows={4}
+                      placeholder="Добавьте короткое сообщение получателю"
+                      className="w-full rounded-xl border border-white/15 bg-black/35 px-3 py-2.5 text-sm text-white outline-none transition focus:border-cyan-300/60"
+                    />
+                    <p className="text-right text-[11px] text-white/45">
+                      {giftDraft.message.length} / 500
+                    </p>
+                  </label>
+
+                  {giftDialogError && (
+                    <div className="rounded-xl border border-red-500/35 bg-red-500/10 px-3 py-2 text-sm text-red-100">
+                      {giftDialogError}
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-6 flex flex-wrap justify-end gap-2">
+                  <button
+                    type="button"
+                    onClick={closeGiftDialog}
+                    disabled={Boolean(creatingGiftForId)}
+                    className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.2em] text-white/75 transition hover:border-white/40 hover:text-white disabled:opacity-60"
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void handleSubmitGiftTransfer()}
+                    disabled={Boolean(creatingGiftForId)}
+                    className="rounded-full border border-cyan-300/45 bg-cyan-500/10 px-4 py-2 text-xs uppercase tracking-[0.2em] text-cyan-100 transition hover:border-cyan-200/70 hover:bg-cyan-500/20 disabled:opacity-60"
+                  >
+                    {creatingGiftForId ? "Отправляем..." : "Отправить подарок"}
+                  </button>
+                </div>
+              </div>
+            </div>
           )}
         </div>
 

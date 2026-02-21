@@ -19,6 +19,7 @@ import { SupportTickets } from "./src/payload/collections/SupportTickets.ts";
 import { DigitalEntitlements } from "./src/payload/collections/DigitalEntitlements.ts";
 import { DownloadLinkEvents } from "./src/payload/collections/DownloadLinkEvents.ts";
 import { DownloadEvents } from "./src/payload/collections/DownloadEvents.ts";
+import { GiftTransfers } from "./src/payload/collections/GiftTransfers.ts";
 import { ensureAiLabSchema } from "./src/lib/ensureAiLabSchema.ts";
 import { ensureOrdersSchema } from "./src/lib/ensureOrdersSchema.ts";
 import { ensureDigitalDownloadsSchema } from "./src/lib/ensureDigitalDownloadsSchema.ts";
@@ -335,6 +336,7 @@ export default buildConfig({
     ProcessedWebhooks,
     SupportTickets,
     DigitalEntitlements,
+    GiftTransfers,
     DownloadLinkEvents,
     DownloadEvents,
   ],
