@@ -182,9 +182,10 @@ export default function Home() {
       },
     },
   ];
-  const heroPrimaryActions = [
-    { label: "ПЕЧАТЬ НА ЗАКАЗ", href: "/services/print" },
-    { label: "СОЗДАТЬ 3D", href: "/ai-lab" },
+  const heroActions = [
+    { label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab" },
+    { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print" },
+    { label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store" },
   ] as const;
 
   return (
@@ -263,19 +264,6 @@ export default function Home() {
         onMouseMove={handleHeroParallax}
         onMouseLeave={resetHeroParallax}
       >
-        <motion.div
-          initial={{ opacity: 0, y: -12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.65, delay: 0.15 }}
-          className="absolute left-1/2 top-[88px] z-20 flex w-full max-w-[640px] -translate-x-1/2 flex-wrap items-center justify-center gap-2 px-4 sm:top-[96px] sm:gap-3"
-        >
-          {heroPrimaryActions.map((action) => (
-            <Link key={`hero-top-${action.label}`} href={action.href} className="hero-top-pill">
-              {action.label}
-            </Link>
-          ))}
-        </motion.div>
-
         <motion.img
           src={HERO_PORTAL_IMAGE}
           alt="Portal background"
@@ -358,14 +346,36 @@ export default function Home() {
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 14 }}
+            initial={{ opacity: 0, y: 18 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6, delay: 0.62 }}
-            className="mt-7 flex justify-center"
+            transition={{ duration: 0.7, delay: 0.55 }}
+            className="hero-action-panel mt-7 w-full max-w-5xl"
           >
-            <Link href="/store" className="hero-entry-center">
-              В КАТАЛОГ
-            </Link>
+            <div className="mb-2.5 flex items-center justify-between px-1.5">
+              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#92E9FF]/75">
+                START ACTION
+              </span>
+              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
+                HERO ROUTES
+              </span>
+            </div>
+            <div className="grid gap-2 md:grid-cols-3">
+              {heroActions.map((action, index) => (
+                <Link
+                  key={action.label}
+                  href={action.href}
+                  className={`hero-action-card group ${index === 0 ? "hero-action-card--primary" : ""}`}
+                >
+                  <span className="flex flex-col gap-1">
+                    <span className="text-base font-semibold uppercase tracking-[0.06em] leading-none">
+                      {action.label}
+                    </span>
+                    <span className="text-[11px] leading-snug text-white/60">{action.hint}</span>
+                  </span>
+                  <span className="hero-action-arrow">›</span>
+                </Link>
+              ))}
+            </div>
           </motion.div>
         </div>
       </section>
