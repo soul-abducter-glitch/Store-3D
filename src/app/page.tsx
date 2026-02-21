@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent as ReactMous
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { motion, useMotionValue, useSpring } from "framer-motion";
-import { ChevronDown, Heart, Printer, ShoppingCart, Sparkles, User } from "lucide-react";
+import { Heart, ShoppingCart, User } from "lucide-react";
 import { useFavorites } from "@/lib/favorites";
 import { LEGACY_CART_KEY, getCartStorageKey, readCartStorage } from "@/lib/cartStorage";
 
@@ -182,10 +182,9 @@ export default function Home() {
       },
     },
   ];
-  const heroActions = [
-    { label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab", variant: "primary" },
-    { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", variant: "secondary" },
-    { label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store", variant: "ghost" },
+  const heroPrimaryActions = [
+    { label: "ПЕЧАТЬ НА ЗАКАЗ", href: "/services/print" },
+    { label: "СОЗДАТЬ 3D", href: "/ai-lab" },
   ] as const;
 
   return (
@@ -212,21 +211,6 @@ export default function Home() {
               </span>
             </div>
           </button>
-          <nav className="hidden items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/70 md:flex">
-            {[
-              { label: "ПЕЧАТЬ НА ЗАКАЗ", href: "/services/print" },
-              { label: "СОЗДАТЬ 3D", href: "/ai-lab" },
-            ].map((item) => (
-              <button
-                key={item.label}
-                type="button"
-                onClick={() => router.push(item.href)}
-                className="rounded-full border border-white/10 bg-white/5 px-4 py-2 transition hover:border-[#2ED1FF]/60 hover:text-white"
-              >
-                {item.label}
-              </button>
-            ))}
-          </nav>
           <div className="flex items-center gap-3">
             <button
               type="button"
@@ -272,24 +256,6 @@ export default function Home() {
             </button>
           </div>
         </div>
-        <div className="mx-auto flex max-w-[1400px] items-center justify-center gap-2 px-4 pb-3 sm:hidden">
-          <button
-            type="button"
-            onClick={() => router.push("/ai-lab")}
-            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-1.5 text-[8px] uppercase tracking-[0.18em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
-          >
-            <Sparkles className="h-3.5 w-3.5 text-[#2ED1FF]" />
-            СОЗДАТЬ 3D
-          </button>
-          <button
-            type="button"
-            onClick={() => router.push("/services/print")}
-            className="flex items-center gap-1.5 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-2.5 py-1.5 text-[8px] uppercase tracking-[0.18em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
-          >
-            <Printer className="h-3.5 w-3.5" />
-            ПЕЧАТЬ НА ЗАКАЗ
-          </button>
-        </div>
       </header>
 
       <section
@@ -297,6 +263,19 @@ export default function Home() {
         onMouseMove={handleHeroParallax}
         onMouseLeave={resetHeroParallax}
       >
+        <motion.div
+          initial={{ opacity: 0, y: -12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.65, delay: 0.15 }}
+          className="absolute left-1/2 top-[88px] z-20 flex w-full max-w-[640px] -translate-x-1/2 flex-wrap items-center justify-center gap-2 px-4 sm:top-[96px] sm:gap-3"
+        >
+          {heroPrimaryActions.map((action) => (
+            <Link key={`hero-top-${action.label}`} href={action.href} className="hero-top-pill">
+              {action.label}
+            </Link>
+          ))}
+        </motion.div>
+
         <motion.img
           src={HERO_PORTAL_IMAGE}
           alt="Portal background"
@@ -379,45 +358,14 @@ export default function Home() {
           </motion.p>
 
           <motion.div
-            initial={{ opacity: 0, y: 18 }}
+            initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.7, delay: 0.55 }}
-            className="mt-6 w-full max-w-3xl rounded-2xl border border-[#2ED1FF]/24 bg-[#051018]/70 p-3 shadow-[0_0_20px_rgba(46,209,255,0.12),inset_0_1px_0_rgba(190,245,255,0.08)] backdrop-blur-xl"
+            transition={{ duration: 0.6, delay: 0.62 }}
+            className="mt-7 flex justify-center"
           >
-            <div className="mb-2.5 flex items-center justify-between px-1.5">
-              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-[#92E9FF]/75">
-                START ACTION
-              </span>
-              <span className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/35">
-                HERO ROUTES
-              </span>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-              {heroActions.map((action) => {
-                const isPrimary = action.variant === "primary";
-                const isSecondary = action.variant === "secondary";
-                return (
-                  <Link
-                    key={action.label}
-                    href={action.href}
-                    className={[
-                      "group relative flex min-h-[78px] items-center justify-between rounded-2xl border px-3.5 py-2.5 text-left transition touch-manipulation",
-                      isPrimary
-                        ? "hero-cta-pulse border-[#2ED1FF]/80 bg-[linear-gradient(115deg,#071B26,#0E2C3D)] text-[#D9F9FF] shadow-[0_0_18px_rgba(46,209,255,0.24),inset_0_0_0_1px_rgba(140,232,255,0.22)] hover:border-[#96EEFF] hover:shadow-[0_0_22px_rgba(46,209,255,0.3)] hover:text-white"
-                        : isSecondary
-                          ? "border-[#2ED1FF]/48 bg-[linear-gradient(115deg,#07141d,#0a1e2b)] text-white/90 shadow-[inset_0_0_0_1px_rgba(120,220,255,0.14)] hover:border-[#7CE6FF]/72 hover:text-white"
-                          : "border-white/22 bg-[linear-gradient(115deg,rgba(8,16,24,0.9),rgba(10,20,30,0.84))] text-white/80 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.05)] hover:border-white/42 hover:text-white",
-                    ].join(" ")}
-                  >
-                    <span className="flex flex-col gap-1">
-                      <span className="text-base font-semibold uppercase tracking-[0.06em] leading-none">{action.label}</span>
-                      <span className="text-[11px] leading-snug text-white/58">{action.hint}</span>
-                    </span>
-                    <ChevronDown className="h-4 w-4 -rotate-90 text-[#2ED1FF] transition group-hover:translate-x-1" />
-                  </Link>
-                );
-              })}
-            </div>
+            <Link href="/store" className="hero-entry-center">
+              В КАТАЛОГ
+            </Link>
           </motion.div>
         </div>
       </section>
