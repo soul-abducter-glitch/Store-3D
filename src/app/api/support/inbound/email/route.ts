@@ -3,6 +3,7 @@ import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../../payload.config";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
+import { appendSupportMessage, normalizeSupportStatus } from "@/lib/supportCenter";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -146,19 +147,17 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const previousMessage = normalizeString(ticket?.message);
     const nowIso = new Date().toISOString();
-    const appended = [
-      previousMessage,
-      "",
-      `--- EMAIL ${nowIso} ---`,
-      text,
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const currentStatus = normalizeString(ticket?.status).toLowerCase();
-    const nextStatus = currentStatus === "resolved" || currentStatus === "closed" ? "open" : currentStatus || "open";
+    const currentStatus = normalizeSupportStatus(ticket?.status);
+    const nextStatus =
+      currentStatus === "resolved" || currentStatus === "closed" || currentStatus === "waiting_user"
+        ? "open"
+        : currentStatus || "open";
+    const nextMeta = appendSupportMessage(ticket?.meta, {
+      authorType: "USER",
+      body: text,
+      createdAt: nowIso,
+    });
 
     const previousMeta =
       ticket?.meta && typeof ticket.meta === "object" && !Array.isArray(ticket.meta)
@@ -171,11 +170,12 @@ export async function POST(request: NextRequest) {
       overrideAccess: true,
       depth: 0,
       data: {
-        message: appended,
+        message: normalizeString(ticket?.message) || text,
         status: nextStatus,
         lastUserMessageAt: nowIso,
         meta: {
           ...previousMeta,
+          ...nextMeta,
           inboundEmail: {
             at: nowIso,
             from: fromEmail,

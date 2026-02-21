@@ -104,6 +104,7 @@ export const SupportTickets: CollectionConfig = {
       options: [
         { label: "Open", value: "open" },
         { label: "In Progress", value: "in_progress" },
+        { label: "Waiting User", value: "waiting_user" },
         { label: "Resolved", value: "resolved" },
         { label: "Closed", value: "closed" },
       ],
@@ -120,6 +121,7 @@ export const SupportTickets: CollectionConfig = {
         { label: "Low", value: "low" },
         { label: "Normal", value: "normal" },
         { label: "High", value: "high" },
+        { label: "Urgent", value: "urgent" },
       ],
       admin: {
         position: "sidebar",
@@ -131,11 +133,13 @@ export const SupportTickets: CollectionConfig = {
       required: true,
       defaultValue: "other",
       options: [
-        { label: "AI Generation", value: "ai_generation" },
-        { label: "AI Tokens", value: "ai_tokens" },
-        { label: "Print", value: "print" },
+        { label: "AI Lab", value: "ai_lab" },
+        { label: "Print Order", value: "print_order" },
+        { label: "Digital Purchase", value: "digital_purchase" },
         { label: "Payment", value: "payment" },
-        { label: "Downloads", value: "downloads" },
+        { label: "Delivery", value: "delivery" },
+        { label: "Account", value: "account" },
+        { label: "UI Bug", value: "bug_ui" },
         { label: "Other", value: "other" },
       ],
     },
