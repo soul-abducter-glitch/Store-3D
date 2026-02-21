@@ -3722,7 +3722,7 @@ function Header({
             href="/ai-lab"
             className="rounded-full border border-white/15 bg-white/5 px-5 py-2 text-[10px] uppercase tracking-[0.35em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
           >
-            AI ЛАБОРАТОРИЯ
+            СОЗДАТЬ 3D
           </a>
           <button
             type="button"
@@ -3760,7 +3760,7 @@ function Header({
             href="/ai-lab"
             className="hidden rounded-full border border-white/15 bg-white/5 px-3 py-2 text-[8px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white sm:inline-flex md:hidden"
           >
-            AI ЛАБОРАТОРИЯ
+            СОЗДАТЬ 3D
           </a>
           <button
             type="button"
@@ -3928,10 +3928,10 @@ function Header({
         >
           <a
             href="/ai-lab"
-            className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2.5 py-1 text-[8px] uppercase tracking-[0.26em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+            className="flex items-center gap-1 rounded-full border border-white/15 bg-white/5 px-2 py-1 text-[7px] uppercase tracking-[0.12em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
           >
             <Sparkles className="h-3.5 w-3.5 text-[#2ED1FF]" />
-            AI
+            СОЗДАТЬ 3D
           </a>
           <button
             type="button"
@@ -3942,10 +3942,10 @@ function Header({
               }
               router.push("/services/print");
             }}
-            className="flex items-center gap-1 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-2.5 py-1 text-[8px] uppercase tracking-[0.26em] text-[#BFF4FF] shadow-[0_0_10px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
+            className="flex items-center gap-1 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-2 py-1 text-[7px] uppercase tracking-[0.12em] text-[#BFF4FF] shadow-[0_0_10px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
           >
             <Printer className="h-3.5 w-3.5" />
-            ПЕЧАТЬ
+            ПЕЧАТЬ НА ЗАКАЗ
           </button>
         </motion.div>
         {isSearchOpen && (

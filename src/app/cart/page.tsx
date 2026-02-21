@@ -452,7 +452,7 @@ export default function CartPage() {
                 href="/ai-lab"
                 className="rounded-full border border-white/15 bg-white/5 px-4 py-2 text-[10px] uppercase tracking-[0.24em] text-white/70 transition hover:border-white/35 hover:text-white"
               >
-                В AI Lab
+                Создать 3D
               </Link>
             </div>
           </div>

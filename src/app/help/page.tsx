@@ -101,7 +101,7 @@ const STATUS_TONE: Record<SupportStatus, string> = {
 };
 
 const CATEGORY_OPTIONS: Array<{ value: SupportCategory; label: string }> = [
-  { value: "ai_lab", label: "AI Лаборатория / генерация" },
+  { value: "ai_lab", label: "Создать 3D / генерация" },
   { value: "print_order", label: "Печать на заказ" },
   { value: "digital_purchase", label: "Цифровая покупка / скачивание" },
   { value: "payment", label: "Оплата / платеж" },
@@ -112,8 +112,8 @@ const CATEGORY_OPTIONS: Array<{ value: SupportCategory; label: string }> = [
 ];
 
 const CATEGORY_LABELS: Record<SupportCategory, string> = {
-  ai_lab: "AI Лаборатория",
-  print_order: "Печать",
+  ai_lab: "Создать 3D",
+  print_order: "Печать на заказ",
   digital_purchase: "Цифровая покупка",
   payment: "Оплата",
   delivery: "Доставка",

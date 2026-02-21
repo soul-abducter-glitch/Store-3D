@@ -183,7 +183,7 @@ export default function Home() {
     },
   ];
   const heroActions = [
-    { label: "СОЗДАТЬ 3D", hint: "AI Lab · текст/изображение -> модель", href: "/ai-lab", variant: "primary" },
+    { label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab", variant: "primary" },
     { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", variant: "secondary" },
     { label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store", variant: "ghost" },
   ] as const;
@@ -214,8 +214,8 @@ export default function Home() {
           </button>
           <nav className="hidden items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.32em] text-white/70 md:flex">
             {[
-              { label: "ЗАКАЗ_ПЕЧАТИ", href: "/services/print" },
-              { label: "AI_ЛАБОРАТОРИЯ", href: "/ai-lab" },
+              { label: "ПЕЧАТЬ НА ЗАКАЗ", href: "/services/print" },
+              { label: "СОЗДАТЬ 3D", href: "/ai-lab" },
             ].map((item) => (
               <button
                 key={item.label}
@@ -276,18 +276,18 @@ export default function Home() {
           <button
             type="button"
             onClick={() => router.push("/ai-lab")}
-            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-white/15 bg-white/5 px-2.5 py-1.5 text-[8px] uppercase tracking-[0.18em] text-white/70 transition hover:border-[#2ED1FF]/60 hover:text-white"
           >
             <Sparkles className="h-3.5 w-3.5 text-[#2ED1FF]" />
-            AI
+            СОЗДАТЬ 3D
           </button>
           <button
             type="button"
             onClick={() => router.push("/services/print")}
-            className="flex items-center gap-1.5 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-3 py-1.5 text-[9px] uppercase tracking-[0.28em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
+            className="flex items-center gap-1.5 rounded-full border border-[#2ED1FF] bg-[#0b1014] px-2.5 py-1.5 text-[8px] uppercase tracking-[0.18em] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.4)] transition hover:border-[#7FE7FF] hover:text-white"
           >
             <Printer className="h-3.5 w-3.5" />
-            ПЕЧАТЬ
+            ПЕЧАТЬ НА ЗАКАЗ
           </button>
         </div>
       </header>
