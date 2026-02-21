@@ -49,6 +49,9 @@ import {
   billingProvider,
   mockBillingEnabled,
   realBillingEnabled,
+  type AiBillingPlanCode,
+  type AiBillingSubscriptionPlan,
+  type AiBillingSubscriptionState,
   type BillingUIState,
 } from "@/lib/aiBilling";
 
@@ -203,19 +206,8 @@ type AiTokenEvent = {
   createdAt: string;
 };
 
-type AiSubscriptionState = {
-  id: string;
-  stripeCustomerId: string;
-  planCode: "s" | "m" | "l" | null;
-  status: string;
-  cancelAtPeriodEnd: boolean;
-  nextBillingAt: string | null;
-  monthlyTokens: number;
-  monthlyAmountCents: number;
-  planLabel: string;
-  proAccess: boolean;
-  isActive: boolean;
-};
+type AiSubscriptionState = AiBillingSubscriptionState;
+type AiSubscriptionPlan = AiBillingSubscriptionPlan;
 
 const logLines = [
   "[OK] NEURAL_LINK_ESTABLISHED",
@@ -254,7 +246,6 @@ const BLENDER_BRIDGE_ENABLED = ["1", "true", "yes", "on"].includes(
 );
 const AI_TOKENS_API_URL = "/api/ai/tokens";
 const AI_TOKENS_HISTORY_API_URL = "/api/ai/tokens/history";
-const AI_SUBSCRIPTION_ME_API_URL = "/api/ai/subscriptions/me";
 const MAX_INPUT_REFERENCES = 4;
 const AI_BG_REMOVE_MODE = (process.env.NEXT_PUBLIC_AI_BG_REMOVE_MODE || "client")
   .trim()
@@ -292,6 +283,17 @@ const MOCK_TOPUP_PACKS: Array<{ id: string; title: string; amount: number; note:
   { id: "pro", title: "+200", amount: 200, note: "Расширенный тест" },
   { id: "max", title: "+500", amount: 500, note: "Нагрузочный тест" },
 ];
+const REAL_TOPUP_PACKS: Array<{
+  id: "starter" | "pro" | "max";
+  title: string;
+  credits: number;
+  note: string;
+}> = [
+  { id: "starter", title: "Starter", credits: 50, note: "Разовое пополнение" },
+  { id: "pro", title: "Pro", credits: 200, note: "Разовое пополнение" },
+  { id: "max", title: "Max", credits: 500, note: "Разовое пополнение" },
+];
+const BILLING_PLAN_ORDER: AiBillingPlanCode[] = ["s", "m", "l"];
 const SERVER_STAGE_BY_STATUS: Record<AiGenerationJob["status"], string> = {
   queued: "SERVER_QUEUE",
   processing: "GENETIC_MAPPING",
@@ -466,7 +468,31 @@ const validateMockTopupAmount = (value: unknown) => {
 
 const realBillingReasonLabel = (reason?: string) => {
   if (reason === "api_not_connected") return "Недоступно до подключения API.";
+  if (reason === "restricted_to_dev_or_admin") return "Mock доступен только для dev/admin.";
+  if (reason === "unavailable") return "Сервис временно недоступен.";
   return "Пока недоступно.";
+};
+
+const formatRublesFromCents = (amountCents: number) => {
+  const normalized = Number.isFinite(amountCents) ? Math.max(0, Math.trunc(amountCents)) : 0;
+  const amount = normalized / 100;
+  return new Intl.NumberFormat("ru-RU", {
+    style: "currency",
+    currency: "RUB",
+    maximumFractionDigits: 0,
+  }).format(amount);
+};
+
+const subscriptionStatusLabel = (status?: string) => {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized === "active") return "Активна";
+  if (normalized === "trialing") return "Пробный период";
+  if (normalized === "past_due") return "Платеж просрочен";
+  if (normalized === "canceled") return "Отменена";
+  if (normalized === "unpaid") return "Не оплачена";
+  if (normalized === "incomplete") return "Ожидает оплаты";
+  if (normalized === "incomplete_expired") return "Сессия истекла";
+  return "Нет подписки";
 };
 
 const sanitizeFilenameBase = (raw: string, fallback = "reference") => {
@@ -1752,7 +1778,17 @@ function AiLabContent() {
   const [topupOpen, setTopupOpen] = useState(false);
   const [mockCustomAmountInput, setMockCustomAmountInput] = useState("");
   const [subscription, setSubscription] = useState<AiSubscriptionState | null>(null);
+  const [subscriptionPlans, setSubscriptionPlans] = useState<AiSubscriptionPlan[]>([]);
   const [subscriptionLoading, setSubscriptionLoading] = useState(true);
+  const [realBillingActionKey, setRealBillingActionKey] = useState<string | null>(null);
+  const [mockCapability, setMockCapability] = useState<{
+    checked: boolean;
+    enabled: boolean;
+    reason?: string;
+  }>({
+    checked: BILLING_MODE !== "real",
+    enabled: mockBillingEnabled,
+  });
   const [billingUIState, setBillingUIState] = useState<BillingUIState>({
     tokenBalance: 0,
     billingMode: BILLING_MODE,
@@ -2074,59 +2110,75 @@ function AiLabContent() {
     async (silent = true) => {
       if (!silent) setSubscriptionLoading(true);
       try {
-        const response = await fetch(AI_SUBSCRIPTION_ME_API_URL, {
-          method: "GET",
-          credentials: "include",
-          cache: "no-store",
-        });
-        const data = await response.json().catch(() => null);
-        if (!response.ok) {
-          if (response.status === 401) {
-            setSubscription(null);
-            return;
+        const result = await billingProvider.getPlans();
+        const sortedPlans = [...result.plans].sort(
+          (a, b) => BILLING_PLAN_ORDER.indexOf(a.code) - BILLING_PLAN_ORDER.indexOf(b.code)
+        );
+        setSubscription(result.subscription);
+        setSubscriptionPlans(sortedPlans);
+        setBillingUIState((prev) => {
+          if (prev.billingMode !== "real") {
+            return {
+              ...prev,
+              realBilling: {
+                enabled: false,
+                status: "disabled",
+                reason: "api_not_connected",
+              },
+            };
           }
-          throw new Error(
-            typeof data?.error === "string" ? data.error : "Failed to fetch subscription status."
-          );
-        }
-        const rawSubscription =
-          data?.subscription && typeof data.subscription === "object" ? data.subscription : null;
-        if (!rawSubscription) {
-          setSubscription(null);
-        } else {
-          setSubscription({
-            id: String(rawSubscription.id || ""),
-            stripeCustomerId: String(rawSubscription.stripeCustomerId || ""),
-            planCode:
-              rawSubscription.planCode === "s" ||
-              rawSubscription.planCode === "m" ||
-              rawSubscription.planCode === "l"
-                ? rawSubscription.planCode
-                : null,
-            status: String(rawSubscription.status || ""),
-            cancelAtPeriodEnd: Boolean(rawSubscription.cancelAtPeriodEnd),
-            nextBillingAt:
-              typeof rawSubscription.nextBillingAt === "string"
-                ? rawSubscription.nextBillingAt
-                : null,
-            monthlyTokens:
-              typeof rawSubscription.monthlyTokens === "number" &&
-              Number.isFinite(rawSubscription.monthlyTokens)
-                ? Math.max(0, Math.trunc(rawSubscription.monthlyTokens))
-                : 0,
-            monthlyAmountCents:
-              typeof rawSubscription.monthlyAmountCents === "number" &&
-              Number.isFinite(rawSubscription.monthlyAmountCents)
-                ? Math.max(0, Math.trunc(rawSubscription.monthlyAmountCents))
-                : 0,
-            planLabel: String(rawSubscription.planLabel || "No plan"),
-            proAccess: Boolean(rawSubscription.proAccess),
-            isActive: Boolean(rawSubscription.isActive),
-          });
-        }
+          if (result.mode === "stripe") {
+            return {
+              ...prev,
+              realBilling: {
+                enabled: true,
+                status: "idle",
+                reason: undefined,
+              },
+            };
+          }
+          return {
+            ...prev,
+            realBilling: {
+              enabled: false,
+              status: "disabled",
+              reason: "api_not_connected",
+            },
+          };
+        });
       } catch (error) {
+        const message = error instanceof Error ? error.message : "Failed to fetch subscription status.";
+        if (/unauthorized/i.test(message)) {
+          setSubscription(null);
+          setSubscriptionPlans([]);
+          setBillingUIState((prev) => {
+            if (prev.billingMode !== "real") return prev;
+            return {
+              ...prev,
+              realBilling: {
+                enabled: false,
+                status: "disabled",
+                reason: "api_not_connected",
+              },
+            };
+          });
+          return;
+        }
+        setSubscriptionPlans([]);
+        setBillingUIState((prev) => {
+          if (prev.billingMode !== "real") return prev;
+          return {
+            ...prev,
+            realBilling: {
+              ...prev.realBilling,
+              enabled: false,
+              status: "error",
+              reason: prev.realBilling.reason || "api_not_connected",
+            },
+          };
+        });
         if (!silent) {
-          pushUiError(error instanceof Error ? error.message : "Failed to fetch subscription status.");
+          pushUiError(message);
         }
       } finally {
         if (!silent) setSubscriptionLoading(false);
@@ -2135,9 +2187,32 @@ function AiLabContent() {
     [pushUiError]
   );
 
+  const fetchMockCapability = useCallback(async () => {
+    if (BILLING_MODE !== "real") {
+      setMockCapability({ checked: true, enabled: mockBillingEnabled });
+      return;
+    }
+    try {
+      const result = await billingProvider.getMockCapability();
+      setMockCapability({
+        checked: true,
+        enabled: Boolean(result.enabled),
+        reason: result.reason,
+      });
+    } catch {
+      setMockCapability({
+        checked: true,
+        enabled: false,
+        reason: "unavailable",
+      });
+    }
+  }, []);
+
   const handleMockTopup = useCallback(
     async (rawAmount: unknown, source: "package" | "manual", packageId?: string) => {
-      if (!mockBillingEnabled) {
+      const mockEnabledForUser =
+        billingUIState.billingMode === "real" ? mockCapability.enabled : mockBillingEnabled;
+      if (!mockEnabledForUser) {
         const message = "Mock-режим пополнения сейчас отключен.";
         setBillingUIState((prev) => ({
           ...prev,
@@ -2211,7 +2286,14 @@ function AiLabContent() {
         mockTopupInFlightRef.current = false;
       }
     },
-    [billingUIState.mockTopup.status, fetchTokenHistory, pushUiError, showSuccess]
+    [
+      billingUIState.billingMode,
+      billingUIState.mockTopup.status,
+      fetchTokenHistory,
+      mockCapability.enabled,
+      pushUiError,
+      showSuccess,
+    ]
   );
 
   const handleMockPackageTopup = useCallback(
@@ -2225,9 +2307,151 @@ function AiLabContent() {
     void handleMockTopup(mockCustomAmountInput, "manual");
   }, [handleMockTopup, mockCustomAmountInput]);
 
-  const handleRealBillingPreviewClick = useCallback(() => {
-    pushUiError("Пока недоступно. Подключаем реальный API.");
-  }, [pushUiError]);
+  const handleRealSubscriptionCheckout = useCallback(
+    async (planCode: AiBillingPlanCode) => {
+      if (realBillingActionKey) return;
+      if (!billingUIState.realBilling.enabled) {
+        pushUiError(realBillingReasonLabel(billingUIState.realBilling.reason));
+        return;
+      }
+      setRealBillingActionKey(`plan:${planCode}`);
+      setBillingUIState((prev) => ({
+        ...prev,
+        realBilling: {
+          ...prev.realBilling,
+          status: "loading",
+          reason: undefined,
+        },
+      }));
+      try {
+        const result = await billingProvider.createCheckout({ planCode });
+        if (result.checkoutUrl && typeof window !== "undefined") {
+          window.location.href = result.checkoutUrl;
+          return;
+        }
+        showSuccess("Checkout сессия создана.");
+        setBillingUIState((prev) => ({
+          ...prev,
+          realBilling: {
+            ...prev.realBilling,
+            status: "idle",
+          },
+        }));
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось открыть checkout.";
+        setBillingUIState((prev) => ({
+          ...prev,
+          realBilling: {
+            ...prev.realBilling,
+            status: "error",
+          },
+        }));
+        pushUiError(message);
+      } finally {
+        setRealBillingActionKey(null);
+      }
+    },
+    [billingUIState.realBilling.enabled, billingUIState.realBilling.reason, pushUiError, realBillingActionKey, showSuccess]
+  );
+
+  const handleOpenSubscriptionPortal = useCallback(async () => {
+    if (realBillingActionKey) return;
+    if (!billingUIState.realBilling.enabled) {
+      pushUiError(realBillingReasonLabel(billingUIState.realBilling.reason));
+      return;
+    }
+    setRealBillingActionKey("portal");
+    setBillingUIState((prev) => ({
+      ...prev,
+      realBilling: {
+        ...prev.realBilling,
+        status: "loading",
+        reason: undefined,
+      },
+    }));
+    try {
+      const result = await billingProvider.openPortal();
+      if (result.url && typeof window !== "undefined") {
+        window.location.href = result.url;
+        return;
+      }
+      throw new Error("Портал подписки сейчас недоступен.");
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Не удалось открыть портал подписки.";
+      setBillingUIState((prev) => ({
+        ...prev,
+        realBilling: {
+          ...prev.realBilling,
+          status: "error",
+        },
+      }));
+      pushUiError(message);
+    } finally {
+      setRealBillingActionKey(null);
+    }
+  }, [billingUIState.realBilling.enabled, billingUIState.realBilling.reason, pushUiError, realBillingActionKey]);
+
+  const handleRealTopup = useCallback(
+    async (packId: "starter" | "pro" | "max") => {
+      if (realBillingActionKey) return;
+      if (!billingUIState.realBilling.enabled) {
+        pushUiError(realBillingReasonLabel(billingUIState.realBilling.reason));
+        return;
+      }
+      setRealBillingActionKey(`topup:${packId}`);
+      setBillingUIState((prev) => ({
+        ...prev,
+        realBilling: {
+          ...prev.realBilling,
+          status: "loading",
+          reason: undefined,
+        },
+      }));
+      try {
+        const result = await billingProvider.realTopup({ packId });
+        if (result.checkoutUrl && typeof window !== "undefined") {
+          window.location.href = result.checkoutUrl;
+          return;
+        }
+        if (typeof result.tokens === "number" && Number.isFinite(result.tokens)) {
+          const normalized = Math.max(0, Math.trunc(result.tokens));
+          setTokens(normalized);
+          setBillingUIState((prev) => ({
+            ...prev,
+            tokenBalance: normalized,
+            realBilling: {
+              ...prev.realBilling,
+              status: "idle",
+            },
+          }));
+          showSuccess(`Токены начислены: +${Math.max(0, Math.trunc(result.creditsAdded))}.`);
+        } else {
+          setBillingUIState((prev) => ({
+            ...prev,
+            realBilling: {
+              ...prev.realBilling,
+              status: "idle",
+            },
+          }));
+          showSuccess("Платеж запущен. Баланс обновится после подтверждения.");
+        }
+        void fetchTokenHistory(true);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "Не удалось пополнить токены.";
+        setBillingUIState((prev) => ({
+          ...prev,
+          realBilling: {
+            ...prev.realBilling,
+            status: "error",
+          },
+        }));
+        pushUiError(message);
+      } finally {
+        setRealBillingActionKey(null);
+      }
+    },
+    [billingUIState.realBilling.enabled, billingUIState.realBilling.reason, fetchTokenHistory, pushUiError, realBillingActionKey, showSuccess]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -2295,7 +2519,8 @@ function AiLabContent() {
     void fetchTokens(false);
     void fetchTokenHistory(false);
     void fetchSubscription(false);
-  }, [fetchSubscription, fetchTokenHistory, fetchTokens]);
+    void fetchMockCapability();
+  }, [fetchMockCapability, fetchSubscription, fetchTokenHistory, fetchTokens]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -4898,8 +5123,25 @@ function AiLabContent() {
     ? true
     : Boolean(subscription?.isActive && subscription?.proAccess);
   const isMockTopupLoading = billingUIState.mockTopup.status === "loading";
-  const isMockTopupEnabled = mockBillingEnabled;
-  const isRealBillingDisabled = !billingUIState.realBilling.enabled;
+  const isRealBillingMode = billingUIState.billingMode === "real";
+  const showMockBillingPanel = !isRealBillingMode || mockCapability.enabled;
+  const showRealBillingPanel = billingUIState.billingMode !== "mock_only";
+  const isMockCapabilityLoading = isRealBillingMode && !mockCapability.checked;
+  const isMockTopupEnabled = isRealBillingMode ? mockCapability.enabled : mockBillingEnabled;
+  const isRealBillingDisabled =
+    !billingUIState.realBilling.enabled || billingUIState.realBilling.status === "disabled";
+  const isRealBillingLoading = billingUIState.realBilling.status === "loading";
+  const hasActiveSubscription = Boolean(subscription?.isActive);
+  const billingPlansForUi = subscriptionPlans.length
+    ? subscriptionPlans
+    : BILLING_PLAN_ORDER.map((code) => ({
+        code,
+        label: `Plan ${code.toUpperCase()}`,
+        monthlyTokens: 0,
+        monthlyAmountCents: 0,
+        proAccess: code !== "s",
+        configured: false,
+      }));
   const baseEtaMinutes = Math.max(1, Math.round((serverJob?.etaSeconds ?? 180) / 60));
   const estimatedEtaMinutes = resolveGenerationEtaMinutes(baseEtaMinutes, {
     quality: qualityPreset,
@@ -5455,6 +5697,8 @@ function AiLabContent() {
                   onClick={(event) => {
                     event.stopPropagation();
                     setTopupOpen(true);
+                    void fetchSubscription(true);
+                    void fetchMockCapability();
                     setBillingUIState((prev) => ({
                       ...prev,
                       mockTopup: {
@@ -7168,142 +7412,218 @@ function AiLabContent() {
               </p>
             </div>
 
-            <div className="mt-5 grid gap-4 lg:grid-cols-2">
-              <section className="rounded-2xl border border-emerald-400/35 bg-emerald-500/5 p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-emerald-100">Тестовое пополнение токенов</h3>
-                  <span className="rounded-full border border-emerald-300/45 bg-emerald-500/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100">
-                    MOCK ACTIVE
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-white/65">Для разработки и проверки сценариев AI Lab.</p>
-                {!isMockTopupEnabled && (
-                  <p className="mt-2 text-xs text-amber-200">
-                    Mock-пополнение отключено в текущем окружении.
-                  </p>
-                )}
-
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  {MOCK_TOPUP_PACKS.map((pack) => {
-                    const selected = billingUIState.mockTopup.selectedPackageId === pack.id;
-                    return (
-                      <button
-                        key={pack.id}
-                        type="button"
-                        onClick={() => handleMockPackageTopup(pack)}
-                        disabled={!isMockTopupEnabled || isMockTopupLoading}
-                        className={`rounded-xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
-                          selected
-                            ? "border-emerald-300/70 bg-emerald-500/20"
-                            : "border-emerald-400/35 bg-emerald-500/5 hover:border-emerald-300/65 hover:bg-emerald-500/15"
-                        }`}
-                      >
-                        <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-100">
-                          {pack.title}
-                        </p>
-                        <p className="mt-2 text-xs text-white/55">{isMockTopupLoading ? "обработка..." : pack.note}</p>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <div className="mt-4 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
-                  <label
-                    htmlFor="mock-topup-amount"
-                    className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
-                  >
-                    Количество токенов
-                  </label>
-                  <div className="flex gap-2">
-                    <input
-                      id="mock-topup-amount"
-                      type="text"
-                      inputMode="numeric"
-                      placeholder="Например: 150"
-                      value={mockCustomAmountInput}
-                      onChange={(event) => {
-                        const digitsOnly = event.target.value.replace(/[^\d]/g, "").slice(0, 6);
-                        setMockCustomAmountInput(digitsOnly);
-                        setBillingUIState((prev) => ({
-                          ...prev,
-                          mockTopup: {
-                            ...prev.mockTopup,
-                            status: prev.mockTopup.status === "error" ? "idle" : prev.mockTopup.status,
-                            errorMessage: undefined,
-                          },
-                        }));
-                      }}
-                      disabled={!isMockTopupEnabled || isMockTopupLoading}
-                      className="w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
-                    />
-                    <button
-                      type="button"
-                      onClick={handleMockCustomTopupSubmit}
-                      disabled={!isMockTopupEnabled || isMockTopupLoading}
-                      className="rounded-xl border border-emerald-300/45 bg-emerald-500/15 px-4 py-2 text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-50 transition hover:border-emerald-200/70 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {isMockTopupLoading ? "..." : "Пополнить"}
-                    </button>
+            <div className={`mt-5 grid gap-4 ${showMockBillingPanel && showRealBillingPanel ? "lg:grid-cols-2" : "lg:grid-cols-1"}`}>
+              {showMockBillingPanel && (
+                <section className="rounded-2xl border border-emerald-400/35 bg-emerald-500/5 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-emerald-100">Тестовое пополнение токенов</h3>
+                    <span className="rounded-full border border-emerald-300/45 bg-emerald-500/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-emerald-100">
+                      {isMockTopupEnabled ? "MOCK ACTIVE" : "MOCK LOCKED"}
+                    </span>
                   </div>
-                  {billingUIState.mockTopup.errorMessage ? (
-                    <p className="text-xs text-rose-300">{billingUIState.mockTopup.errorMessage}</p>
-                  ) : (
-                    <p className="text-[11px] text-white/50">
-                      Допустимо только целое число от {MOCK_TOPUP_MIN} до {MOCK_TOPUP_MAX}.
+                  <p className="mt-2 text-xs text-white/65">Для разработки и проверки сценариев AI Lab.</p>
+                  {isMockCapabilityLoading && (
+                    <p className="mt-2 text-xs text-white/60">Проверяем доступ к mock-пополнению...</p>
+                  )}
+                  {!isMockTopupEnabled && !isMockCapabilityLoading && (
+                    <p className="mt-2 text-xs text-amber-200">
+                      {realBillingReasonLabel(mockCapability.reason || "restricted_to_dev_or_admin")}
                     </p>
                   )}
-                  {billingUIState.mockTopup.status === "success" && (
-                    <p className="text-xs text-emerald-200">Токены начислены (mock).</p>
-                  )}
-                </div>
-              </section>
 
-              <section className="rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.04] p-4 opacity-85">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <h3 className="text-sm font-semibold text-cyan-100">Реальное пополнение / Подписка</h3>
-                  <span className="rounded-full border border-amber-300/45 bg-amber-500/15 px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-amber-100">
-                    Скоро
-                  </span>
-                </div>
-                <p className="mt-2 text-xs text-white/65">
-                  {realBillingReasonLabel(billingUIState.realBilling.reason)} Функция появится после интеграции платежного API.
-                </p>
-                <div className="mt-4 grid gap-2 sm:grid-cols-3">
-                  {["S", "M", "L"].map((planCode) => (
-                    <button
-                      key={planCode}
-                      type="button"
-                      disabled
-                      className="rounded-xl border border-cyan-300/25 bg-cyan-500/5 px-3 py-3 text-left text-xs text-white/45 disabled:cursor-not-allowed"
-                      title="Пока недоступно. Подключаем реальный API."
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {MOCK_TOPUP_PACKS.map((pack) => {
+                      const selected = billingUIState.mockTopup.selectedPackageId === pack.id;
+                      return (
+                        <button
+                          key={pack.id}
+                          type="button"
+                          onClick={() => handleMockPackageTopup(pack)}
+                          disabled={!isMockTopupEnabled || isMockTopupLoading}
+                          className={`rounded-xl border px-3 py-3 text-left transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                            selected
+                              ? "border-emerald-300/70 bg-emerald-500/20"
+                              : "border-emerald-400/35 bg-emerald-500/5 hover:border-emerald-300/65 hover:bg-emerald-500/15"
+                          }`}
+                        >
+                          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.24em] text-emerald-100">
+                            {pack.title}
+                          </p>
+                          <p className="mt-2 text-xs text-white/55">{isMockTopupLoading ? "обработка..." : pack.note}</p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 space-y-2 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <label
+                      htmlFor="mock-topup-amount"
+                      className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/65"
                     >
-                      <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100/70">
-                        PLAN {planCode}
+                      Количество токенов
+                    </label>
+                    <div className="flex gap-2">
+                      <input
+                        id="mock-topup-amount"
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="Например: 150"
+                        value={mockCustomAmountInput}
+                        onChange={(event) => {
+                          const digitsOnly = event.target.value.replace(/[^\d]/g, "").slice(0, 6);
+                          setMockCustomAmountInput(digitsOnly);
+                          setBillingUIState((prev) => ({
+                            ...prev,
+                            mockTopup: {
+                              ...prev.mockTopup,
+                              status: prev.mockTopup.status === "error" ? "idle" : prev.mockTopup.status,
+                              errorMessage: undefined,
+                            },
+                          }));
+                        }}
+                        disabled={!isMockTopupEnabled || isMockTopupLoading}
+                        className="w-full rounded-xl border border-white/15 bg-black/40 px-3 py-2 text-sm text-white outline-none transition focus:border-emerald-300/70 disabled:cursor-not-allowed disabled:opacity-50"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleMockCustomTopupSubmit}
+                        disabled={!isMockTopupEnabled || isMockTopupLoading}
+                        className="rounded-xl border border-emerald-300/45 bg-emerald-500/15 px-4 py-2 text-[11px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-emerald-50 transition hover:border-emerald-200/70 hover:bg-emerald-500/25 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        {isMockTopupLoading ? "..." : "Пополнить"}
+                      </button>
+                    </div>
+                    {billingUIState.mockTopup.errorMessage ? (
+                      <p className="text-xs text-rose-300">{billingUIState.mockTopup.errorMessage}</p>
+                    ) : (
+                      <p className="text-[11px] text-white/50">
+                        Допустимо только целое число от {MOCK_TOPUP_MIN} до {MOCK_TOPUP_MAX}.
                       </p>
-                      <p className="mt-2">Подписка</p>
-                    </button>
-                  ))}
-                </div>
-                <div className="mt-4 flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-3">
-                  <p className="text-xs text-white/50">
-                    {isRealBillingDisabled ? "Недоступно до подключения API." : "Реальный API подключен."}
+                    )}
+                    {billingUIState.mockTopup.status === "success" && (
+                      <p className="text-xs text-emerald-200">Токены начислены (mock).</p>
+                    )}
+                  </div>
+                </section>
+              )}
+
+              {showRealBillingPanel && (
+                <section className={`rounded-2xl border border-cyan-400/20 bg-cyan-500/[0.04] p-4 ${isRealBillingDisabled ? "opacity-85" : ""}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <h3 className="text-sm font-semibold text-cyan-100">Реальное пополнение / Подписка</h3>
+                    <span
+                      className={`rounded-full border px-2 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] ${
+                        isRealBillingDisabled
+                          ? "border-amber-300/45 bg-amber-500/15 text-amber-100"
+                          : "border-cyan-300/45 bg-cyan-500/15 text-cyan-100"
+                      }`}
+                    >
+                      {isRealBillingDisabled ? "Скоро" : hasActiveSubscription ? "Активно" : "Real"}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-xs text-white/65">
+                    {isRealBillingDisabled
+                      ? `${realBillingReasonLabel(billingUIState.realBilling.reason)} Функция появится после интеграции платежного API.`
+                      : "Реальный биллинг подключен. Выберите подписку или разовое пополнение."}
                   </p>
-                  <button
-                    type="button"
-                    onClick={handleRealBillingPreviewClick}
-                    className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-white/70 transition hover:border-white/40 hover:text-white"
-                  >
-                    Почему недоступно?
-                  </button>
-                </div>
-              </section>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {billingPlansForUi.map((plan) => {
+                      const isCurrent = Boolean(subscription?.isActive && subscription?.planCode === plan.code);
+                      const actionKey = `plan:${plan.code}`;
+                      const isLoadingThis = realBillingActionKey === actionKey;
+                      const disabled = isRealBillingDisabled || isRealBillingLoading || !plan.configured;
+                      return (
+                        <button
+                          key={plan.code}
+                          type="button"
+                          onClick={() => void handleRealSubscriptionCheckout(plan.code)}
+                          disabled={disabled}
+                          className={`rounded-xl border px-3 py-3 text-left text-xs transition disabled:cursor-not-allowed disabled:opacity-45 ${
+                            isCurrent
+                              ? "border-cyan-200/70 bg-cyan-500/20 text-cyan-50"
+                              : "border-cyan-300/25 bg-cyan-500/5 text-white/85 hover:border-cyan-200/50"
+                          }`}
+                          title={disabled ? "Недоступно до подключения API." : "Оформить подписку"}
+                        >
+                          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100/80">
+                            {plan.label}
+                          </p>
+                          <p className="mt-1 text-white/70">{plan.monthlyTokens > 0 ? `${plan.monthlyTokens} ток./мес` : "Подписка"}</p>
+                          <p className="mt-1 text-white/55">
+                            {plan.monthlyAmountCents > 0 ? formatRublesFromCents(plan.monthlyAmountCents) : "--"}
+                          </p>
+                          <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-white/60">
+                            {isCurrent ? "Текущий план" : isLoadingThis ? "Открываем..." : !plan.configured ? "Не настроен" : "Оформить"}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  <div className="mt-4 rounded-xl border border-white/10 bg-black/20 p-3">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-xs text-white/65">
+                        Статус подписки:{" "}
+                        <span className="text-cyan-100">
+                          {subscriptionLoading ? "обновляем..." : subscriptionStatusLabel(subscription?.status)}
+                        </span>
+                      </p>
+                      <button
+                        type="button"
+                        onClick={() => void handleOpenSubscriptionPortal()}
+                        disabled={
+                          isRealBillingDisabled ||
+                          isRealBillingLoading ||
+                          !subscription?.stripeCustomerId ||
+                          realBillingActionKey === "portal"
+                        }
+                        className="rounded-full border border-white/25 bg-white/5 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/75 transition hover:border-white/45 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+                      >
+                        {realBillingActionKey === "portal" ? "..." : "Управлять подпиской"}
+                      </button>
+                    </div>
+                    {subscription?.nextBillingAt && (
+                      <p className="mt-1 text-[11px] text-white/50">
+                        Следующее списание: {formatJobDate(subscription.nextBillingAt)}
+                      </p>
+                    )}
+                  </div>
+
+                  <div className="mt-4 grid gap-2 sm:grid-cols-3">
+                    {REAL_TOPUP_PACKS.map((pack) => {
+                      const actionKey = `topup:${pack.id}`;
+                      const isLoadingThis = realBillingActionKey === actionKey;
+                      const disabled = isRealBillingDisabled || isRealBillingLoading;
+                      return (
+                        <button
+                          key={pack.id}
+                          type="button"
+                          onClick={() => void handleRealTopup(pack.id)}
+                          disabled={disabled}
+                          className="rounded-xl border border-white/15 bg-white/[0.03] px-3 py-3 text-left text-xs text-white/80 transition hover:border-cyan-200/45 disabled:cursor-not-allowed disabled:opacity-45"
+                          title={disabled ? realBillingReasonLabel(billingUIState.realBilling.reason) : "Запустить checkout"}
+                        >
+                          <p className="text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.2em] text-cyan-100/80">
+                            {pack.title}
+                          </p>
+                          <p className="mt-1">+{pack.credits} токенов</p>
+                          <p className="mt-2 text-[10px] uppercase tracking-[0.16em] text-white/60">
+                            {isLoadingThis ? "Обработка..." : pack.note}
+                          </p>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              )}
             </div>
 
             <div className="mt-5 flex justify-end">
               <button
                 type="button"
                 onClick={() => setTopupOpen(false)}
-                disabled={isMockTopupLoading}
+                disabled={isMockTopupLoading || isRealBillingLoading}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.35em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Закрыть

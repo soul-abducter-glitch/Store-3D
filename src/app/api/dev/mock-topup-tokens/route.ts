@@ -73,6 +73,37 @@ const ensureMockTopupAllowed = (user?: { email?: unknown } | null) => {
   return isAdminUser(user);
 };
 
+export async function GET(request: NextRequest) {
+  try {
+    const payload = await getPayloadClient();
+    await ensureAiLabSchemaOnce(payload as any);
+    const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
+    const userId = normalizeRelationshipId(authResult?.user?.id);
+    if (!userId) {
+      return NextResponse.json({ success: false, enabled: false, error: "Unauthorized." }, { status: 401 });
+    }
+    const enabled = ensureMockTopupAllowed(authResult?.user as { email?: unknown } | null);
+    return NextResponse.json(
+      {
+        success: true,
+        enabled,
+        reason: enabled ? undefined : "restricted_to_dev_or_admin",
+      },
+      { status: 200 }
+    );
+  } catch (error) {
+    console.error("[api/dev/mock-topup-tokens:get] failed", error);
+    return NextResponse.json(
+      {
+        success: false,
+        enabled: false,
+        reason: "failed",
+      },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   try {
     const payload = await getPayloadClient();
