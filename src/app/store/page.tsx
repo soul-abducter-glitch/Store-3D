@@ -14,7 +14,6 @@ import {
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useMotionValue, useSpring } from "framer-motion";
-import { Vector3 } from "three";
 import {
   CheckCircle2,
   ChevronLeft,
@@ -2444,7 +2443,7 @@ export default function Home() {
     if (!controls || !camera) {
       return;
     }
-    const target = controls.target ? controls.target.clone() : new Vector3();
+    const target = controls.target?.clone?.() ?? camera.position.clone().set(0, 0, 0);
     const offset = camera.position.clone().sub(target);
     const distance = offset.length();
     if (distance === 0) {
@@ -2696,6 +2695,9 @@ export default function Home() {
                           alt={item.name}
                           loading="lazy"
                           decoding="async"
+                          fetchPriority="low"
+                          width={56}
+                          height={56}
                           onError={(event) => {
                             const img = event.currentTarget;
                             if (img.dataset.fallbackApplied === "1") {
@@ -4760,6 +4762,9 @@ function ProductCard({
           alt={product.name}
           loading="lazy"
           decoding="async"
+          fetchPriority="low"
+          width={512}
+          height={320}
           onError={(event) => {
             const img = event.currentTarget;
             if (img.dataset.fallbackApplied === "1") {

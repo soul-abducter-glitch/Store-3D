@@ -5768,6 +5768,11 @@ function AiLabContent() {
                         <img
                           src={uploadPreview}
                           alt="Preview"
+                          loading="lazy"
+                          decoding="async"
+                          fetchPriority="low"
+                          width={960}
+                          height={640}
                           className="h-full w-full rounded-xl border border-white/10 object-cover"
                         />
                         <div
@@ -5866,6 +5871,11 @@ function AiLabContent() {
                                   <img
                                     src={ref.previewUrl}
                                     alt={ref.name}
+                                    loading="lazy"
+                                    decoding="async"
+                                    fetchPriority="low"
+                                    width={48}
+                                    height={48}
                                     className="h-12 w-12 rounded-md border border-white/10 object-cover"
                                   />
                                 ) : (
@@ -7116,6 +7126,11 @@ function AiLabContent() {
                         <img
                           src={asset.previewImage}
                           alt={asset.name}
+                          loading="lazy"
+                          decoding="async"
+                          fetchPriority="low"
+                          width={320}
+                          height={80}
                           className="h-full w-full object-cover"
                         />
                       ) : (
@@ -7884,6 +7899,11 @@ function AiLabContent() {
                       <img
                         src={remixIssueReference.previewUrl}
                         alt={remixIssueReference.name}
+                        loading="lazy"
+                        decoding="async"
+                        fetchPriority="low"
+                        width={48}
+                        height={48}
                         className="h-12 w-12 rounded-md border border-white/10 object-cover"
                       />
                       <p className="min-w-0 truncate text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] text-white/60">
