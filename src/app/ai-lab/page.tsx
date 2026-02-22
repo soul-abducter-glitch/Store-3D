@@ -2,6 +2,7 @@
 
 import { Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import type { ChangeEvent, DragEvent } from "react";
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Canvas, useFrame } from "@react-three/fiber";
@@ -39,10 +40,7 @@ import {
   type PointLight,
 } from "three";
 
-import ModelView, {
-  type ModelIssueMarker,
-  type ModelMaterialOverride,
-} from "@/components/ModelView";
+import type { ModelIssueMarker, ModelMaterialOverride } from "@/components/ModelView";
 import { ToastContainer, useToast } from "@/components/Toast";
 import { resolveGenerationEtaMinutes, resolveGenerationTokenCost } from "@/lib/aiGenerationProfile";
 import {
@@ -285,6 +283,10 @@ const MOCK_TOPUP_PACKS: Array<{ id: string; title: string; amount: number; note:
   { id: "pro", title: "+200", amount: 200, note: "Расширенный тест" },
   { id: "max", title: "+500", amount: 500, note: "Нагрузочный тест" },
 ];
+
+const LazyModelView = dynamic(() => import("@/components/ModelView"), {
+  ssr: false,
+});
 const REAL_TOPUP_PACKS: Array<{
   id: "starter" | "pro" | "max";
   title: string;
@@ -6615,6 +6617,7 @@ function AiLabContent() {
           )}
           <div className="relative h-[520px] w-full sm:h-[600px] lg:h-full">
             <Canvas
+              frameloop={isSynthRunning || viewportAutoRotate ? "always" : "demand"}
               gl={{ alpha: true, antialias: true, preserveDrawingBuffer: true }}
               onCreated={({ gl }) => {
                 gl.setClearColor(0x000000, 0);
@@ -6639,7 +6642,7 @@ function AiLabContent() {
               <Suspense fallback={null}>
                 {activePreviewModel ? (
                   <group position={[0, MODEL_STAGE_OFFSET, 0]} scale={modelScale}>
-                    <ModelView
+                    <LazyModelView
                       rawModelUrl={activePreviewModel}
                       paintedModelUrl={null}
                       finish="Raw"
