@@ -101,7 +101,7 @@ export default function PrintViewport({
     <Canvas
       frameloop={mobileOptimized ? "demand" : "always"}
       shadows={!mobileOptimized}
-      dpr={mobileOptimized ? [1, 1.25] : [1, 2]}
+      dpr={mobileOptimized ? [1, 1.25] : [1, 1.6]}
       gl={{
         antialias: !mobileOptimized,
         powerPreference: mobileOptimized ? "low-power" : "high-performance",

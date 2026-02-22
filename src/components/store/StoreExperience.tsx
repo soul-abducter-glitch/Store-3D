@@ -123,7 +123,7 @@ export default function StoreExperience({
     [isLowQuality]
   );
   const dpr = useMemo<number | [number, number]>(
-    () => (isLowQuality ? 1 : ([1, 2] as [number, number])),
+    () => (isLowQuality ? 1 : ([1, 1.6] as [number, number])),
     [isLowQuality]
   );
   const cameraConfig = useMemo(

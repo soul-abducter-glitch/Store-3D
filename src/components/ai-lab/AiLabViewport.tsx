@@ -446,7 +446,7 @@ export default function AiLabViewport({
       onCreated={({ gl }) => {
         gl.setClearColor(0x000000, 0);
       }}
-      dpr={viewerQuality === "performance" ? [1, 1.2] : [1, 1.8]}
+      dpr={viewerQuality === "performance" ? [1, 1.2] : [1, 1.5]}
       camera={{ position: viewportCameraPosition, fov: viewportCameraFov }}
       className="h-full w-full"
     >

@@ -959,6 +959,8 @@ const CATALOG_REQUEST_RETRY_DELAY_MS = 1200;
 const CATALOG_REQUEST_MAX_RETRIES = 1;
 const MODEL_LOAD_TIMEOUT_MS = 12_000;
 const SEARCH_RECENTS_KEY = "store3d_search_recent";
+const PRODUCT_GRID_INITIAL_COUNT = 12;
+const PRODUCT_GRID_STEP = 12;
 
 export default function Home() {
   const router = useRouter();
@@ -1005,6 +1007,7 @@ export default function Home() {
   const { favorites, favoriteIds, toggleFavorite } = useFavorites();
   const [heroBounds, setHeroBounds] = useState<ModelBounds | null>(null);
   const [heroPolyCountComputed, setHeroPolyCountComputed] = useState<number | null>(null);
+  const [visibleProductCount, setVisibleProductCount] = useState(PRODUCT_GRID_INITIAL_COUNT);
   const cartLoadedKeyRef = useRef<string | null>(null);
   const heroSectionRef = useRef<HTMLDivElement | null>(null);
   const heroEntranceRef = useRef<HTMLDivElement | null>(null);
@@ -1755,6 +1758,12 @@ export default function Home() {
     useGlobalCatalog,
   ]);
 
+  const visibleProducts = useMemo(
+    () => filteredProducts.slice(0, visibleProductCount),
+    [filteredProducts, visibleProductCount]
+  );
+  const hasMoreProducts = visibleProductCount < filteredProducts.length;
+
   const countBasisProducts = useMemo(() => {
     return normalizedProducts.filter((product) => {
       const matchesFormat = useGlobalCatalog ? true : product.formatKey === format;
@@ -1905,6 +1914,19 @@ export default function Home() {
       setCurrentModelId(filteredProducts[0].id);
     }
   }, [filteredProducts, currentModelId]);
+
+  useEffect(() => {
+    setVisibleProductCount(PRODUCT_GRID_INITIAL_COUNT);
+  }, [
+    format,
+    technology,
+    verified,
+    aiPriceMax,
+    activeCategory,
+    normalizedQuery,
+    useGlobalCatalog,
+    normalizedProducts.length,
+  ]);
 
   const currentProduct = useMemo(() => {
     if (!currentModelId) {
@@ -2278,6 +2300,14 @@ export default function Home() {
     }
     return filteredProducts.findIndex((product) => product.id === currentModelId);
   }, [filteredProducts, currentModelId]);
+  useEffect(() => {
+    if (currentIndex < 0 || currentIndex < visibleProductCount) {
+      return;
+    }
+    setVisibleProductCount((prev) =>
+      Math.min(filteredProducts.length, Math.max(prev, currentIndex + PRODUCT_GRID_STEP))
+    );
+  }, [currentIndex, filteredProducts.length, visibleProductCount]);
   const canQuickSwitch = filteredProducts.length > 1;
   const handlePrev = () => {
     if (!filteredProducts.length) {
@@ -3507,7 +3537,7 @@ export default function Home() {
                     variants={containerVariants}
                     className="grid grid-cols-1 gap-4 sm:gap-6 md:grid-cols-2 xl:grid-cols-3"
                   >
-                    {filteredProducts?.map((product) => (
+                    {visibleProducts.map((product) => (
                       <ProductCard
                         key={product.id}
                         product={product}
@@ -3521,6 +3551,21 @@ export default function Home() {
                       />
                     ))}
                   </motion.div>
+                )}
+                {!showSystemStandby && hasMoreProducts && (
+                  <div className="mt-6 flex justify-center">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setVisibleProductCount((prev) =>
+                          Math.min(filteredProducts.length, prev + PRODUCT_GRID_STEP)
+                        )
+                      }
+                      className="rounded-full border border-white/20 bg-white/5 px-5 py-2 text-xs uppercase tracking-[0.24em] text-white/75 transition hover:border-white/35 hover:text-white"
+                    >
+                      Показать еще
+                    </button>
+                  </div>
                 )}
               </ErrorBoundary>
             </motion.section>
