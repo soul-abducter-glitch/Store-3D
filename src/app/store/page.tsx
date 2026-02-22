@@ -12,7 +12,6 @@ import {
   type ReactNode,
 } from "react";
 import dynamic from "next/dynamic";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { AnimatePresence, motion, useMotionValue, useSpring } from "framer-motion";
 import { Vector3 } from "three";
@@ -2661,13 +2660,11 @@ export default function Home() {
                         key={item.id}
                         className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3"
                       >
-                        <Image
+                        <img
                           src={resolvedCartThumb}
                           alt={item.name}
-                          unoptimized
-                          width={56}
-                          height={56}
                           loading="lazy"
+                          decoding="async"
                           onError={(event) => {
                             const img = event.currentTarget;
                             if (img.dataset.fallbackApplied === "1") {
@@ -4708,13 +4705,11 @@ function ProductCard({
       }`}
     >
       <div className="relative mb-3 overflow-hidden rounded-2xl border border-white/10 bg-white/5 sm:mb-4">
-        <Image
+        <img
           src={resolvedThumbnail}
           alt={product.name}
-          unoptimized
-          width={640}
-          height={400}
           loading="lazy"
+          decoding="async"
           onError={(event) => {
             const img = event.currentTarget;
             if (img.dataset.fallbackApplied === "1") {
