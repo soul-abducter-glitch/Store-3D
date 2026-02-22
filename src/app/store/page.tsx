@@ -959,8 +959,9 @@ const CATALOG_REQUEST_RETRY_DELAY_MS = 1200;
 const CATALOG_REQUEST_MAX_RETRIES = 1;
 const MODEL_LOAD_TIMEOUT_MS = 12_000;
 const SEARCH_RECENTS_KEY = "store3d_search_recent";
-const PRODUCT_GRID_INITIAL_COUNT = 12;
+const PRODUCT_GRID_INITIAL_COUNT = 8;
 const PRODUCT_GRID_STEP = 12;
+const SEO_ITEMLIST_LIMIT = 12;
 
 export default function Home() {
   const router = useRouter();
@@ -1513,7 +1514,7 @@ export default function Home() {
       try {
         const response = await fetch(buildApiUrl("/api/catalog"), {
           signal: attemptController.signal,
-          cache: "no-store",
+          cache: "default",
         });
         if (!response.ok) {
           throw response;
@@ -2488,7 +2489,7 @@ export default function Home() {
       /\/$/,
       ""
     );
-    const items = normalizedProducts.slice(0, 24).map((product, index) => ({
+    const items = normalizedProducts.slice(0, SEO_ITEMLIST_LIMIT).map((product, index) => ({
       "@type": "ListItem",
       position: index + 1,
       name: product.name,
@@ -4743,6 +4744,10 @@ function ProductCard({
       onPointerEnter={prefetchProduct}
       onFocus={prefetchProduct}
       onClick={onClick}
+      style={{
+        contentVisibility: "auto",
+        containIntrinsicSize: "360px",
+      }}
       className={`group flex h-full w-full flex-col rounded-3xl bg-white/5 px-3.5 pt-3.5 pb-3 text-left backdrop-blur-xl light-sweep transition-all sm:px-6 sm:pt-6 sm:pb-4 hover:-translate-y-1 hover:shadow-[0_18px_40px_rgba(0,0,0,0.35)] ${
         isSelected
           ? "border border-[#2ED1FF]/50 shadow-[0_0_20px_rgba(46,209,255,0.2)]"

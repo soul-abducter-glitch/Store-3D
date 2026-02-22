@@ -12,7 +12,7 @@ type MediaDoc = {
   thumbnail?: string | null;
 };
 
-const CACHE_TTL_MS = 60_000;
+const CACHE_TTL_MS = 5 * 60_000;
 const CACHE_KEY = "__store3d_catalog_cache__";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
@@ -87,7 +87,7 @@ export async function GET(request: Request) {
       { ...cacheStore[CACHE_KEY].data, cached: true },
       {
         headers: {
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+          "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
         },
       }
     );
@@ -117,7 +117,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json(data, {
     headers: {
-      "Cache-Control": "public, max-age=60, stale-while-revalidate=300",
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
     },
   });
 }
