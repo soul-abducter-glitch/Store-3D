@@ -424,9 +424,9 @@ export default function Home() {
                           </g>
                           <path className="catalog-orbit" d="M30 78C76 56 126 52 180 64C205 70 225 74 248 74" />
                           <path className="catalog-orbit" d="M46 92C88 73 132 72 174 82C206 89 226 94 246 98" />
-                          <path className="catalog-globe" d="M158 20C187 20 210 43 210 72C210 101 187 124 158 124C129 124 106 101 106 72C106 43 129 20 158 20Z" />
-                          <path className="catalog-globe" d="M106 72H210M116 48C131 56 147 59 158 59C169 59 185 56 200 48M116 96C131 88 147 85 158 85C169 85 185 88 200 96" />
-                          <path className="catalog-globe" d="M158 20V124M134 24C142 36 148 52 148 72C148 92 142 108 134 120M182 24C174 36 168 52 168 72C168 92 174 108 182 120" />
+                          <circle className="catalog-globe" cx="138" cy="66" r="40" />
+                          <path className="catalog-globe" d="M98 66H178M104 48C115 55 126 58 138 58C150 58 161 55 172 48M104 84C115 77 126 74 138 74C150 74 161 77 172 84" />
+                          <path className="catalog-globe" d="M138 26V106M120 32C127 43 131 54 131 66C131 78 127 89 120 100M156 32C149 43 145 54 145 66C145 78 149 89 156 100" />
                           <rect x="8" y="10" width="244" height="12" className="catalog-scan" />
                         </svg>
                         <span className="hero-action-counter">
