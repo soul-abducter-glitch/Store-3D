@@ -385,16 +385,16 @@ export default function Home() {
                       </div>
                     )}
                     {action.visual === "blueprint" && (
-                      <span className="hero-action-blueprint">
+                      <span className="hero-action-blueprint bp">
                         <svg viewBox="0 0 134 52" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <path className="hero-action-blueprint-grid" d="M1 13H133M1 26H133M1 39H133" />
                           <path className="hero-action-blueprint-grid" d="M22 3V49M62 3V49M102 3V49" />
                           <rect className="hero-action-blueprint-part" x="56" y="13" width="72" height="26" rx="4" />
                           <path className="hero-action-blueprint-part" d="M56 20H128M56 26H122M56 32H128" />
-                          <circle className="hero-action-blueprint-gear" cx="28" cy="26" r="12" />
-                          <circle className="hero-action-blueprint-gear" cx="28" cy="26" r="5" />
+                          <circle className="hero-action-blueprint-gear bp-gear" cx="28" cy="26" r="12" />
+                          <circle className="hero-action-blueprint-gear bp-gear" cx="28" cy="26" r="5" />
                           <path
-                            className="hero-action-blueprint-gear"
+                            className="hero-action-blueprint-gear bp-gear"
                             d="M28 8V13M28 39V44M10 26H15M41 26H46M15.2 13.2L18.8 16.8M37.2 35.2L40.8 38.8M15.2 38.8L18.8 35.2M37.2 16.8L40.8 13.2"
                           />
                           <path className="hero-action-blueprint-mark" d="M46 10L52 10M46 42L52 42M48 8V12M48 40V44" />

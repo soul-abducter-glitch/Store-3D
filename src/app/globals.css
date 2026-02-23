@@ -396,6 +396,27 @@
     opacity: 1;
   }
 
+  .module {
+    position: relative;
+    overflow: hidden;
+  }
+
+  .module::before {
+    content: "";
+    position: absolute;
+    inset: -2px;
+    border-radius: inherit;
+    background: radial-gradient(600px 240px at 30% 55%, rgba(56, 189, 248, 0.28), transparent 60%);
+    opacity: 0;
+    z-index: 1;
+    transition: opacity 0.2s ease;
+    pointer-events: none;
+  }
+
+  .module:hover::before {
+    opacity: 1;
+  }
+
   .hero-action-tech-id {
     position: absolute;
     right: 10px;
@@ -432,7 +453,7 @@
 
   .wf {
     width: 100%;
-    height: 42px;
+    height: 56px !important;
   }
 
   .wf-grid {
@@ -444,10 +465,10 @@
   .wf-line {
     fill: none;
     stroke: rgba(56, 189, 248, 0.95);
-    stroke-width: 2;
+    stroke-width: 3 !important;
     stroke-linecap: round;
     stroke-linejoin: round;
-    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.45));
+    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.85)) !important;
   }
 
   .wf-dot {
@@ -479,6 +500,10 @@
     box-shadow: inset 0 0 18px rgba(46, 209, 255, 0.08);
   }
 
+  .bp {
+    height: 72px !important;
+  }
+
   .hero-action-blueprint svg {
     width: 132px;
     height: 38px;
@@ -506,6 +531,10 @@
     stroke-width: 1.1;
     stroke-linecap: round;
     stroke-linejoin: round;
+  }
+
+  .bp-gear {
+    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.75)) !important;
   }
 
   .hero-action-blueprint-mark {
