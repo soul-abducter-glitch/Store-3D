@@ -427,6 +427,7 @@ export default function Home() {
                           <path className="catalog-globe" d="M158 20C187 20 210 43 210 72C210 101 187 124 158 124C129 124 106 101 106 72C106 43 129 20 158 20Z" />
                           <path className="catalog-globe" d="M106 72H210M116 48C131 56 147 59 158 59C169 59 185 56 200 48M116 96C131 88 147 85 158 85C169 85 185 88 200 96" />
                           <path className="catalog-globe" d="M158 20V124M134 24C142 36 148 52 148 72C148 92 142 108 134 120M182 24C174 36 168 52 168 72C168 92 174 108 182 120" />
+                          <rect x="8" y="10" width="244" height="12" className="catalog-scan" />
                         </svg>
                         <span className="hero-action-counter">
                           <span className="hero-action-counter-key">TOTAL_ASSETS</span>

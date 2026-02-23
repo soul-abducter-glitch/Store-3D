@@ -417,7 +417,8 @@
 
   .hero-action-signal {
     flex-shrink: 0;
-    margin-right: 14px;
+    width: clamp(184px, 44%, 244px);
+    margin-right: 10px;
     transition: filter 0.24s ease;
   }
 
@@ -426,8 +427,8 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 166px;
-    height: 52px;
+    width: 100%;
+    height: 74px;
     border: 1px solid rgba(56, 189, 248, 0.35);
     border-radius: 12px;
     background:
@@ -444,13 +445,13 @@
     border-radius: inherit;
     background-image: radial-gradient(rgba(56, 189, 248, 0.16) 0.55px, transparent 0.7px);
     background-size: 7px 7px;
-    opacity: 0.32;
+    opacity: 0.22;
     pointer-events: none;
   }
 
   .wf {
     width: 100%;
-    height: 38px;
+    height: 58px;
   }
 
   .wf-grid {
@@ -462,10 +463,12 @@
   .wf-line {
     fill: none;
     stroke: rgba(56, 189, 248, 0.95);
-    stroke-width: 2.1;
+    stroke-width: 2.2;
     stroke-linecap: round;
     stroke-linejoin: round;
     filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.56));
+    stroke-dasharray: 12 8;
+    animation: wfShift 4s linear infinite;
   }
 
   .wf-dot {
@@ -477,7 +480,7 @@
   }
 
   .module:hover .wf-line {
-    filter: drop-shadow(0 0 11px rgba(56, 189, 248, 0.72));
+    filter: drop-shadow(0 0 13px rgba(56, 189, 248, 0.76));
   }
 
   .module:hover .wf-grid {
@@ -486,8 +489,8 @@
 
   .bp-wrap {
     position: relative;
-    width: 168px;
-    height: 64px;
+    width: 100%;
+    height: 76px;
     display: flex;
     align-items: center;
     border: 1px solid rgba(56, 189, 248, 0.3);
@@ -504,7 +507,7 @@
     inset: 0;
     background-image: radial-gradient(rgba(56, 189, 248, 0.16) 0.55px, transparent 0.7px);
     background-size: 7px 7px;
-    opacity: 0.26;
+    opacity: 0.14;
     pointer-events: none;
   }
 
@@ -523,6 +526,7 @@
     stroke: rgba(56, 189, 248, 0.22);
     stroke-width: 1;
     opacity: 0.34;
+    animation: bpGridPulse 3.4s ease-in-out infinite;
   }
 
   .bp-cross path {
@@ -542,6 +546,12 @@
     stroke-width: 1.5;
     opacity: 0.92;
     filter: drop-shadow(0 0 7px rgba(56, 189, 248, 0.34));
+  }
+
+  .bp-gear {
+    transform-box: fill-box;
+    transform-origin: center;
+    animation: bpGearSpin 16s linear infinite;
   }
 
   .bp-hole {
@@ -583,8 +593,8 @@
 
   .catalog-widget {
     position: relative;
-    width: 176px;
-    height: 64px;
+    width: 100%;
+    height: 76px;
     display: flex;
     align-items: center;
     justify-content: flex-end;
@@ -600,7 +610,7 @@
     inset: 0;
     background-image: radial-gradient(rgba(56, 189, 248, 0.14) 0.55px, transparent 0.7px);
     background-size: 7px 7px;
-    opacity: 0.24;
+    opacity: 0.16;
     pointer-events: none;
   }
 
@@ -614,6 +624,7 @@
   .catalog-grid path {
     stroke: rgba(56, 189, 248, 0.18);
     stroke-width: 0.8;
+    animation: catalogGridPulse 3.8s ease-in-out infinite;
   }
 
   .catalog-orbit {
@@ -621,12 +632,20 @@
     stroke-width: 1;
     stroke-dasharray: 3 4;
     filter: drop-shadow(0 0 4px rgba(56, 189, 248, 0.35));
+    animation: catalogOrbitFlow 6s linear infinite;
   }
 
   .catalog-globe {
     stroke: rgba(178, 239, 255, 0.66);
     stroke-width: 1;
     filter: drop-shadow(0 0 5px rgba(56, 189, 248, 0.3));
+    animation: catalogGlobePulse 3.2s ease-in-out infinite;
+  }
+
+  .catalog-scan {
+    fill: rgba(56, 189, 248, 0.11);
+    opacity: 0;
+    animation: catalogScan 3.2s linear infinite;
   }
 
   .hero-action-counter {
@@ -649,10 +668,11 @@
 
   .catalog-widget .hero-action-counter {
     min-width: 128px;
-    margin-right: 7px;
-    border-color: rgba(56, 189, 248, 0.3);
-    background: rgba(4, 16, 28, 0.92);
-    box-shadow: inset 0 0 18px rgba(56, 189, 248, 0.1);
+    margin-right: 10px;
+    border-color: rgba(56, 189, 248, 0.22);
+    background: rgba(4, 16, 28, 0.7);
+    box-shadow: inset 0 0 14px rgba(56, 189, 248, 0.08);
+    backdrop-filter: blur(4px);
   }
 
   .hero-action-counter > * {
@@ -708,7 +728,7 @@
   }
 
   .hero-action-card:hover .hero-action-signal {
-    filter: brightness(1.12) saturate(1.08);
+    filter: brightness(1.08) saturate(1.05);
   }
 
   .hero-action-card:hover .hero-action-counter {
@@ -777,8 +797,19 @@
     }
 
     .hero-action-card {
-      min-height: 104px;
+      min-height: 118px;
       padding: 10px 12px;
+    }
+
+    .hero-action-signal {
+      width: clamp(148px, 52%, 190px);
+      margin-right: 8px;
+    }
+
+    .module-widget,
+    .bp-wrap,
+    .catalog-widget {
+      height: 64px;
     }
 
     .hero-data-tags {
@@ -975,6 +1006,15 @@
   }
 }
 
+@keyframes wfShift {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -160;
+  }
+}
+
 @keyframes bpScan {
   0% {
     transform: translateY(0);
@@ -988,6 +1028,71 @@
   }
   100% {
     transform: translateY(92px);
+    opacity: 0;
+  }
+}
+
+@keyframes bpGridPulse {
+  0%,
+  100% {
+    opacity: 0.28;
+  }
+  50% {
+    opacity: 0.48;
+  }
+}
+
+@keyframes bpGearSpin {
+  0% {
+    transform: rotate(0deg);
+  }
+  100% {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes catalogGridPulse {
+  0%,
+  100% {
+    opacity: 0.2;
+  }
+  50% {
+    opacity: 0.4;
+  }
+}
+
+@keyframes catalogOrbitFlow {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -120;
+  }
+}
+
+@keyframes catalogGlobePulse {
+  0%,
+  100% {
+    opacity: 0.62;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes catalogScan {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.45;
+  }
+  60% {
+    opacity: 0.12;
+  }
+  100% {
+    transform: translateY(90px);
     opacity: 0;
   }
 }
