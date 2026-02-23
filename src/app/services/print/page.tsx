@@ -1246,15 +1246,22 @@ function PrintOnDemandContent() {
               return (
                 <li
                   key={step}
-                  className={`rounded-md border px-2 py-1 text-center text-[10px] font-semibold uppercase tracking-[0.08em] sm:text-xs sm:tracking-[0.13em] ${
+                  className={`relative overflow-hidden rounded-md border px-2 py-1.5 text-center text-[10px] font-semibold uppercase tracking-[0.08em] transition sm:text-xs sm:tracking-[0.13em] ${
                     active
-                      ? "border-[#2ED1FF]/70 bg-[#2ED1FF]/15 text-[#BFF4FF]"
+                      ? "border-[#2ED1FF]/70 bg-[#0b1014] text-[#BFF4FF] shadow-[0_0_12px_rgba(46,209,255,0.3)]"
                       : done
-                        ? "border-[#D4AF37]/60 bg-[#D4AF37]/10 text-[#F6DFA0]"
+                        ? "border-[#D4AF37]/65 bg-[#2f2714] text-[#F6DFA0] shadow-[0_0_10px_rgba(212,175,55,0.24)]"
                         : "border-white/15 bg-white/5 text-white/55"
                   }`}
                 >
-                  {index + 1}. {step}
+                  <span
+                    className={`absolute inset-x-0 top-0 h-px ${
+                      active ? "bg-[#2ED1FF]/80" : done ? "bg-[#D4AF37]/75" : "bg-white/15"
+                    }`}
+                  />
+                  <span className="relative z-[1]">
+                    {index + 1}. {step}
+                  </span>
                 </li>
               );
             })}
@@ -1679,21 +1686,21 @@ function PrintOnDemandContent() {
             </div>
           </section>
 
-          <aside className="min-w-0 rounded-2xl border border-white/15 bg-[#060a10]/82 p-3 xl:col-span-2 2xl:col-span-1">
+          <aside className="min-w-0 rounded-2xl border border-white/15 bg-[#060a10]/82 p-2.5 xl:col-span-2 2xl:col-span-1">
             <h2 className="text-lg font-semibold tracking-wide">ПРАВАЯ КОЛОНКА: НАСТРОЙКА ПЕЧАТИ</h2>
 
-            <div className="mt-3 flex min-h-[560px] flex-col gap-3">
-              <div className="space-y-2">
+            <div className="mt-2.5 flex min-h-[560px] flex-col gap-2">
+              <div className="space-y-1.5">
                 <button
                   type="button"
                   onClick={() => toggleSection("size")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Размер и масштаб</span>
                   <span className="text-xs text-white/55">{openSections.size ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.size && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <label className="text-xs text-white/55">Высота: {heightMm} мм</label>
                     <input
                       type="range"
@@ -1701,10 +1708,10 @@ function PrintOnDemandContent() {
                       max={selectedPrinter.maxHeightMm}
                       value={heightMm}
                       onChange={(event) => setHeightMm(Number(event.target.value))}
-                      className="mt-2 w-full accent-[#2ED1FF]"
+                      className="mt-1.5 h-1.5 w-full accent-[#2ED1FF]"
                     />
 
-                    <label className="mt-3 flex items-center gap-2 text-xs text-white/65">
+                    <label className="mt-2 flex items-center gap-2 text-xs text-white/65">
                       <input
                         type="checkbox"
                         checked={lockProportions}
@@ -1714,11 +1721,11 @@ function PrintOnDemandContent() {
                       Фиксировать пропорции
                     </label>
 
-                    <label className="mt-3 block text-xs text-white/55">Профиль принтера</label>
+                    <label className="mt-2 block text-xs text-white/55">Профиль принтера</label>
                     <select
                       value={printerProfileId}
                       onChange={(event) => setPrinterProfileId(event.target.value)}
-                      className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
+                      className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-1.5 text-sm"
                     >
                       {printerOptions.map((item) => (
                         <option key={item.id} value={item.id}>
@@ -1730,7 +1737,7 @@ function PrintOnDemandContent() {
                     <button
                       type="button"
                       onClick={handleAutoFit}
-                      className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                      className="mt-2 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
                       Автоподгонка
                     </button>
@@ -1740,13 +1747,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("quality")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Качество</span>
                   <span className="text-xs text-white/55">{openSections.quality ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.quality && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <div className="flex flex-wrap gap-2">
                       {(["draft", "standard", "pro"] as const).map((preset) => (
                         <button
@@ -1769,18 +1776,18 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("orientation")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Ориентация</span>
                   <span className="text-xs text-white/55">{openSections.orientation ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.orientation && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <label className="text-xs text-white/55">Рекомендуемый пресет</label>
                     <select
                       value={orientationPreset}
                       onChange={(event) => setOrientationPreset(event.target.value as OrientationPreset)}
-                      className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-2 text-sm"
+                      className="mt-1 w-full rounded-lg border border-white/15 bg-[#0b1014] px-2 py-1.5 text-sm"
                     >
                       {(["balanced", "risk", "speed"] as const).map((preset) => (
                         <option key={preset} value={preset}>
@@ -1789,7 +1796,7 @@ function PrintOnDemandContent() {
                       ))}
                     </select>
 
-                    <div className="mt-3 flex gap-2">
+                    <div className="mt-2 flex gap-2">
                       <button
                         type="button"
                         onClick={handleApplyOrientation}
@@ -1811,13 +1818,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("supports")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Поддержки</span>
                   <span className="text-xs text-white/55">{openSections.supports ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.supports && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Включить поддержки</span>
                       <input
@@ -1833,13 +1840,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("hollow")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Полая модель (только SLA)</span>
                   <span className="text-xs text-white/55">{openSections.hollow ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.hollow && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Сделать полой</span>
                       <input
@@ -1864,13 +1871,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("autofix")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Авто-фикс сетки</span>
                   <span className="text-xs text-white/55">{openSections.autofix ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.autofix && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Включить авто-фикс</span>
                       <input
@@ -1883,7 +1890,7 @@ function PrintOnDemandContent() {
                     <button
                       type="button"
                       onClick={handleAutoFixRun}
-                      className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                      className="mt-2 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
                       Запустить авто-фикс
                     </button>
@@ -1893,13 +1900,13 @@ function PrintOnDemandContent() {
                 <button
                   type="button"
                   onClick={() => toggleSection("diagnostics")}
-                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-2 text-left"
+                  className="flex w-full items-center justify-between rounded-lg border border-white/15 bg-[#050a0f]/80 px-3 py-1.5 text-left"
                 >
                   <span className="text-sm font-semibold">Диагностика</span>
                   <span className="text-xs text-white/55">{openSections.diagnostics ? "Скрыть" : "Показать"}</span>
                 </button>
                 {openSections.diagnostics && (
-                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-3">
+                  <div className="rounded-lg border border-white/10 bg-[#050a0f]/72 p-2.5">
                     <label className="flex items-center justify-between gap-2 text-sm">
                       <span>Включить диагностику</span>
                       <input
@@ -1913,12 +1920,12 @@ function PrintOnDemandContent() {
                     <button
                       type="button"
                       onClick={handleRunDiagnostics}
-                      className="mt-3 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
+                      className="mt-2 rounded-lg border border-[#2ED1FF]/60 bg-[#2ED1FF]/10 px-3 py-1.5 text-xs font-semibold text-[#BFF4FF] transition hover:border-[#7FE7FF]"
                     >
                       Перезапустить диагностику
                     </button>
 
-                    <ul className="mt-3 space-y-1 text-xs text-white/65">
+                    <ul className="mt-2 space-y-1 text-xs text-white/65">
                       {diagnostics.length === 0 && <li>Проблем не найдено.</li>}
                       {diagnostics.map((issue) => (
                         <li key={issue.id}>
@@ -1930,7 +1937,7 @@ function PrintOnDemandContent() {
                 )}
               </div>
 
-              <section className="sticky bottom-0 rounded-xl border border-white/15 bg-[#05070a]/94 p-3 backdrop-blur">
+              <section className="sticky bottom-0 rounded-xl border border-white/15 bg-[#05070a]/94 p-2.5 backdrop-blur">
                 <h3 className="text-base font-semibold text-white">Сводка заказа</h3>
                 <div className="mt-2 flex items-center justify-between text-sm">
                   <span className="text-white/55">Цена</span>
@@ -1954,12 +1961,12 @@ function PrintOnDemandContent() {
                   </p>
                 )}
 
-                <p className="mt-3 text-xs text-white/55">Доставка: рассчитывается при оформлении.</p>
+                <p className="mt-2.5 text-xs text-white/55">Доставка: рассчитывается при оформлении.</p>
                 {addToCartValidationError && (
                   <p className="mt-2 text-xs text-amber-200">{addToCartValidationError}</p>
                 )}
 
-                <div className="mt-3 flex gap-2">
+                <div className="mt-2.5 flex gap-2">
                   <button
                     type="button"
                     onClick={handleAddToCart}

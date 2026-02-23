@@ -183,9 +183,9 @@ export default function Home() {
     },
   ];
   const heroActions = [
-    { label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab" },
-    { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print" },
-    { label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store" },
+    { moduleId: "MOD_01", label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab", visual: "waveform" },
+    { moduleId: "MOD_02", label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", visual: "blueprint" },
+    { moduleId: "MOD_03", label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store", visual: "counter" },
   ] as const;
 
   return (
@@ -351,19 +351,57 @@ export default function Home() {
             transition={{ duration: 0.7, delay: 0.55 }}
             className="mt-7 w-full max-w-5xl"
           >
-            <div className="grid gap-2.5 md:grid-cols-3">
-              {heroActions.map((action, index) => (
+            <div className="mb-2.5 flex items-center justify-between text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.3em] text-white/45">
+              <span>Access Modules</span>
+              <span>CORE_LINKS: 03</span>
+            </div>
+            <div className="grid gap-3 md:grid-cols-3">
+              {heroActions.map((action) => (
                 <Link
                   key={action.label}
                   href={action.href}
-                  className={`hero-action-card group ${index === 0 ? "hero-action-card--primary" : ""}`}
+                  className="hero-action-card group"
                 >
-                  <span className="flex flex-col gap-1">
-                    <span className="text-base font-semibold uppercase tracking-[0.06em] leading-none">
+                  <span className="hero-action-tech-id">{action.moduleId}</span>
+
+                  <span className="flex flex-col gap-1 pr-7">
+                    <span className="text-base font-semibold leading-none uppercase tracking-[0.06em]">
                       {action.label}
                     </span>
-                    <span className="text-[11px] leading-snug text-white/68">{action.hint}</span>
+                    <span className="text-[11px] leading-snug text-white/65">{action.hint}</span>
                   </span>
+
+                  <span className="hero-action-signal" aria-hidden>
+                    {action.visual === "waveform" && (
+                      <span className="hero-action-waveform">
+                        {Array.from({ length: 10 }, (_, barIndex) => (
+                          <span key={`${action.moduleId}-wave-${barIndex}`} />
+                        ))}
+                      </span>
+                    )}
+                    {action.visual === "blueprint" && (
+                      <span className="hero-action-blueprint">
+                        <svg viewBox="0 0 120 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <rect x="52" y="13" width="58" height="26" rx="4" stroke="currentColor" strokeDasharray="3 3" />
+                          <circle cx="26" cy="26" r="12" stroke="currentColor" />
+                          <circle cx="26" cy="26" r="4.5" stroke="currentColor" />
+                          <path
+                            d="M26 8v5m0 26v5M8 26h5m26 0h5M13.8 13.8l3.5 3.5m17.4 17.4l3.5 3.5M13.8 38.2l3.5-3.5m17.4-17.4l3.5-3.5M52 19h56M52 26h48M52 33h56"
+                            stroke="currentColor"
+                            strokeLinecap="round"
+                          />
+                          <circle cx="105" cy="20" r="1.8" fill="#D4AF37" />
+                        </svg>
+                      </span>
+                    )}
+                    {action.visual === "counter" && (
+                      <span className="hero-action-counter">
+                        <span className="hero-action-counter-key">TOTAL_ASSETS</span>
+                        <span className="hero-action-counter-value">1,240</span>
+                      </span>
+                    )}
+                  </span>
+
                   <span className="hero-action-arrow">›</span>
                 </Link>
               ))}
