@@ -360,7 +360,7 @@ export default function Home() {
                 <Link
                   key={action.label}
                   href={action.href}
-                  className="hero-action-card group"
+                  className="hero-action-card module group"
                 >
                   <span className="hero-action-tech-id">{action.moduleId}</span>
 
@@ -371,24 +371,18 @@ export default function Home() {
                     <span className="text-[11px] leading-snug text-white/65">{action.hint}</span>
                   </span>
 
-                  <span className="hero-action-signal" aria-hidden>
+                  <div className="hero-action-signal" aria-hidden>
                     {action.visual === "waveform" && (
-                      <span className="hero-action-waveform">
-                        <svg viewBox="0 0 146 44" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path className="hero-action-waveform-grid" d="M3 22H143" />
-                          <path className="hero-action-waveform-grid" d="M3 12H143" />
-                          <path className="hero-action-waveform-grid" d="M3 32H143" />
+                      <div className="module-widget">
+                        <svg className="wf" viewBox="0 0 320 64" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                          <path d="M0 16H320M0 32H320M0 48H320" className="wf-grid" />
                           <path
-                            className="hero-action-waveform-path hero-action-waveform-path--a"
-                            d="M3 22C10 22 12 8 19 8C26 8 28 36 35 36C42 36 44 14 51 14C58 14 60 30 67 30C74 30 76 11 83 11C90 11 92 27 99 27C106 27 108 17 115 17C122 17 124 25 131 25C136 25 139 22 143 22"
+                            d="M0 32 C20 32 20 12 40 12 C60 12 60 52 80 52 C100 52 100 20 120 20 C140 20 140 44 160 44 C180 44 180 8 200 8 C220 8 220 56 240 56 C260 56 260 28 280 28 C300 28 300 32 320 32"
+                            className="wf-line"
                           />
-                          <path
-                            className="hero-action-waveform-path hero-action-waveform-path--b"
-                            d="M3 22C10 22 12 30 19 30C26 30 28 11 35 11C42 11 44 27 51 27C58 27 60 18 67 18C74 18 76 34 83 34C90 34 92 13 99 13C106 13 108 24 115 24C122 24 124 20 131 20C136 20 139 22 143 22"
-                          />
-                          <circle className="hero-action-waveform-node" cx="131" cy="25" r="2" />
+                          <circle cx="16" cy="32" r="3.5" className="wf-dot" />
                         </svg>
-                      </span>
+                      </div>
                     )}
                     {action.visual === "blueprint" && (
                       <span className="hero-action-blueprint">
@@ -416,7 +410,7 @@ export default function Home() {
                         <span className="hero-action-counter-meta">SYNC: LIVE_FEED</span>
                       </span>
                     )}
-                  </span>
+                  </div>
 
                   <span className="hero-action-arrow">›</span>
                 </Link>

@@ -417,7 +417,7 @@
     transition: filter 0.24s ease;
   }
 
-  .hero-action-waveform {
+  .module-widget {
     display: flex;
     align-items: center;
     justify-content: center;
@@ -430,43 +430,40 @@
     padding: 4px 6px;
   }
 
-  .hero-action-waveform svg {
-    width: 132px;
-    height: 34px;
-    transform-origin: center;
-    animation: hero-wave-scale 2.7s ease-in-out infinite;
+  .wf {
+    width: 100%;
+    height: 42px;
   }
 
-  .hero-action-waveform-grid {
-    stroke: rgba(96, 189, 220, 0.28);
+  .wf-grid {
+    opacity: 0.18;
+    stroke: rgba(56, 189, 248, 0.5);
     stroke-width: 1;
-    stroke-dasharray: 3 7;
   }
 
-  .hero-action-waveform-path {
+  .wf-line {
     fill: none;
-    stroke: rgba(176, 242, 255, 0.95);
-    stroke-width: 1.4;
+    stroke: rgba(56, 189, 248, 0.95);
+    stroke-width: 2;
     stroke-linecap: round;
     stroke-linejoin: round;
-    stroke-dasharray: 9 7;
-    filter: drop-shadow(0 0 4px rgba(46, 209, 255, 0.42));
-    animation: hero-wave-dash 3s linear infinite, hero-wave-opacity 2.4s ease-in-out infinite;
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.45));
   }
 
-  .hero-action-waveform-path--b {
-    stroke: rgba(91, 219, 248, 0.88);
-    animation-delay: -1.2s;
-  }
-
-  .hero-action-waveform-node {
-    fill: none;
-    stroke: rgba(196, 244, 255, 0.95);
-    stroke-width: 1.2;
+  .wf-dot {
+    fill: rgba(56, 189, 248, 1);
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.8));
+    animation: wfMove 1.8s linear infinite;
     transform-box: fill-box;
     transform-origin: center;
-    filter: drop-shadow(0 0 6px rgba(46, 209, 255, 0.6));
-    animation: hero-wave-node 1.9s ease-in-out infinite;
+  }
+
+  .module:hover .wf-line {
+    filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.75));
+  }
+
+  .module:hover .wf-grid {
+    opacity: 0.28;
   }
 
   .hero-action-blueprint {
@@ -842,6 +839,20 @@
   }
   50% {
     transform: scale(1.015);
+  }
+}
+
+@keyframes wfMove {
+  0% {
+    transform: translateX(0);
+    opacity: 0.2;
+  }
+  10% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(288px);
+    opacity: 0.2;
   }
 }
 
