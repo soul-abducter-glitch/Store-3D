@@ -224,6 +224,7 @@ const ASSET_EXPORT_API = (assetId: string, versionId: string, format: "glb" | "z
     format
   )}${parts ? "&parts=1" : ""}`;
 const DCC_BLENDER_JOBS_API = "/api/dcc/blender/jobs";
+const DCC_BLENDER_PAIR_API = "/api/dcc/blender/pair";
 const BLENDER_BRIDGE_ENABLED = ["1", "true", "yes", "on"].includes(
   String(process.env.NEXT_PUBLIC_BLENDER_BRIDGE_ENABLED || "").trim().toLowerCase()
 );
@@ -1520,6 +1521,10 @@ function AiLabContent() {
     type: "analyze" | "fix_safe" | "fix_strong" | "split_auto" | "blender" | "texture";
   } | null>(null);
   const [blenderInstallOpen, setBlenderInstallOpen] = useState(false);
+  const [blenderPairCode, setBlenderPairCode] = useState<string | null>(null);
+  const [blenderPairExpiresAt, setBlenderPairExpiresAt] = useState<string | null>(null);
+  const [blenderPairServerUrl, setBlenderPairServerUrl] = useState<string | null>(null);
+  const [blenderPairLoading, setBlenderPairLoading] = useState(false);
   const [remixJob, setRemixJob] = useState<AiGenerationJob | null>(null);
   const [remixPrompt, setRemixPrompt] = useState("");
   const [remixLocalEdit, setRemixLocalEdit] = useState(false);
@@ -4186,6 +4191,46 @@ function AiLabContent() {
       showSuccess,
     ]
   );
+
+  const requestBlenderPairCode = useCallback(async () => {
+    if (blenderPairLoading) return;
+    setBlenderPairLoading(true);
+    try {
+      const response = await fetch(DCC_BLENDER_PAIR_API, {
+        method: "POST",
+        credentials: "include",
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok || !data?.success || typeof data?.code !== "string") {
+        throw new Error(typeof data?.error === "string" ? data.error : "Failed to create pair code.");
+      }
+      setBlenderPairCode(data.code);
+      setBlenderPairExpiresAt(typeof data?.expiresAt === "string" ? data.expiresAt : null);
+      setBlenderPairServerUrl(typeof data?.serverUrl === "string" ? data.serverUrl : null);
+      showSuccess("Pair code created. Enter it in Blender addon.");
+    } catch (error) {
+      pushUiError(error instanceof Error ? error.message : "Failed to create pair code.");
+    } finally {
+      setBlenderPairLoading(false);
+    }
+  }, [blenderPairLoading, pushUiError, showSuccess]);
+
+  const copyBlenderPairCode = useCallback(async () => {
+    if (!blenderPairCode || typeof navigator === "undefined" || !navigator.clipboard?.writeText) {
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(blenderPairCode);
+      showSuccess("Pair code copied.");
+    } catch {
+      pushUiError("Failed to copy pair code.");
+    }
+  }, [blenderPairCode, pushUiError, showSuccess]);
+
+  useEffect(() => {
+    if (!blenderInstallOpen || blenderPairCode || blenderPairLoading) return;
+    void requestBlenderPairCode();
+  }, [blenderInstallOpen, blenderPairCode, blenderPairLoading, requestBlenderPairCode]);
 
   const handleDownloadAssetGlb = useCallback(
     (asset: AiAssetRecord) => {
@@ -7959,16 +8004,51 @@ function AiLabContent() {
               [ BLENDER BRIDGE ]
             </div>
             <p className="mt-4 text-sm text-white/75">
-              Open in Blender недоступен, пока Bridge не настроен. Установите аддон и подключите token.
+              Open in Blender недоступен, пока Bridge не настроен. Установите аддон и подключите его
+              через адрес сервера и одноразовый code.
             </p>
             <ol className="mt-4 space-y-2 text-sm text-white/70">
               <li>
                 1. Установите Blender Bridge addon в Blender (Edit -&gt; Preferences -&gt;
                 Add-ons -&gt; Install).
               </li>
-              <li>2. Вставьте API token сервера (BLENDER_BRIDGE_TOKEN) в настройках аддона.</li>
+              <li>2. В аддоне укажите Server URL и вставьте Pair code ниже, затем Pair by code.</li>
               <li>3. Нажмите Test connection, затем Fetch jobs и Import latest.</li>
             </ol>
+            <div className="mt-4 rounded-xl border border-violet-300/25 bg-violet-500/10 p-3">
+              <p className="text-[11px] uppercase tracking-[0.25em] text-violet-100/80">Pair code</p>
+              <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <code className="rounded-lg border border-violet-200/30 bg-black/40 px-3 py-2 font-mono text-sm tracking-[0.2em] text-violet-100">
+                  {blenderPairCode || (blenderPairLoading ? "GENERATING..." : "NOT READY")}
+                </code>
+                <button
+                  type="button"
+                  onClick={() => void copyBlenderPairCode()}
+                  disabled={!blenderPairCode}
+                  className="rounded-xl border border-violet-300/45 bg-violet-400/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-violet-50 transition hover:border-violet-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Copy code
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void requestBlenderPairCode()}
+                  disabled={blenderPairLoading}
+                  className="rounded-xl border border-violet-300/45 bg-violet-400/10 px-3 py-2 text-xs font-semibold uppercase tracking-[0.2em] text-violet-50 transition hover:border-violet-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {blenderPairLoading ? "Creating..." : "New code"}
+                </button>
+              </div>
+              {blenderPairServerUrl ? (
+                <p className="mt-2 text-xs text-violet-50/80">
+                  Server URL: <code className="rounded bg-black/35 px-1.5 py-0.5">{blenderPairServerUrl}</code>
+                </p>
+              ) : null}
+              {blenderPairExpiresAt ? (
+                <p className="mt-1 text-xs text-violet-50/70">
+                  Expires: {new Date(blenderPairExpiresAt).toLocaleString("ru-RU")}
+                </p>
+              ) : null}
+            </div>
             <p className="mt-4 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
               Для локальной проверки включите NEXT_PUBLIC_BLENDER_BRIDGE_ENABLED=1.
             </p>
