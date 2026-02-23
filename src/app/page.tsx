@@ -416,11 +416,24 @@ export default function Home() {
                       </div>
                     )}
                     {action.visual === "counter" && (
-                      <span className="hero-action-counter">
-                        <span className="hero-action-counter-key">TOTAL_ASSETS</span>
-                        <span className="hero-action-counter-value">1,240</span>
-                        <span className="hero-action-counter-meta">SYNC: LIVE_FEED</span>
-                      </span>
+                      <div className="catalog-widget" aria-hidden="true">
+                        <svg className="catalog-map" viewBox="0 0 260 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <g className="catalog-grid">
+                            <path d="M10 24H250M10 44H250M10 64H250M10 84H250M10 104H250" />
+                            <path d="M24 10V110M52 10V110M80 10V110M108 10V110M136 10V110M164 10V110M192 10V110M220 10V110" />
+                          </g>
+                          <path className="catalog-orbit" d="M30 78C76 56 126 52 180 64C205 70 225 74 248 74" />
+                          <path className="catalog-orbit" d="M46 92C88 73 132 72 174 82C206 89 226 94 246 98" />
+                          <path className="catalog-globe" d="M158 20C187 20 210 43 210 72C210 101 187 124 158 124C129 124 106 101 106 72C106 43 129 20 158 20Z" />
+                          <path className="catalog-globe" d="M106 72H210M116 48C131 56 147 59 158 59C169 59 185 56 200 48M116 96C131 88 147 85 158 85C169 85 185 88 200 96" />
+                          <path className="catalog-globe" d="M158 20V124M134 24C142 36 148 52 148 72C148 92 142 108 134 120M182 24C174 36 168 52 168 72C168 92 174 108 182 120" />
+                        </svg>
+                        <span className="hero-action-counter">
+                          <span className="hero-action-counter-key">TOTAL_ASSETS</span>
+                          <span className="hero-action-counter-value">1,240</span>
+                          <span className="hero-action-counter-meta">SYNC: LIVE_FEED</span>
+                        </span>
+                      </div>
                     )}
                   </div>
 
