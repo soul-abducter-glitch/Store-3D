@@ -388,6 +388,11 @@ export default function Home() {
                       <div className="bp-wrap" aria-hidden="true">
                         <svg className="bp" viewBox="0 0 260 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <rect x="6" y="6" width="248" height="108" rx="12" className="bp-frame" />
+                          <g className="bp-guides">
+                            <rect x="40" y="20" width="180" height="80" rx="2" />
+                            <line x1="130" y1="20" x2="130" y2="100" />
+                            <line x1="40" y1="60" x2="220" y2="60" />
+                          </g>
                           <g className="bp-grid">
                             <path d="M22 26H238M22 46H238M22 66H238M22 86H238" />
                             <path d="M42 18V102M72 18V102M102 18V102M132 18V102M162 18V102M192 18V102M222 18V102" />
@@ -398,9 +403,11 @@ export default function Home() {
                             <circle cx="130" cy="60" r="2.5" />
                           </g>
                           <g className="bp-gear">
-                            <path d="M130 30 l10 -4 7 8 11 1 2 11 9 6 -5 10 5 10 -9 6 -2 11 -11 1 -7 8 -10 -4 -10 4 -7 -8 -11 -1 -2 -11 -9 -6 5 -10 -5 -10 9 -6 2 -11 11 -1 7 -8 10 4z" />
-                            <circle cx="130" cy="60" r="18" />
-                            <circle cx="130" cy="60" r="6" className="bp-hole" />
+                            <path d="M130 30 l10 -4 7 8 11 1 2 11 9 6 -5 10 5 10 -9 6 -2 11 -11 1 -7 8 -10 -4 -10 4 -7 -8 -11 -1 -2 -11 -9 -6 5 -10 -5 -10 9 -6 2 -11 11 -1 7 -8 10 4z" className="bp-gear-detail" />
+                            <circle cx="130" cy="60" r="22" className="bp-gear-detail" />
+                            <circle cx="130" cy="60" r="16" className="bp-core" />
+                            <path d="M130 40V80M110 60H150M116 46L144 74M144 46L116 74" className="bp-gear-detail" />
+                            <circle cx="130" cy="60" r="5" className="bp-hole" />
                           </g>
                           <g className="bp-dim">
                             <path d="M54 104H206" />
