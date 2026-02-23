@@ -364,11 +364,11 @@ export default function Home() {
                 >
                   <span className="hero-action-tech-id">{action.moduleId}</span>
 
-                  <span className="flex flex-col gap-1 pr-7">
-                    <span className="text-base font-semibold leading-none uppercase tracking-[0.06em]">
+                  <span className="hero-action-copy">
+                    <span className="hero-action-title">
                       {action.label}
                     </span>
-                    <span className="text-[11px] leading-snug text-white/65">{action.hint}</span>
+                    <span className="hero-action-hint">{action.hint}</span>
                   </span>
 
                   <div className="hero-action-signal" aria-hidden>
