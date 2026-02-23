@@ -334,7 +334,7 @@
     padding: 14px;
     text-align: left;
     color: rgba(235, 250, 255, 0.95);
-    background: linear-gradient(180deg, rgba(255, 255, 255, 0.06) 0%, rgba(255, 255, 255, 0.02) 100%);
+    background: rgba(255, 255, 255, 0.05);
     backdrop-filter: blur(24px);
     -webkit-backdrop-filter: blur(24px);
     box-shadow:
@@ -344,16 +344,23 @@
     transition: border-color 0.28s ease, box-shadow 0.28s ease, transform 0.28s ease;
   }
 
+  .hero-action-card > * {
+    position: relative;
+    z-index: 2;
+  }
+
   .hero-action-card::before {
     content: "";
     position: absolute;
     inset: 1px;
     border-radius: 16px;
     background:
-      radial-gradient(circle at 14% 18%, rgba(212, 175, 55, 0.12), transparent 42%),
-      radial-gradient(circle at 84% 78%, rgba(46, 209, 255, 0.12), transparent 44%);
-    opacity: 0.8;
-    z-index: -1;
+      radial-gradient(circle at 74% 72%, rgba(46, 209, 255, 0.42) 0%, rgba(46, 209, 255, 0.26) 24%, rgba(46, 209, 255, 0.1) 46%, rgba(46, 209, 255, 0) 72%),
+      radial-gradient(circle at 28% 84%, rgba(46, 209, 255, 0.16), rgba(46, 209, 255, 0) 58%);
+    box-shadow: inset 0 0 44px rgba(46, 209, 255, 0.12);
+    opacity: 0;
+    z-index: 1;
+    pointer-events: none;
     transition: opacity 0.28s ease;
   }
 
@@ -362,13 +369,13 @@
     position: absolute;
     inset: 0;
     border-radius: inherit;
-    background: radial-gradient(circle at 72% 72%, rgba(46, 209, 255, 0.26), transparent 55%);
-    box-shadow:
-      inset 0 0 0 1px rgba(46, 209, 255, 0.05),
-      inset 0 0 44px rgba(46, 209, 255, 0.1);
-    opacity: 0;
-    transition: opacity 0.28s ease;
+    background:
+      radial-gradient(circle at 12% 16%, rgba(212, 175, 55, 0.11), transparent 42%),
+      radial-gradient(circle at 86% 84%, rgba(46, 209, 255, 0.08), transparent 46%);
+    opacity: 0.9;
+    z-index: 0;
     pointer-events: none;
+    transition: opacity 0.28s ease;
   }
 
   .hero-action-card:hover {
@@ -376,15 +383,16 @@
     border-color: rgba(126, 231, 255, 0.68);
     box-shadow:
       inset 0 1px 0 rgba(228, 252, 255, 0.2),
+      inset 0 0 54px rgba(46, 209, 255, 0.15),
       inset 0 -18px 28px rgba(4, 10, 15, 0.22),
       0 0 26px rgba(46, 209, 255, 0.22);
   }
 
-  .hero-action-card:hover::after {
+  .hero-action-card:hover::before {
     opacity: 1;
   }
 
-  .hero-action-card:hover::before {
+  .hero-action-card:hover::after {
     opacity: 1;
   }
 
@@ -405,58 +413,118 @@
 
   .hero-action-signal {
     flex-shrink: 0;
-    margin-right: 18px;
+    margin-right: 16px;
+    transition: filter 0.24s ease;
   }
 
   .hero-action-waveform {
     display: flex;
-    align-items: flex-end;
-    gap: 3px;
-    height: 28px;
+    align-items: center;
+    justify-content: center;
+    width: 142px;
+    height: 44px;
     border: 1px solid rgba(46, 209, 255, 0.24);
-    border-radius: 999px;
-    background: rgba(7, 14, 22, 0.75);
-    padding: 4px 8px;
+    border-radius: 11px;
+    background: linear-gradient(180deg, rgba(7, 14, 22, 0.84), rgba(6, 12, 20, 0.78));
+    box-shadow: inset 0 0 20px rgba(46, 209, 255, 0.08);
+    padding: 4px 6px;
   }
 
-  .hero-action-waveform span {
-    width: 2px;
-    border-radius: 999px;
-    background: linear-gradient(180deg, rgba(202, 245, 255, 0.95), rgba(46, 209, 255, 0.45));
-    transform-origin: bottom center;
-    animation: hero-module-wave 1.35s ease-in-out infinite;
+  .hero-action-waveform svg {
+    width: 132px;
+    height: 34px;
+    transform-origin: center;
+    animation: hero-wave-scale 2.7s ease-in-out infinite;
   }
 
-  .hero-action-waveform span:nth-child(1) { height: 7px; animation-delay: 0.02s; }
-  .hero-action-waveform span:nth-child(2) { height: 12px; animation-delay: 0.12s; }
-  .hero-action-waveform span:nth-child(3) { height: 18px; animation-delay: 0.22s; }
-  .hero-action-waveform span:nth-child(4) { height: 10px; animation-delay: 0.32s; }
-  .hero-action-waveform span:nth-child(5) { height: 22px; animation-delay: 0.42s; }
-  .hero-action-waveform span:nth-child(6) { height: 16px; animation-delay: 0.52s; }
-  .hero-action-waveform span:nth-child(7) { height: 11px; animation-delay: 0.62s; }
-  .hero-action-waveform span:nth-child(8) { height: 20px; animation-delay: 0.72s; }
-  .hero-action-waveform span:nth-child(9) { height: 9px; animation-delay: 0.82s; }
-  .hero-action-waveform span:nth-child(10) { height: 14px; animation-delay: 0.92s; }
+  .hero-action-waveform-grid {
+    stroke: rgba(96, 189, 220, 0.28);
+    stroke-width: 1;
+    stroke-dasharray: 3 7;
+  }
+
+  .hero-action-waveform-path {
+    fill: none;
+    stroke: rgba(176, 242, 255, 0.95);
+    stroke-width: 1.4;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 9 7;
+    filter: drop-shadow(0 0 4px rgba(46, 209, 255, 0.42));
+    animation: hero-wave-dash 3s linear infinite, hero-wave-opacity 2.4s ease-in-out infinite;
+  }
+
+  .hero-action-waveform-path--b {
+    stroke: rgba(91, 219, 248, 0.88);
+    animation-delay: -1.2s;
+  }
+
+  .hero-action-waveform-node {
+    fill: none;
+    stroke: rgba(196, 244, 255, 0.95);
+    stroke-width: 1.2;
+    transform-box: fill-box;
+    transform-origin: center;
+    filter: drop-shadow(0 0 6px rgba(46, 209, 255, 0.6));
+    animation: hero-wave-node 1.9s ease-in-out infinite;
+  }
 
   .hero-action-blueprint {
     display: flex;
     align-items: center;
     justify-content: center;
-    width: 132px;
+    width: 142px;
     height: 44px;
     border: 1px solid rgba(46, 209, 255, 0.22);
     border-radius: 10px;
-    background: linear-gradient(180deg, rgba(11, 25, 38, 0.82), rgba(8, 16, 26, 0.82));
+    background: linear-gradient(180deg, rgba(10, 22, 34, 0.84), rgba(8, 16, 26, 0.82));
     color: rgba(135, 232, 255, 0.88);
+    box-shadow: inset 0 0 18px rgba(46, 209, 255, 0.08);
   }
 
   .hero-action-blueprint svg {
-    width: 114px;
+    width: 132px;
     height: 38px;
-    filter: drop-shadow(0 0 5px rgba(46, 209, 255, 0.34));
+    fill: none;
+    filter: drop-shadow(0 0 6px rgba(46, 209, 255, 0.34));
+  }
+
+  .hero-action-blueprint-grid {
+    stroke: rgba(94, 176, 209, 0.24);
+    stroke-width: 0.8;
+    stroke-dasharray: 3 4;
+  }
+
+  .hero-action-blueprint-part {
+    stroke: rgba(158, 232, 255, 0.9);
+    stroke-width: 1.05;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    stroke-dasharray: 5 4;
+    animation: hero-blueprint-dash 9s linear infinite;
+  }
+
+  .hero-action-blueprint-gear {
+    stroke: rgba(175, 238, 255, 0.9);
+    stroke-width: 1.1;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .hero-action-blueprint-mark {
+    stroke: rgba(212, 175, 55, 0.82);
+    stroke-width: 1;
+    stroke-linecap: round;
+  }
+
+  .hero-action-blueprint-anchor {
+    fill: rgba(212, 175, 55, 0.92);
+    filter: drop-shadow(0 0 4px rgba(212, 175, 55, 0.42));
   }
 
   .hero-action-counter {
+    position: relative;
+    overflow: hidden;
     display: flex;
     flex-direction: column;
     gap: 3px;
@@ -465,14 +533,50 @@
     border-radius: 10px;
     background: linear-gradient(180deg, rgba(10, 20, 30, 0.82), rgba(8, 14, 22, 0.82));
     padding: 7px 10px;
+    box-shadow: inset 0 0 18px rgba(46, 209, 255, 0.08);
     font-family: var(--font-jetbrains-mono);
     text-transform: uppercase;
     letter-spacing: 0.14em;
+    animation: hero-counter-flicker 4.8s steps(1, end) infinite;
+  }
+
+  .hero-action-counter > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .hero-action-counter::before {
+    content: "";
+    position: absolute;
+    inset: -1px 0 auto 0;
+    height: 7px;
+    background: linear-gradient(180deg, rgba(191, 244, 255, 0.42), rgba(191, 244, 255, 0));
+    opacity: 0.28;
+    transform: translateY(-7px);
+    animation: hero-counter-scanline 4.4s linear infinite;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  .hero-action-counter::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: repeating-linear-gradient(
+      to bottom,
+      rgba(255, 255, 255, 0.05) 0px,
+      rgba(255, 255, 255, 0.05) 1px,
+      rgba(255, 255, 255, 0) 2px,
+      rgba(255, 255, 255, 0) 4px
+    );
+    opacity: 0.06;
+    z-index: 0;
+    pointer-events: none;
   }
 
   .hero-action-counter-key {
     font-size: 9px;
-    color: rgba(180, 232, 246, 0.75);
+    color: rgba(180, 232, 246, 0.78);
   }
 
   .hero-action-counter-value {
@@ -480,6 +584,34 @@
     color: rgba(190, 246, 255, 0.96);
     text-shadow: 0 0 10px rgba(46, 209, 255, 0.3);
     animation: hero-counter-pulse 2.4s ease-in-out infinite;
+  }
+
+  .hero-action-counter-meta {
+    font-size: 8px;
+    letter-spacing: 0.18em;
+    color: rgba(212, 175, 55, 0.86);
+  }
+
+  .hero-action-card:hover .hero-action-signal {
+    filter: brightness(1.12) saturate(1.08);
+  }
+
+  .hero-action-card:hover .hero-action-counter {
+    border-color: rgba(126, 231, 255, 0.5);
+    background: linear-gradient(180deg, rgba(9, 22, 35, 0.9), rgba(7, 14, 22, 0.88));
+  }
+
+  .hero-action-card:hover .hero-action-waveform,
+  .hero-action-card:hover .hero-action-blueprint {
+    border-color: rgba(126, 231, 255, 0.42);
+  }
+
+  .hero-action-card:hover .hero-action-counter-key {
+    color: rgba(205, 243, 255, 0.94);
+  }
+
+  .hero-action-card:hover .hero-action-counter-value {
+    color: rgba(225, 251, 255, 1);
   }
 
   .hero-action-arrow {
@@ -703,22 +835,96 @@
   }
 }
 
-@keyframes hero-module-wave {
+@keyframes hero-wave-scale {
   0%,
   100% {
-    transform: scaleY(0.45);
-    opacity: 0.6;
+    transform: scale(0.995);
   }
   50% {
-    transform: scaleY(1);
+    transform: scale(1.015);
+  }
+}
+
+@keyframes hero-wave-dash {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -120;
+  }
+}
+
+@keyframes hero-wave-opacity {
+  0%,
+  100% {
+    opacity: 0.65;
+  }
+  50% {
     opacity: 1;
+  }
+}
+
+@keyframes hero-wave-node {
+  0%,
+  100% {
+    opacity: 0.5;
+    transform: scale(0.86);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.16);
+  }
+}
+
+@keyframes hero-blueprint-dash {
+  0% {
+    stroke-dashoffset: 0;
+  }
+  100% {
+    stroke-dashoffset: -120;
+  }
+}
+
+@keyframes hero-counter-scanline {
+  0% {
+    transform: translateY(-7px);
+    opacity: 0.1;
+  }
+  18% {
+    opacity: 0.26;
+  }
+  100% {
+    transform: translateY(30px);
+    opacity: 0.1;
+  }
+}
+
+@keyframes hero-counter-flicker {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  36% {
+    opacity: 0.98;
+  }
+  38% {
+    opacity: 0.92;
+  }
+  40% {
+    opacity: 0.98;
+  }
+  74% {
+    opacity: 0.99;
+  }
+  75% {
+    opacity: 0.94;
   }
 }
 
 @keyframes hero-counter-pulse {
   0%,
   100% {
-    opacity: 0.82;
+    opacity: 0.84;
   }
   50% {
     opacity: 1;

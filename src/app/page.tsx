@@ -374,23 +374,38 @@ export default function Home() {
                   <span className="hero-action-signal" aria-hidden>
                     {action.visual === "waveform" && (
                       <span className="hero-action-waveform">
-                        {Array.from({ length: 10 }, (_, barIndex) => (
-                          <span key={`${action.moduleId}-wave-${barIndex}`} />
-                        ))}
+                        <svg viewBox="0 0 146 44" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path className="hero-action-waveform-grid" d="M3 22H143" />
+                          <path className="hero-action-waveform-grid" d="M3 12H143" />
+                          <path className="hero-action-waveform-grid" d="M3 32H143" />
+                          <path
+                            className="hero-action-waveform-path hero-action-waveform-path--a"
+                            d="M3 22C10 22 12 8 19 8C26 8 28 36 35 36C42 36 44 14 51 14C58 14 60 30 67 30C74 30 76 11 83 11C90 11 92 27 99 27C106 27 108 17 115 17C122 17 124 25 131 25C136 25 139 22 143 22"
+                          />
+                          <path
+                            className="hero-action-waveform-path hero-action-waveform-path--b"
+                            d="M3 22C10 22 12 30 19 30C26 30 28 11 35 11C42 11 44 27 51 27C58 27 60 18 67 18C74 18 76 34 83 34C90 34 92 13 99 13C106 13 108 24 115 24C122 24 124 20 131 20C136 20 139 22 143 22"
+                          />
+                          <circle className="hero-action-waveform-node" cx="131" cy="25" r="2" />
+                        </svg>
                       </span>
                     )}
                     {action.visual === "blueprint" && (
                       <span className="hero-action-blueprint">
-                        <svg viewBox="0 0 120 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <rect x="52" y="13" width="58" height="26" rx="4" stroke="currentColor" strokeDasharray="3 3" />
-                          <circle cx="26" cy="26" r="12" stroke="currentColor" />
-                          <circle cx="26" cy="26" r="4.5" stroke="currentColor" />
+                        <svg viewBox="0 0 134 52" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <path className="hero-action-blueprint-grid" d="M1 13H133M1 26H133M1 39H133" />
+                          <path className="hero-action-blueprint-grid" d="M22 3V49M62 3V49M102 3V49" />
+                          <rect className="hero-action-blueprint-part" x="56" y="13" width="72" height="26" rx="4" />
+                          <path className="hero-action-blueprint-part" d="M56 20H128M56 26H122M56 32H128" />
+                          <circle className="hero-action-blueprint-gear" cx="28" cy="26" r="12" />
+                          <circle className="hero-action-blueprint-gear" cx="28" cy="26" r="5" />
                           <path
-                            d="M26 8v5m0 26v5M8 26h5m26 0h5M13.8 13.8l3.5 3.5m17.4 17.4l3.5 3.5M13.8 38.2l3.5-3.5m17.4-17.4l3.5-3.5M52 19h56M52 26h48M52 33h56"
-                            stroke="currentColor"
-                            strokeLinecap="round"
+                            className="hero-action-blueprint-gear"
+                            d="M28 8V13M28 39V44M10 26H15M41 26H46M15.2 13.2L18.8 16.8M37.2 35.2L40.8 38.8M15.2 38.8L18.8 35.2M37.2 16.8L40.8 13.2"
                           />
-                          <circle cx="105" cy="20" r="1.8" fill="#D4AF37" />
+                          <path className="hero-action-blueprint-mark" d="M46 10L52 10M46 42L52 42M48 8V12M48 40V44" />
+                          <circle className="hero-action-blueprint-anchor" cx="118" cy="20" r="1.7" />
+                          <circle className="hero-action-blueprint-anchor" cx="118" cy="32" r="1.7" />
                         </svg>
                       </span>
                     )}
@@ -398,6 +413,7 @@ export default function Home() {
                       <span className="hero-action-counter">
                         <span className="hero-action-counter-key">TOTAL_ASSETS</span>
                         <span className="hero-action-counter-value">1,240</span>
+                        <span className="hero-action-counter-meta">SYNC: LIVE_FEED</span>
                       </span>
                     )}
                   </span>
