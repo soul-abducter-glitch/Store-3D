@@ -487,65 +487,84 @@
     opacity: 0.28;
   }
 
-  .hero-action-blueprint {
+  .bp-wrap {
+    width: 100%;
+    height: 56px;
     display: flex;
     align-items: center;
-    justify-content: center;
-    width: 142px;
-    height: 44px;
-    border: 1px solid rgba(46, 209, 255, 0.22);
-    border-radius: 10px;
-    background: linear-gradient(180deg, rgba(10, 22, 34, 0.84), rgba(8, 16, 26, 0.82));
-    color: rgba(135, 232, 255, 0.88);
-    box-shadow: inset 0 0 18px rgba(46, 209, 255, 0.08);
   }
 
   .bp {
-    height: 72px !important;
+    width: 100%;
+    height: 100%;
   }
 
-  .hero-action-blueprint svg {
-    width: 132px;
-    height: 38px;
-    fill: none;
-    filter: drop-shadow(0 0 6px rgba(46, 209, 255, 0.34));
-  }
-
-  .hero-action-blueprint-grid {
-    stroke: rgba(94, 176, 209, 0.24);
-    stroke-width: 0.8;
-    stroke-dasharray: 3 4;
-  }
-
-  .hero-action-blueprint-part {
-    stroke: rgba(158, 232, 255, 0.9);
-    stroke-width: 1.05;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-    stroke-dasharray: 5 4;
-    animation: hero-blueprint-dash 9s linear infinite;
-  }
-
-  .hero-action-blueprint-gear {
-    stroke: rgba(175, 238, 255, 0.9);
-    stroke-width: 1.1;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-
-  .bp-gear {
-    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.75)) !important;
-  }
-
-  .hero-action-blueprint-mark {
-    stroke: rgba(212, 175, 55, 0.82);
+  .bp-frame {
+    stroke: rgba(56, 189, 248, 0.55);
     stroke-width: 1;
-    stroke-linecap: round;
+    opacity: 0.6;
   }
 
-  .hero-action-blueprint-anchor {
-    fill: rgba(212, 175, 55, 0.92);
-    filter: drop-shadow(0 0 4px rgba(212, 175, 55, 0.42));
+  .bp-grid path {
+    stroke: rgba(56, 189, 248, 0.22);
+    stroke-width: 1;
+    opacity: 0.45;
+  }
+
+  .bp-cross path {
+    stroke: rgba(56, 189, 248, 0.35);
+    stroke-width: 1;
+    opacity: 0.7;
+  }
+
+  .bp-cross circle {
+    fill: rgba(56, 189, 248, 0.65);
+    filter: drop-shadow(0 0 6px rgba(56, 189, 248, 0.5));
+  }
+
+  .bp-gear path,
+  .bp-gear circle {
+    stroke: rgba(56, 189, 248, 0.95);
+    stroke-width: 1.8;
+    opacity: 0.92;
+    filter: drop-shadow(0 0 8px rgba(56, 189, 248, 0.35));
+  }
+
+  .bp-hole {
+    stroke: rgba(56, 189, 248, 0.75) !important;
+    opacity: 0.85 !important;
+  }
+
+  .bp-dim path {
+    stroke: rgba(250, 204, 21, 0.75);
+    stroke-width: 1;
+    opacity: 0.8;
+  }
+
+  .bp-text {
+    font-size: 10px;
+    fill: rgba(250, 204, 21, 0.85);
+    letter-spacing: 0.08em;
+  }
+
+  .bp-scan {
+    fill: rgba(56, 189, 248, 0.1);
+    opacity: 0;
+    animation: bpScan 2.2s linear infinite;
+  }
+
+  .module:hover .bp-gear path,
+  .module:hover .bp-gear circle {
+    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.75));
+    opacity: 1;
+  }
+
+  .module:hover .bp-grid path {
+    opacity: 0.65;
+  }
+
+  .module:hover .bp-scan {
+    opacity: 0.65;
   }
 
   .hero-action-counter {
@@ -882,6 +901,23 @@
   100% {
     transform: translateX(288px);
     opacity: 0.2;
+  }
+}
+
+@keyframes bpScan {
+  0% {
+    transform: translateY(0);
+    opacity: 0;
+  }
+  10% {
+    opacity: 0.55;
+  }
+  60% {
+    opacity: 0.12;
+  }
+  100% {
+    transform: translateY(92px);
+    opacity: 0;
   }
 }
 

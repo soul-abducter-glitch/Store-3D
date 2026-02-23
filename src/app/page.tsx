@@ -385,23 +385,35 @@ export default function Home() {
                       </div>
                     )}
                     {action.visual === "blueprint" && (
-                      <span className="hero-action-blueprint bp">
-                        <svg viewBox="0 0 134 52" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <path className="hero-action-blueprint-grid" d="M1 13H133M1 26H133M1 39H133" />
-                          <path className="hero-action-blueprint-grid" d="M22 3V49M62 3V49M102 3V49" />
-                          <rect className="hero-action-blueprint-part" x="56" y="13" width="72" height="26" rx="4" />
-                          <path className="hero-action-blueprint-part" d="M56 20H128M56 26H122M56 32H128" />
-                          <circle className="hero-action-blueprint-gear bp-gear" cx="28" cy="26" r="12" />
-                          <circle className="hero-action-blueprint-gear bp-gear" cx="28" cy="26" r="5" />
-                          <path
-                            className="hero-action-blueprint-gear bp-gear"
-                            d="M28 8V13M28 39V44M10 26H15M41 26H46M15.2 13.2L18.8 16.8M37.2 35.2L40.8 38.8M15.2 38.8L18.8 35.2M37.2 16.8L40.8 13.2"
-                          />
-                          <path className="hero-action-blueprint-mark" d="M46 10L52 10M46 42L52 42M48 8V12M48 40V44" />
-                          <circle className="hero-action-blueprint-anchor" cx="118" cy="20" r="1.7" />
-                          <circle className="hero-action-blueprint-anchor" cx="118" cy="32" r="1.7" />
+                      <div className="bp-wrap" aria-hidden="true">
+                        <svg className="bp" viewBox="0 0 260 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <rect x="6" y="6" width="248" height="108" rx="12" className="bp-frame" />
+                          <g className="bp-grid">
+                            <path d="M22 26H238M22 46H238M22 66H238M22 86H238" />
+                            <path d="M42 18V102M72 18V102M102 18V102M132 18V102M162 18V102M192 18V102M222 18V102" />
+                          </g>
+                          <g className="bp-cross">
+                            <path d="M130 26V94" />
+                            <path d="M90 60H170" />
+                            <circle cx="130" cy="60" r="2.5" />
+                          </g>
+                          <g className="bp-gear">
+                            <path d="M130 30 l10 -4 7 8 11 1 2 11 9 6 -5 10 5 10 -9 6 -2 11 -11 1 -7 8 -10 -4 -10 4 -7 -8 -11 -1 -2 -11 -9 -6 5 -10 -5 -10 9 -6 2 -11 11 -1 7 -8 10 4z" />
+                            <circle cx="130" cy="60" r="18" />
+                            <circle cx="130" cy="60" r="6" className="bp-hole" />
+                          </g>
+                          <g className="bp-dim">
+                            <path d="M54 104H206" />
+                            <path d="M54 100V108M206 100V108" />
+                            <path d="M54 104l8 -4M54 104l8 4" />
+                            <path d="M206 104l-8 -4M206 104l-8 4" />
+                            <text x="130" y="112" textAnchor="middle" className="bp-text">
+                              Ø 36mm
+                            </text>
+                          </g>
+                          <rect x="10" y="10" width="240" height="10" className="bp-scan" />
                         </svg>
-                      </span>
+                      </div>
                     )}
                     {action.visual === "counter" && (
                       <span className="hero-action-counter">
