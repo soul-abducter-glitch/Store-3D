@@ -400,21 +400,6 @@
     opacity: 0.48;
   }
 
-  .hero-action-tech-id {
-    position: absolute;
-    right: 14px;
-    top: 14px;
-    border: 1px solid rgba(250, 204, 21, 0.35);
-    border-radius: 999px;
-    background: rgba(250, 204, 21, 0.1);
-    padding: 4px 10px;
-    font-family: var(--font-jetbrains-mono);
-    font-size: 9px;
-    letter-spacing: 0.28em;
-    text-transform: uppercase;
-    color: rgba(244, 216, 144, 0.95);
-  }
-
   .hero-action-copy {
     min-width: 0;
     display: flex;
@@ -896,13 +881,6 @@
     .bp-wrap,
     .catalog-widget {
       height: 64px;
-    }
-
-    .hero-action-tech-id {
-      right: 10px;
-      top: 10px;
-      padding: 3px 8px;
-      letter-spacing: 0.22em;
     }
 
     .hero-data-tags {

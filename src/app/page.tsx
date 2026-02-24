@@ -183,9 +183,9 @@ export default function Home() {
     },
   ];
   const heroActions = [
-    { moduleId: "MOD_01", label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab", visual: "waveform" },
-    { moduleId: "MOD_02", label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", visual: "blueprint" },
-    { moduleId: "MOD_03", label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store", visual: "counter" },
+    { label: "СОЗДАТЬ 3D", hint: "текст/изображение -> 3D модель", href: "/ai-lab", visual: "waveform" },
+    { label: "ПЕЧАТЬ НА ЗАКАЗ", hint: "Физическая модель под ключ", href: "/services/print", visual: "blueprint" },
+    { label: "КАТАЛОГ МОДЕЛЕЙ", hint: "Цифровые STL и модели для печати", href: "/store", visual: "counter" },
   ] as const;
 
   return (
@@ -362,8 +362,6 @@ export default function Home() {
                   href={action.href}
                   className="hero-action-card module group"
                 >
-                  <span className="hero-action-tech-id">{action.moduleId}</span>
-
                   <span className="hero-action-copy">
                     <span className="hero-action-title">
                       {action.label}
