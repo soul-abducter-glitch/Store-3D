@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { getPayload } from "payload";
 
 import fallbackCatalogSeed from "../../../../products.json";
+import { getCacheAdapter } from "@/lib/infra/cache/getCacheAdapter";
 
 export const dynamic = "force-dynamic";
 
@@ -13,7 +14,8 @@ type MediaDoc = {
 };
 
 const CACHE_TTL_MS = 5 * 60_000;
-const CACHE_KEY = "__store3d_catalog_cache__";
+const CACHE_TTL_SECONDS = Math.max(30, Math.trunc(CACHE_TTL_MS / 1000));
+const CACHE_KEY = "catalog:list:public:v1";
 
 const getPayloadClient = async () => {
   const configModule = await import("../../../../payload.config");
@@ -365,20 +367,31 @@ const loadCatalogFromPayload = async (payload: any) => {
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const fresh = url.searchParams.get("fresh") === "1";
-  const now = Date.now();
-  const cacheStore = globalThis as typeof globalThis & {
-    [CACHE_KEY]?: { ts: number; data: { products: any[]; categories: any[] } };
-  };
+  const cacheAdapter = getCacheAdapter();
+  let cachedData: { products: any[]; categories: any[] } | null = null;
 
-  if (!fresh && cacheStore[CACHE_KEY] && now - cacheStore[CACHE_KEY].ts < CACHE_TTL_MS) {
-    return NextResponse.json(
-      { ...cacheStore[CACHE_KEY].data, cached: true },
-      {
-        headers: {
-          "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
+  if (!fresh) {
+    try {
+      cachedData = await cacheAdapter.get<{ products: any[]; categories: any[] }>(CACHE_KEY);
+    } catch (cacheError) {
+      console.error("[catalog/cache] failed to read", {
+        error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+      });
+    }
+    if (cachedData) {
+      return NextResponse.json(
+        {
+          products: cachedData.products,
+          categories: cachedData.categories,
+          cached: true,
         },
-      }
-    );
+        {
+          headers: {
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
+          },
+        }
+      );
+    }
   }
 
   let degradedReason = "unknown";
@@ -395,7 +408,13 @@ export async function GET(request: Request) {
     }
 
     const data = { products: loadedCatalog.products, categories: loadedCatalog.categories };
-    cacheStore[CACHE_KEY] = { ts: now, data };
+    try {
+      await cacheAdapter.set(CACHE_KEY, data, CACHE_TTL_SECONDS, { tags: ["catalog"] });
+    } catch (cacheError) {
+      console.error("[catalog/cache] failed to write", {
+        error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+      });
+    }
 
     return NextResponse.json(
       loadedCatalog.source === "db-depth1"
@@ -405,9 +424,9 @@ export async function GET(request: Request) {
             source: loadedCatalog.source,
           },
       {
-      headers: {
-        "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
-      },
+        headers: {
+          "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
+        },
       }
     );
   } catch (error) {
@@ -418,10 +437,20 @@ export async function GET(request: Request) {
       error: errorMessage,
     });
 
-    if (cacheStore[CACHE_KEY]) {
+    let staleCacheData: { products: any[]; categories: any[] } | null = null;
+    try {
+      staleCacheData = await cacheAdapter.get<{ products: any[]; categories: any[] }>(CACHE_KEY);
+    } catch (cacheError) {
+      console.error("[catalog/cache] failed to read stale cache", {
+        error: cacheError instanceof Error ? cacheError.message : String(cacheError),
+      });
+    }
+
+    if (staleCacheData) {
       return NextResponse.json(
         {
-          ...cacheStore[CACHE_KEY].data,
+          products: staleCacheData.products,
+          categories: staleCacheData.categories,
           degraded: true,
           source: "stale-cache",
           degradedReason,

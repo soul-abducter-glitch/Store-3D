@@ -97,7 +97,7 @@ export async function POST(request: NextRequest) {
 
     const userIp = resolveClientIp(request.headers);
     const quotaConfig = getTopupQuota();
-    const quota = enforceUserAndIpQuota({
+    const quota = await enforceUserAndIpQuota({
       scope: "ai-topup",
       userId,
       ip: userIp,

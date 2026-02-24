@@ -1,3 +1,5 @@
+import { getRateLimitAdapter } from "@/lib/infra/rate-limit/getRateLimitAdapter";
+
 type RateLimitConfig = {
   scope: string;
   key: string;
@@ -26,6 +28,19 @@ const cleanupBuckets = (now: number) => {
     }
   }
 };
+
+const parseBoolean = (value: string | undefined, fallback: boolean) => {
+  if (value === undefined) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+};
+
+const FAIL_OPEN_ON_ADAPTER_ERROR = parseBoolean(
+  process.env.RATE_LIMIT_FAIL_OPEN,
+  true
+);
 
 export const checkRateLimit = (config: RateLimitConfig): RateLimitResult => {
   const max = Math.max(1, Math.trunc(config.max));
@@ -57,6 +72,34 @@ export const checkRateLimit = (config: RateLimitConfig): RateLimitResult => {
   };
 };
 
+export const checkRateLimitDistributed = async (
+  config: RateLimitConfig
+): Promise<RateLimitResult> => {
+  try {
+    const adapter = getRateLimitAdapter();
+    return await adapter.consume(config);
+  } catch (error) {
+    console.error("[rate-limit] adapter error", {
+      scope: config.scope,
+      key: config.key,
+      error: error instanceof Error ? error.message : String(error),
+      failOpen: FAIL_OPEN_ON_ADAPTER_ERROR,
+    });
+    if (FAIL_OPEN_ON_ADAPTER_ERROR) {
+      return {
+        ok: true,
+        retryAfterMs: 0,
+        remaining: Math.max(0, Math.trunc(config.max) - 1),
+      };
+    }
+    return {
+      ok: false,
+      retryAfterMs: 1000,
+      remaining: 0,
+    };
+  }
+};
+
 export const resolveClientIp = (headers: Headers) => {
   const xff = headers.get("x-forwarded-for");
   if (xff) {
@@ -67,3 +110,5 @@ export const resolveClientIp = (headers: Headers) => {
   if (realIp) return realIp;
   return "unknown";
 };
+
+export type { RateLimitConfig, RateLimitResult };

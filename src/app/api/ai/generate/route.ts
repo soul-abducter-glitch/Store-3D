@@ -63,6 +63,14 @@ const GENERATE_QUOTA = {
   ipHour: toPositiveInt(process.env.AI_GENERATE_LIMIT_IP_HOUR, 220),
   ipDay: toPositiveInt(process.env.AI_GENERATE_LIMIT_IP_DAY, 720),
 };
+const STATUS_QUOTA = {
+  userMinute: toPositiveInt(process.env.AI_STATUS_LIMIT_USER_MINUTE, 80),
+  userHour: toPositiveInt(process.env.AI_STATUS_LIMIT_USER_HOUR, 1600),
+  userDay: toPositiveInt(process.env.AI_STATUS_LIMIT_USER_DAY, 12000),
+  ipMinute: toPositiveInt(process.env.AI_STATUS_LIMIT_IP_MINUTE, 140),
+  ipHour: toPositiveInt(process.env.AI_STATUS_LIMIT_IP_HOUR, 2600),
+  ipDay: toPositiveInt(process.env.AI_STATUS_LIMIT_IP_DAY, 18000),
+};
 const ENABLE_PROVIDER_RUNTIME_FALLBACK = parseBoolean(
   process.env.AI_PROVIDER_RUNTIME_FALLBACK_TO_MOCK,
   process.env.NODE_ENV !== "production"
@@ -310,6 +318,28 @@ export async function GET(request: NextRequest) {
       );
     }
 
+    const quota = await enforceUserAndIpQuota({
+      scope: "ai-generate-status",
+      userId,
+      ip: resolveClientIp(request.headers),
+      actionLabel: "AI status",
+      ...STATUS_QUOTA,
+    });
+    if (!quota.ok) {
+      return aiError(
+        { code: "RATE_LIMITED", message: quota.message, retryable: true },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(quota.retryAfterSec),
+          },
+        },
+        {
+          retryAfter: quota.retryAfterSec,
+        }
+      );
+    }
+
     const rawLimit = Number(request.nextUrl.searchParams.get("limit") || 8);
     const limit = Math.max(1, Math.min(20, Number.isFinite(rawLimit) ? Math.trunc(rawLimit) : 8));
 
@@ -420,7 +450,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const quota = enforceUserAndIpQuota({
+    const quota = await enforceUserAndIpQuota({
       scope: "ai-generate-create",
       userId,
       ip: resolveClientIp(request.headers),

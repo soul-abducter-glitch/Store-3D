@@ -13,6 +13,7 @@
     "start": "next start",
     "start:admin": "set NEXT_PUBLIC_MODE=admin && set NEXT_PUBLIC_SERVER_URL=http://localhost:3001 && set NEXT_PUBLIC_CORS_URL=http://localhost:3001 && set BUILD_ID=admin && set PORT=3001 && next start",
     "start:frontend": "set NEXT_PUBLIC_MODE=frontend && set NEXT_PUBLIC_SERVER_URL=http://localhost:3000 && set NEXT_PUBLIC_CORS_URL=http://localhost:3000 && set BUILD_ID=frontend && set PORT=3000 && next start",
+    "worker:ai": "tsx scripts/ai-worker-runner.ts",
     "lint": "next lint",
     "test:unit": "tsx --test tests/unit/**/*.test.ts",
     "test:e2e": "playwright test"
@@ -28,7 +29,9 @@
     "@react-three/fiber": "^9.5.0",
     "@stripe/react-stripe-js": "^5.6.0",
     "@stripe/stripe-js": "^8.7.0",
+    "bullmq": "^5.70.1",
     "framer-motion": "^11.18.2",
+    "ioredis": "^5.9.3",
     "lucide-react": "^0.468.0",
     "next": "^15.4.10",
     "nodemailer": "^8.0.1",
@@ -54,7 +57,6 @@
     "eslint-config-next": "^15.5.9",
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.16",
-    "tsx": "^4.20.6",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
     "typescript": "^5.7.2"

@@ -5,7 +5,7 @@ import {
 } from "@/lib/aiProvider";
 import { transitionJob } from "@/lib/aiJobStateMachine";
 import { normalizeAiJobStatus } from "@/lib/aiJobStatus";
-import { getAiQueueAdapter } from "@/lib/aiQueueAdapter";
+import { getAiQueueAdapter, resolveAiQueueDriver } from "@/lib/aiQueueAdapter";
 import { finalizeAiJobTokens, releaseAiJobTokens } from "@/lib/aiTokenLifecycle";
 
 const DEFAULT_MOCK_MODEL_URL = "https://modelviewer.dev/shared-assets/models/Astronaut.glb";
@@ -20,6 +20,7 @@ type PayloadLike = {
 type WorkerOptions = {
   limit?: number;
   jobId?: string | number | null;
+  force?: boolean;
 };
 
 export type AiWorkerTickResult = {
@@ -403,6 +404,18 @@ export const runAiWorkerTick = async (
   payload: PayloadLike,
   options: WorkerOptions = {}
 ): Promise<AiWorkerTickResult> => {
+  const queueDriver = resolveAiQueueDriver();
+  if (queueDriver === "bullmq" && !options.force) {
+    return {
+      enabled: false,
+      processed: 0,
+      advanced: 0,
+      completed: 0,
+      skipped: 0,
+      updatedIds: [],
+    };
+  }
+
   const enabled = parseBoolean(process.env.AI_WORKER_ENABLED, true);
   if (!enabled) {
     return {

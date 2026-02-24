@@ -59,6 +59,14 @@ const RETRY_QUOTA = {
   ipHour: toPositiveInt(process.env.AI_RETRY_LIMIT_IP_HOUR, 120),
   ipDay: toPositiveInt(process.env.AI_RETRY_LIMIT_IP_DAY, 420),
 };
+const STATUS_QUOTA = {
+  userMinute: toPositiveInt(process.env.AI_STATUS_LIMIT_USER_MINUTE, 80),
+  userHour: toPositiveInt(process.env.AI_STATUS_LIMIT_USER_HOUR, 1600),
+  userDay: toPositiveInt(process.env.AI_STATUS_LIMIT_USER_DAY, 12000),
+  ipMinute: toPositiveInt(process.env.AI_STATUS_LIMIT_IP_MINUTE, 140),
+  ipHour: toPositiveInt(process.env.AI_STATUS_LIMIT_IP_HOUR, 2600),
+  ipDay: toPositiveInt(process.env.AI_STATUS_LIMIT_IP_DAY, 18000),
+};
 const ENABLE_PROVIDER_RUNTIME_FALLBACK = parseBoolean(
   process.env.AI_PROVIDER_RUNTIME_FALLBACK_TO_MOCK,
   process.env.NODE_ENV !== "production"
@@ -325,6 +333,29 @@ export async function GET(
     const authorized = await findAuthorizedJob(payload, request, params);
     if (!authorized.ok) return authorized.response;
     const job = authorized.job;
+    const userId = authorized.userId;
+
+    const quota = await enforceUserAndIpQuota({
+      scope: "ai-generate-status",
+      userId,
+      ip: resolveClientIp(request.headers),
+      actionLabel: "AI status",
+      ...STATUS_QUOTA,
+    });
+    if (!quota.ok) {
+      return aiError(
+        { code: "RATE_LIMITED", message: quota.message, retryable: true },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(quota.retryAfterSec),
+          },
+        },
+        {
+          retryAfter: quota.retryAfterSec,
+        }
+      );
+    }
 
     await runAiWorkerTick(payload as any, { jobId: job.id, limit: 1 });
     const actualJob =
@@ -385,7 +416,7 @@ export async function POST(
     const requestedTokenCost = resolveGenerationTokenCost(AI_TOKEN_COST, generationProfile);
     const idempotencyKey = getIdempotencyKey(request, body, String(sourceJob?.id || ""), action);
 
-    const quota = enforceUserAndIpQuota({
+    const quota = await enforceUserAndIpQuota({
       scope: "ai-generate-retry",
       userId,
       ip: resolveClientIp(request.headers),

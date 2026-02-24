@@ -1,4 +1,4 @@
-import { checkRateLimit } from "@/lib/rateLimit";
+import { checkRateLimitDistributed } from "@/lib/rateLimit";
 
 type QuotaWindow = {
   bucket: "minute" | "hour" | "day";
@@ -51,7 +51,7 @@ const buildMessage = (actionLabel: string, subject: QuotaSubject, bucket: QuotaW
   return `Too many ${actionLabel} requests (${by}, per ${describeWindow(bucket)}). Please retry later.`;
 };
 
-const checkSingleQuota = (
+const checkSingleQuota = async (
   args: {
     scope: string;
     key: string;
@@ -59,8 +59,8 @@ const checkSingleQuota = (
     actionLabel: string;
   },
   window: QuotaWindow
-): QuotaResult => {
-  const result = checkRateLimit({
+): Promise<QuotaResult> => {
+  const result = await checkRateLimitDistributed({
     scope: `${args.scope}:${window.bucket}:${args.subject}`,
     key: args.key,
     max: Math.max(1, window.max),
@@ -83,7 +83,7 @@ const checkSingleQuota = (
   };
 };
 
-export const enforceUserAndIpQuota = (input: EnforceQuotaInput): QuotaResult => {
+export const enforceUserAndIpQuota = async (input: EnforceQuotaInput): Promise<QuotaResult> => {
   const userKey = String(input.userId);
   const ipKey = (input.ip || "unknown").trim() || "unknown";
 
@@ -110,7 +110,7 @@ export const enforceUserAndIpQuota = (input: EnforceQuotaInput): QuotaResult => 
 
   for (const subjectConfig of windowsBySubject) {
     for (const window of subjectConfig.windows) {
-      const checked = checkSingleQuota(
+      const checked = await checkSingleQuota(
         {
           scope: input.scope,
           key: subjectConfig.key,
@@ -134,4 +134,3 @@ export const enforceUserAndIpQuota = (input: EnforceQuotaInput): QuotaResult => 
     message: "",
   };
 };
-

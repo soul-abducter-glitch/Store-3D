@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
       parsePositiveInteger(request.nextUrl.searchParams.get("limit") || undefined, 10)
     );
 
-    const result = await runAiWorkerTick(payload as any, { limit });
+    const result = await runAiWorkerTick(payload as any, { limit, force: true });
 
     return NextResponse.json(
       {
