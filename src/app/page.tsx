@@ -400,7 +400,7 @@ export default function Home() {
                             <path d="M112 60H208" />
                             <circle cx="160" cy="60" r="2.8" />
                           </g>
-                          <g className="bp-gear" transform="translate(160 60) scale(1.45) translate(-130 -60)">
+                          <g className="bp-gear" transform="translate(160 60) scale(1.62) translate(-130 -60)">
                             <path d="M130 30 l10 -4 7 8 11 1 2 11 9 6 -5 10 5 10 -9 6 -2 11 -11 1 -7 8 -10 -4 -10 4 -7 -8 -11 -1 -2 -11 -9 -6 5 -10 -5 -10 9 -6 2 -11 11 -1 7 -8 10 4z" className="bp-gear-detail" />
                             <circle cx="130" cy="60" r="22" className="bp-gear-detail" />
                             <circle cx="130" cy="60" r="16" className="bp-core" />

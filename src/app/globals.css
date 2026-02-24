@@ -324,7 +324,7 @@
     position: relative;
     display: grid;
     grid-template-columns: minmax(0, 42%) minmax(0, 58%);
-    min-height: 132px;
+    min-height: 136px;
     align-items: stretch;
     column-gap: 16px;
     overflow: hidden;
@@ -433,7 +433,7 @@
   .hero-action-signal {
     min-width: 0;
     width: 100%;
-    padding: 0 8px 0 0;
+    padding: 0 2px 0 0;
     display: flex;
     align-items: stretch;
     justify-content: stretch;
@@ -449,7 +449,7 @@
     justify-content: center;
     width: 100%;
     max-width: 100%;
-    height: 80px;
+    height: 82px;
     border: 1px solid rgba(56, 189, 248, 0.34);
     border-radius: 13px;
     background:
@@ -457,6 +457,7 @@
       radial-gradient(circle at 28% 48%, rgba(56, 189, 248, 0.16), rgba(56, 189, 248, 0));
     box-shadow:
       inset 0 1px 0 rgba(188, 241, 255, 0.11),
+      inset 0 0 0 1px rgba(132, 217, 244, 0.22),
       inset 0 0 30px rgba(56, 189, 248, 0.13);
     overflow: hidden;
     isolation: isolate;
@@ -510,7 +511,7 @@
     stroke-width: 3;
     stroke-linecap: round;
     stroke-linejoin: round;
-    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.85));
+    filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.74));
     stroke-dasharray: 12 8;
     animation: wfShift 4s linear infinite, wfLinePulse 2.6s ease-in-out infinite;
   }
@@ -525,6 +526,11 @@
 
   .module:hover .wf-line {
     filter: drop-shadow(0 0 18px rgba(56, 189, 248, 0.95));
+    opacity: 1;
+  }
+
+  .module:hover .wf-dot {
+    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.92));
   }
 
   .module:hover .wf-grid {
@@ -578,7 +584,7 @@
     stroke: rgba(56, 189, 248, 0.95);
     stroke-width: 1.8;
     opacity: 0.96;
-    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.76));
+    filter: drop-shadow(0 0 12px rgba(56, 189, 248, 0.7));
   }
 
   .bp-gear-detail {
@@ -617,9 +623,9 @@
   }
 
   .bp-scan {
-    fill: rgba(56, 189, 248, 0.1);
+    fill: rgba(56, 189, 248, 0.08);
     opacity: 0;
-    animation: bpScan 2.2s linear infinite;
+    animation: bpScan 2.5s linear infinite;
   }
 
   .module:hover .bp-gear path,
@@ -633,7 +639,7 @@
   }
 
   .module:hover .bp-scan {
-    opacity: 0.52;
+    opacity: 0.46;
   }
 
   .catalog-map {
@@ -700,8 +706,8 @@
     position: absolute;
     right: 10px;
     bottom: 10px;
-    width: clamp(128px, 58%, 172px);
-    min-width: 128px;
+    width: clamp(136px, 60%, 186px);
+    min-width: 136px;
     margin-right: 0;
     border-color: rgba(56, 189, 248, 0.4);
     background: rgba(4, 16, 28, 0.58);
@@ -713,12 +719,18 @@
   }
 
   .catalog-widget .hero-action-counter-key {
+    align-self: flex-start;
+    border: 1px solid rgba(56, 189, 248, 0.3);
+    border-radius: 6px;
+    padding: 1px 6px;
     font-size: 8px;
-    letter-spacing: 0.18em;
+    letter-spacing: 0.16em;
+    background: rgba(6, 16, 28, 0.58);
   }
 
   .catalog-widget .hero-action-counter-value {
-    font-size: 17px;
+    font-size: 22px;
+    line-height: 1.05;
   }
 
   .catalog-widget .hero-action-counter-meta {
@@ -793,8 +805,16 @@
     border-color: rgba(126, 231, 255, 0.55);
     box-shadow:
       inset 0 1px 0 rgba(200, 246, 255, 0.2),
+      inset 0 0 0 1px rgba(142, 231, 255, 0.45),
       inset 0 0 38px rgba(56, 189, 248, 0.24),
       0 0 20px rgba(56, 189, 248, 0.14);
+  }
+
+  .hero-action-card:hover .catalog-link,
+  .hero-action-card:hover .catalog-globe,
+  .hero-action-card:hover .catalog-hud {
+    filter: drop-shadow(0 0 14px rgba(56, 189, 248, 0.84));
+    opacity: 0.98;
   }
 
   .hero-action-card:hover .hero-action-counter-key {
