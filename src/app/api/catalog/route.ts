@@ -54,6 +54,52 @@ const slugify = (value: string) =>
     .replace(/-+/g, "-")
     .replace(/^-|-$/g, "");
 
+const normalizeRelationId = (value: unknown): string | null => {
+  let current: unknown = value;
+  while (typeof current === "object" && current !== null) {
+    current =
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+  }
+  if (current === null || current === undefined) return null;
+  const raw = String(current).trim();
+  return raw || null;
+};
+
+const quoteIdentifier = (value: string) => `"${value.replace(/"/g, "\"\"")}"`;
+
+const normalizeSchemaName = (value: unknown) => {
+  if (typeof value !== "string") return "public";
+  const trimmed = value.trim();
+  if (!trimmed) return "public";
+  return /^[A-Za-z0-9_]+$/.test(trimmed) ? trimmed : "public";
+};
+
+const escapeSqlLiteral = (value: string) => `'${value.replace(/'/g, "''")}'`;
+
+const executeRaw = async (payload: any, raw: string) => {
+  const db = payload?.db;
+  const execute = db?.execute;
+  if (typeof execute === "function") {
+    try {
+      return await execute.call(db, { raw });
+    } catch (error) {
+      const query = db?.pool?.query;
+      if (typeof query === "function") {
+        return await query.call(db.pool, raw);
+      }
+      throw error;
+    }
+  }
+  const query = db?.pool?.query;
+  if (typeof query === "function") {
+    return await query.call(db.pool, raw);
+  }
+  return null;
+};
+
 const buildFallbackCatalogData = () => {
   const seed = Array.isArray(fallbackCatalogSeed) ? (fallbackCatalogSeed as FallbackProductSeed[]) : [];
   const categoryMap = new Map<string, { id: string; title: string; parent: null }>();
@@ -164,6 +210,158 @@ const normalizeProduct = (doc: any) => ({
   thumbnail: pickMedia(doc?.thumbnail ?? null),
 });
 
+const readMediaLookupFromDb = async (payload: any, ids: string[]) => {
+  const uniqueIds = Array.from(new Set(ids.filter(Boolean)));
+  if (uniqueIds.length === 0) {
+    return new Map<string, MediaDoc>();
+  }
+
+  try {
+    const schema = normalizeSchemaName(payload?.db?.schemaName);
+    const columnsResult = await executeRaw(
+      payload,
+      `SELECT column_name FROM information_schema.columns WHERE table_schema = ${escapeSqlLiteral(
+        schema
+      )} AND table_name = 'media'`
+    );
+    const availableColumns = new Set(
+      Array.isArray(columnsResult?.rows)
+        ? columnsResult.rows
+            .map((row: any) => (typeof row?.column_name === "string" ? row.column_name : ""))
+            .filter(Boolean)
+        : []
+    );
+
+    if (!availableColumns.has("id")) {
+      return new Map<string, MediaDoc>();
+    }
+
+    const selectedColumns = ["id"]
+      .concat(
+        ["url", "filename", "thumbnail_url"].filter((column) => availableColumns.has(column))
+      )
+      .map((column) => quoteIdentifier(column))
+      .join(", ");
+    const tableRef = `${quoteIdentifier(schema)}.${quoteIdentifier("media")}`;
+    const idList = uniqueIds
+      .map((id) => (/^\d+$/.test(id) ? id : escapeSqlLiteral(id)))
+      .join(", ");
+    if (!idList) {
+      return new Map<string, MediaDoc>();
+    }
+
+    const rowsResult = await executeRaw(
+      payload,
+      `SELECT ${selectedColumns} FROM ${tableRef} WHERE ${quoteIdentifier("id")} IN (${idList})`
+    );
+    const rows = Array.isArray(rowsResult?.rows) ? rowsResult.rows : [];
+    const mediaMap = new Map<string, MediaDoc>();
+    rows.forEach((row: any) => {
+      const id = normalizeRelationId(row?.id);
+      if (!id) return;
+      mediaMap.set(id, {
+        id,
+        url: typeof row?.url === "string" ? row.url : undefined,
+        filename: typeof row?.filename === "string" ? row.filename : undefined,
+        thumbnail: typeof row?.thumbnail_url === "string" ? row.thumbnail_url : null,
+      });
+    });
+    return mediaMap;
+  } catch {
+    return new Map<string, MediaDoc>();
+  }
+};
+
+const hydrateMediaField = (value: unknown, mediaById: Map<string, MediaDoc>) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "object") {
+    const id = normalizeRelationId(value);
+    if (id && mediaById.has(id)) {
+      const lookedUp = mediaById.get(id)!;
+      return {
+        ...(value as Record<string, unknown>),
+        id: lookedUp.id ?? id,
+        url: lookedUp.url ?? (value as any)?.url,
+        filename: lookedUp.filename ?? (value as any)?.filename,
+        thumbnail: lookedUp.thumbnail ?? (value as any)?.thumbnail ?? null,
+      };
+    }
+    return value;
+  }
+  const id = normalizeRelationId(value);
+  if (!id) return null;
+  const lookedUp = mediaById.get(id);
+  if (lookedUp) return lookedUp;
+  return { id };
+};
+
+const loadCatalogFromPayload = async (payload: any) => {
+  try {
+    const [productsResult, categoriesResult] = await Promise.all([
+      payload.find({
+        collection: "products",
+        depth: 1,
+        limit: 200,
+        overrideAccess: true,
+      }),
+      payload.find({
+        collection: "categories",
+        depth: 0,
+        limit: 200,
+        overrideAccess: true,
+      }),
+    ]);
+
+    return {
+      products: (productsResult?.docs ?? []).map(normalizeProduct),
+      categories: (categoriesResult?.docs ?? []).map(normalizeCategory).filter(Boolean),
+      source: "db-depth1" as const,
+      depthError: null as string | null,
+    };
+  } catch (depthError) {
+    const [productsResult, categoriesResult] = await Promise.all([
+      payload.find({
+        collection: "products",
+        depth: 0,
+        limit: 200,
+        overrideAccess: true,
+      }),
+      payload.find({
+        collection: "categories",
+        depth: 0,
+        limit: 200,
+        overrideAccess: true,
+      }),
+    ]);
+
+    const productDocs = Array.isArray(productsResult?.docs) ? productsResult.docs : [];
+    const mediaIds = productDocs
+      .flatMap((doc: any): Array<string | null> => [
+        normalizeRelationId(doc?.rawModel),
+        normalizeRelationId(doc?.paintedModel),
+        normalizeRelationId(doc?.thumbnail),
+      ])
+      .filter((value: string | null): value is string => Boolean(value));
+    const mediaById = await readMediaLookupFromDb(payload, mediaIds);
+    const hydratedProducts = productDocs.map((doc: any) =>
+      normalizeProduct({
+        ...doc,
+        rawModel: hydrateMediaField(doc?.rawModel ?? null, mediaById),
+        paintedModel: hydrateMediaField(doc?.paintedModel ?? null, mediaById),
+        thumbnail: hydrateMediaField(doc?.thumbnail ?? null, mediaById),
+      })
+    );
+
+    return {
+      products: hydratedProducts,
+      categories: (categoriesResult?.docs ?? []).map(normalizeCategory).filter(Boolean),
+      source: "db-depth0" as const,
+      depthError:
+        depthError instanceof Error ? depthError.message.replace(/\s+/g, " ").trim().slice(0, 260) : String(depthError),
+    };
+  }
+};
+
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const fresh = url.searchParams.get("fresh") === "1";
@@ -188,32 +386,30 @@ export async function GET(request: Request) {
     degradedReason = "payload:init";
     const payload = await getPayloadClient();
     degradedReason = "payload:find";
-    const [productsResult, categoriesResult] = await Promise.all([
-      payload.find({
-        collection: "products",
-        depth: 1,
-        limit: 200,
-        overrideAccess: true,
-      }),
-      payload.find({
-        collection: "categories",
-        depth: 0,
-        limit: 200,
-        overrideAccess: true,
-      }),
-    ]);
+    const loadedCatalog = await loadCatalogFromPayload(payload);
+    if (loadedCatalog.source === "db-depth0" && loadedCatalog.depthError) {
+      console.warn("[catalog] depth=1 query failed, served depth=0 fallback", {
+        reason: degradedReason,
+        error: loadedCatalog.depthError,
+      });
+    }
 
-    const products = (productsResult?.docs ?? []).map(normalizeProduct);
-    const categories = (categoriesResult?.docs ?? []).map(normalizeCategory).filter(Boolean);
-
-    const data = { products, categories };
+    const data = { products: loadedCatalog.products, categories: loadedCatalog.categories };
     cacheStore[CACHE_KEY] = { ts: now, data };
 
-    return NextResponse.json(data, {
+    return NextResponse.json(
+      loadedCatalog.source === "db-depth1"
+        ? data
+        : {
+            ...data,
+            source: loadedCatalog.source,
+          },
+      {
       headers: {
         "Cache-Control": "public, max-age=300, stale-while-revalidate=1800",
       },
-    });
+      }
+    );
   } catch (error) {
     const errorMessage =
       error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 180) : String(error);
