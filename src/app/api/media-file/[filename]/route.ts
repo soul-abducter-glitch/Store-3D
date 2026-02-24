@@ -21,6 +21,7 @@ const uploadSecretAccessKey =
 const uploadRegion = process.env.S3_UPLOAD_REGION || process.env.S3_REGION || "us-east-1";
 const prefix = "media";
 const LOCAL_MODELS_DIR = path.join(process.cwd(), "public", "models");
+const LOCAL_MEDIA_DIR = path.join(process.cwd(), "media");
 const LOCAL_FALLBACK_MODEL = "DamagedHelmet.glb";
 const publicBase = publicEndpoint ? publicEndpoint.replace(/\/$/, "") : "";
 const uploadBase = uploadEndpoint ? uploadEndpoint.replace(/\/$/, "") : "";
@@ -75,6 +76,21 @@ const serveLocalModel = async (filename: string) => {
     const headers = new Headers();
     headers.set("Content-Type", guessContentType(filename));
     headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    return new Response(bytes, { headers });
+  } catch {
+    return null;
+  }
+};
+
+const serveLocalMediaFile = async (filename: string) => {
+  const safeName = filename.replace(/\\/g, "/").split("/").pop() || "";
+  if (!safeName || !/^[a-zA-Z0-9._-]+$/.test(safeName)) return null;
+  const fullPath = path.join(LOCAL_MEDIA_DIR, safeName);
+  try {
+    const bytes = await readFile(fullPath);
+    const headers = new Headers();
+    headers.set("Content-Type", guessContentType(safeName));
+    headers.set("Cache-Control", "public, max-age=86400");
     return new Response(bytes, { headers });
   } catch {
     return null;
@@ -138,6 +154,10 @@ export async function GET(
   const base = useUploadBucket ? uploadBase || publicBase : publicBase;
 
   if (!client || !bucket) {
+    const localMedia = await serveLocalMediaFile(safeName);
+    if (localMedia) {
+      return localMedia;
+    }
     const localModel = await serveLocalModelWithFallback(safeName);
     if (localModel) {
       return localModel;
@@ -166,6 +186,10 @@ export async function GET(
     return new Response(body, { headers });
   } catch (error: any) {
     if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
+      const localMedia = await serveLocalMediaFile(safeName);
+      if (localMedia) {
+        return localMedia;
+      }
       const localModel = await serveLocalModelWithFallback(safeName);
       if (localModel) {
         return localModel;
@@ -175,6 +199,10 @@ export async function GET(
     const fallback = await fetchPublicObject(base, bucket, key, safeName);
     if (fallback) {
       return fallback;
+    }
+    const localMedia = await serveLocalMediaFile(safeName);
+    if (localMedia) {
+      return localMedia;
     }
     const localModel = await serveLocalModelWithFallback(safeName);
     if (localModel) {

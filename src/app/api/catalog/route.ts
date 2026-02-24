@@ -14,7 +14,6 @@ type MediaDoc = {
 
 const CACHE_TTL_MS = 5 * 60_000;
 const CACHE_KEY = "__store3d_catalog_cache__";
-const FALLBACK_MODEL_FILE = "DamagedHelmet.glb";
 
 const getPayloadClient = async () => {
   const configModule = await import("../../../../payload.config");
@@ -71,8 +70,7 @@ const buildFallbackCatalogData = () => {
       });
     }
 
-    const fileName = FALLBACK_MODEL_FILE;
-    const modelUrl = `/models/${encodeURIComponent(fileName)}`;
+    const fileName = toNonEmptyString(row?.fileName);
 
     return {
       id: `fallback-${index + 1}`,
@@ -90,10 +88,10 @@ const buildFallbackCatalogData = () => {
       isFeatured: false,
       category: categoryMap.get(categoryId),
       categories: [categoryMap.get(categoryId)],
-      rawModel: modelUrl
+      rawModel: fileName
         ? {
             id: `fallback-media-${index + 1}`,
-            url: modelUrl,
+            url: "",
             filename: fileName,
             thumbnail: null,
           }
