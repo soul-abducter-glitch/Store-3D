@@ -45,7 +45,20 @@ type AiReferenceItem = {
   type: string;
   previewUrl: string | null;
   originalUrl?: string | null;
+  hasManualMask?: boolean;
+  maskVersion?: number;
+  maskUpdatedAt?: string | null;
+  preprocessVersion?: number;
+  preprocessMeta?: Record<string, unknown> | null;
 };
+
+type MaskEditorState =
+  | "idle"
+  | "auto_mask_processing"
+  | "editing"
+  | "saving"
+  | "applied"
+  | "error";
 
 type GeneratedAsset = {
   id: string;
@@ -203,8 +216,11 @@ const logLines = [
 const DEFAULT_TOKEN_COST = 10;
 const GALLERY_LIMIT = 12;
 const GALLERY_STORAGE_KEY = "aiLabGallery";
+const INPUT_REFERENCES_STORAGE_KEY = "aiLabInputReferences";
 const LAB_PANEL_TAB_STORAGE_KEY = "aiLabPanelTab";
 const PREVIEW_TOOLS_HINT_STORAGE_KEY = "aiLabPreviewToolsHintSeen";
+const MASK_DISCOVERY_HINT_STORAGE_KEY = "aiLabMaskDiscoveryHintSeen";
+const MAX_STORED_REFERENCE_DATA_URL_LENGTH = 380_000;
 const AI_LAB_BG = "/backgrounds/pedestal.png";
 const MODEL_STAGE_TARGET_SIZE = 2.2;
 const ORBIT_MOUSE = { ROTATE: 0, DOLLY: 1, PAN: 2 } as const;
@@ -299,6 +315,22 @@ const QUALITY_PRESET_LABEL: Record<"draft" | "standard" | "pro", string> = {
   standard: "Стандарт",
   pro: "Про",
 };
+const MASK_EDITOR_STATE_LABEL_RU: Record<MaskEditorState, string> = {
+  idle: "READY",
+  auto_mask_processing: "AUTO MASK",
+  editing: "EDITING",
+  saving: "SAVING",
+  applied: "APPLIED",
+  error: "ERROR",
+};
+const MASK_EDITOR_STATE_BADGE_CLASS: Record<MaskEditorState, string> = {
+  idle: "border-white/20 bg-white/5 text-white/65",
+  auto_mask_processing: "border-amber-300/45 bg-amber-500/10 text-amber-100",
+  editing: "border-cyan-300/45 bg-cyan-500/10 text-cyan-100",
+  saving: "border-cyan-300/60 bg-cyan-500/16 text-cyan-50",
+  applied: "border-emerald-300/45 bg-emerald-500/12 text-emerald-100",
+  error: "border-rose-300/45 bg-rose-500/12 text-rose-100",
+};
 const IMAGE_SOURCE_EXT_RE = /\.(png|jpe?g|webp|gif|bmp|avif|heic|heif)$/i;
 
 const normalizeTextureSourceUrl = (value: unknown) => {
@@ -344,12 +376,89 @@ const createId = () => {
 const isAiReferenceItem = (value: unknown): value is AiReferenceItem => {
   if (!value || typeof value !== "object") return false;
   const candidate = value as Partial<AiReferenceItem>;
-  return (
+  const validCore =
     typeof candidate.id === "string" &&
     typeof candidate.url === "string" &&
     typeof candidate.name === "string" &&
-    typeof candidate.type === "string"
-  );
+    typeof candidate.type === "string";
+  if (!validCore) return false;
+  if (candidate.previewUrl !== undefined && candidate.previewUrl !== null && typeof candidate.previewUrl !== "string") {
+    return false;
+  }
+  if (candidate.originalUrl !== undefined && candidate.originalUrl !== null && typeof candidate.originalUrl !== "string") {
+    return false;
+  }
+  if (candidate.hasManualMask !== undefined && typeof candidate.hasManualMask !== "boolean") {
+    return false;
+  }
+  if (candidate.maskVersion !== undefined && typeof candidate.maskVersion !== "number") {
+    return false;
+  }
+  if (candidate.maskUpdatedAt !== undefined && candidate.maskUpdatedAt !== null && typeof candidate.maskUpdatedAt !== "string") {
+    return false;
+  }
+  if (candidate.preprocessVersion !== undefined && typeof candidate.preprocessVersion !== "number") {
+    return false;
+  }
+  if (
+    candidate.preprocessMeta !== undefined &&
+    candidate.preprocessMeta !== null &&
+    typeof candidate.preprocessMeta !== "object"
+  ) {
+    return false;
+  }
+  return true;
+};
+
+const normalizeReferenceUrlForStorage = (value: unknown) => {
+  if (typeof value !== "string") return "";
+  const raw = value.trim();
+  if (!raw) return "";
+  if (raw.startsWith("data:image/")) {
+    return raw.length <= MAX_STORED_REFERENCE_DATA_URL_LENGTH ? raw : "";
+  }
+  if (raw.startsWith("http://") || raw.startsWith("https://") || raw.startsWith("/")) {
+    return raw.slice(0, 2048);
+  }
+  return "";
+};
+
+const sanitizePersistedReference = (value: unknown): AiReferenceItem | null => {
+  if (!isAiReferenceItem(value)) return null;
+  const candidate = value as AiReferenceItem;
+  const url = normalizeReferenceUrlForStorage(candidate.url);
+  if (!url) return null;
+  const previewUrlRaw = candidate.previewUrl ?? null;
+  const previewUrl = previewUrlRaw ? normalizeReferenceUrlForStorage(previewUrlRaw) || null : null;
+  const originalUrlRaw = candidate.originalUrl ?? null;
+  const originalUrl = originalUrlRaw ? normalizeReferenceUrlForStorage(originalUrlRaw) || null : null;
+  const name = candidate.name.trim().slice(0, 80) || "reference-image";
+  const type = candidate.type.trim().slice(0, 80) || "image/*";
+  const maskVersion =
+    typeof candidate.maskVersion === "number" && Number.isFinite(candidate.maskVersion)
+      ? Math.max(0, Math.trunc(candidate.maskVersion))
+      : 0;
+  const preprocessVersion =
+    typeof candidate.preprocessVersion === "number" && Number.isFinite(candidate.preprocessVersion)
+      ? Math.max(0, Math.trunc(candidate.preprocessVersion))
+      : 0;
+
+  return {
+    id: candidate.id.trim() || createId(),
+    url,
+    name,
+    type,
+    previewUrl: previewUrl || (url.startsWith("data:image/") ? url : null),
+    originalUrl,
+    hasManualMask: Boolean(candidate.hasManualMask),
+    maskVersion,
+    maskUpdatedAt: typeof candidate.maskUpdatedAt === "string" ? candidate.maskUpdatedAt : null,
+    preprocessVersion,
+    preprocessMeta:
+      candidate.preprocessMeta && typeof candidate.preprocessMeta === "object"
+        ? candidate.preprocessMeta
+        : null,
+  };
 };
 
 const isAiGenerationJobLike = (value: unknown): value is AiGenerationJob => {
@@ -1385,9 +1494,11 @@ function AiLabContent() {
   const [prompt, setPrompt] = useState("");
   const [uploadPreview, setUploadPreview] = useState<string | null>(null);
   const [inputReferences, setInputReferences] = useState<AiReferenceItem[]>([]);
+  const [inputRefsHydrated, setInputRefsHydrated] = useState(false);
   const [previewToolsPinned, setPreviewToolsPinned] = useState(false);
   const [previewToolsFlashVisible, setPreviewToolsFlashVisible] = useState(false);
   const [previewToolsHintVisible, setPreviewToolsHintVisible] = useState(false);
+  const [maskDiscoveryHintVisible, setMaskDiscoveryHintVisible] = useState(false);
   const [isNarrowViewport, setIsNarrowViewport] = useState(false);
   const [localPreviewModel, setLocalPreviewModel] = useState<string | null>(null);
   const [localPreviewLabel, setLocalPreviewLabel] = useState<string | null>(null);
@@ -1480,6 +1591,7 @@ function AiLabContent() {
   const [removingReferenceBgId, setRemovingReferenceBgId] = useState<string | null>(null);
   const [smartMaskingReferenceId, setSmartMaskingReferenceId] = useState<string | null>(null);
   const [maskEditorOpen, setMaskEditorOpen] = useState(false);
+  const [maskEditorState, setMaskEditorState] = useState<MaskEditorState>("idle");
   const [maskEditorLoading, setMaskEditorLoading] = useState(false);
   const [maskEditorRefId, setMaskEditorRefId] = useState<string | null>(null);
   const [maskBrushSize, setMaskBrushSize] = useState(28);
@@ -1556,6 +1668,7 @@ function AiLabContent() {
   const maskStrokeLastClientRef = useRef<{ x: number; y: number } | null>(null);
   const maskUndoStackRef = useRef<Uint8Array[]>([]);
   const maskRedoStackRef = useRef<Uint8Array[]>([]);
+  const maskEditStartedRef = useRef(false);
   const completedServerJobRef = useRef<string | null>(null);
   const lastErrorRef = useRef<{ message: string; at: number } | null>(null);
   const jobHistoryRequestInFlightRef = useRef(false);
@@ -1588,6 +1701,21 @@ function AiLabContent() {
 
   const { toasts, showError, showSuccess, removeToast } = useToast();
   const showErrorRef = useRef(showError);
+  const emitAiLabEvent = useCallback((event: string, payload?: Record<string, unknown>) => {
+    if (typeof window === "undefined") return;
+    const detail = {
+      event,
+      payload: payload ?? {},
+      at: new Date().toISOString(),
+    };
+    window.dispatchEvent(new CustomEvent("ai-lab-analytics", { detail }));
+  }, []);
+  const emitMaskEvent = useCallback(
+    (event: string, payload?: Record<string, unknown>) => {
+      emitAiLabEvent(event, payload);
+    },
+    [emitAiLabEvent]
+  );
 
   useEffect(() => {
     if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
@@ -1612,6 +1740,68 @@ function AiLabContent() {
   useEffect(() => {
     showErrorRef.current = showError;
   }, [showError]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      setInputRefsHydrated(true);
+      return;
+    }
+    const stored = window.localStorage.getItem(INPUT_REFERENCES_STORAGE_KEY);
+    if (!stored) {
+      setInputRefsHydrated(true);
+      return;
+    }
+    try {
+      const parsed = JSON.parse(stored);
+      const restored = Array.isArray(parsed)
+        ? parsed
+            .map((item) => sanitizePersistedReference(item))
+            .filter((item): item is AiReferenceItem => Boolean(item))
+            .slice(0, MAX_INPUT_REFERENCES)
+        : [];
+      if (restored.length === 0) {
+        window.localStorage.removeItem(INPUT_REFERENCES_STORAGE_KEY);
+        setInputRefsHydrated(true);
+        return;
+      }
+      setInputReferences(restored);
+      setUploadPreview(restored[0]?.previewUrl ?? null);
+      setInputRefsHydrated(true);
+    } catch {
+      window.localStorage.removeItem(INPUT_REFERENCES_STORAGE_KEY);
+      setInputRefsHydrated(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!inputRefsHydrated) return;
+    const safeReferences = inputReferences
+      .filter(isAiReferenceItem)
+      .map((item) => sanitizePersistedReference(item))
+      .filter((item): item is AiReferenceItem => Boolean(item))
+      .slice(0, MAX_INPUT_REFERENCES);
+    if (safeReferences.length === 0) {
+      window.localStorage.removeItem(INPUT_REFERENCES_STORAGE_KEY);
+      return;
+    }
+    try {
+      window.localStorage.setItem(INPUT_REFERENCES_STORAGE_KEY, JSON.stringify(safeReferences));
+    } catch {
+      const fallback = safeReferences
+        .map((item) => {
+          if (!item.url.startsWith("data:image/")) return item;
+          return null;
+        })
+        .filter((item): item is AiReferenceItem => Boolean(item));
+      if (fallback.length === 0) return;
+      try {
+        window.localStorage.setItem(INPUT_REFERENCES_STORAGE_KEY, JSON.stringify(fallback));
+      } catch {
+        // ignore quota errors
+      }
+    }
+  }, [inputReferences, inputRefsHydrated]);
 
   useEffect(() => {
     const currentPrimaryId = primaryInputReference?.id ?? null;
@@ -1640,6 +1830,17 @@ function AiLabContent() {
     setPreviewToolsHintVisible(true);
     window.localStorage.setItem(PREVIEW_TOOLS_HINT_STORAGE_KEY, "1");
     const timer = window.setTimeout(() => setPreviewToolsHintVisible(false), 5200);
+    return () => window.clearTimeout(timer);
+  }, [primaryInputReference?.id]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    if (!primaryInputReference?.id) return;
+    const hintSeen = window.localStorage.getItem(MASK_DISCOVERY_HINT_STORAGE_KEY) === "1";
+    if (hintSeen) return;
+    setMaskDiscoveryHintVisible(true);
+    window.localStorage.setItem(MASK_DISCOVERY_HINT_STORAGE_KEY, "1");
+    const timer = window.setTimeout(() => setMaskDiscoveryHintVisible(false), 6800);
     return () => window.clearTimeout(timer);
   }, [primaryInputReference?.id]);
 
@@ -2277,6 +2478,13 @@ function AiLabContent() {
               type: file.type || "image/*",
               previewUrl: url,
               originalUrl: url,
+              hasManualMask: false,
+              maskVersion: 0,
+              maskUpdatedAt: null,
+              preprocessVersion: 0,
+              preprocessMeta: {
+                source: "upload",
+              },
             } as AiReferenceItem;
           })
         );
@@ -2350,25 +2558,36 @@ function AiLabContent() {
           const next = normalized.map((item) =>
             item.id === refId
               ? {
-                  ...item,
-                  url: cleaned,
-                  previewUrl: cleaned,
-                  type: "image/png",
-                  originalUrl: item.originalUrl ?? item.url,
-                }
-              : item
-          );
+                ...item,
+                url: cleaned,
+                previewUrl: cleaned,
+                type: "image/png",
+                originalUrl: item.originalUrl ?? item.url,
+                hasManualMask: false,
+                preprocessVersion: Math.max(1, (item.preprocessVersion ?? 0) + 1),
+                preprocessMeta: {
+                  ...(item.preprocessMeta ?? {}),
+                  source: "auto_remove_bg",
+                  appliedAt: new Date().toISOString(),
+                },
+              }
+            : item
+        );
           setUploadPreview(next[0]?.previewUrl ?? null);
           return next;
         });
+        emitMaskEvent("mask_auto_generated", { refId, source: "auto_remove_bg" });
         showSuccess("Фон удален. Обновленный референс готов.");
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Failed to remove image background.");
+        const message = error instanceof Error ? error.message : "Failed to remove image background.";
+        emitMaskEvent("mask_error", { stage: "auto_remove_bg", message });
+        pushUiError(message);
       } finally {
         setRemovingReferenceBgId(null);
       }
     },
     [
+      emitMaskEvent,
       pushUiError,
       removingReferenceBgId,
       showError,
@@ -2410,25 +2629,36 @@ function AiLabContent() {
           const next = normalized.map((item) =>
             item.id === refId
               ? {
-                  ...item,
-                  url: cleaned,
-                  previewUrl: cleaned,
-                  type: "image/png",
-                  originalUrl: item.originalUrl ?? item.url,
-                }
-              : item
-          );
+                ...item,
+                url: cleaned,
+                previewUrl: cleaned,
+                type: "image/png",
+                originalUrl: item.originalUrl ?? item.url,
+                hasManualMask: false,
+                preprocessVersion: Math.max(1, (item.preprocessVersion ?? 0) + 1),
+                preprocessMeta: {
+                  ...(item.preprocessMeta ?? {}),
+                  source: "smart_mask",
+                  appliedAt: new Date().toISOString(),
+                },
+              }
+            : item
+        );
           setUploadPreview(next[0]?.previewUrl ?? null);
           return next;
         });
+        emitMaskEvent("mask_auto_generated", { refId, source: "smart_mask" });
         showSuccess("Умная маска применена.");
       } catch (error) {
-        pushUiError(error instanceof Error ? error.message : "Failed to apply smart mask.");
+        const message = error instanceof Error ? error.message : "Failed to apply smart mask.";
+        emitMaskEvent("mask_error", { stage: "smart_mask", message });
+        pushUiError(message);
       } finally {
         setSmartMaskingReferenceId(null);
       }
     },
     [
+      emitMaskEvent,
       pushUiError,
       removingReferenceBgId,
       showError,
@@ -2600,6 +2830,13 @@ function AiLabContent() {
     setMaskHistoryRevision((value) => value + 1);
   }, []);
 
+  const markMaskEditStarted = useCallback(() => {
+    if (maskEditStartedRef.current) return;
+    maskEditStartedRef.current = true;
+    setMaskEditorState("editing");
+    emitMaskEvent("mask_edit_started", { refId: maskEditorRefId });
+  }, [emitMaskEvent, maskEditorRefId]);
+
   const paintMaskAt = useCallback(
     (clientX: number, clientY: number, options?: { skipRender?: boolean }) => {
       const canvas = maskCanvasRef.current;
@@ -2659,11 +2896,20 @@ function AiLabContent() {
       }
 
       if (changed && !options?.skipRender) {
+        markMaskEditStarted();
         renderMaskEditorCanvas();
       }
       return changed;
     },
-    [maskBrushHardness, maskBrushSize, maskMagneticEdge, maskMode, maskSnapStrength, renderMaskEditorCanvas]
+    [
+      markMaskEditStarted,
+      maskBrushHardness,
+      maskBrushSize,
+      maskMagneticEdge,
+      maskMode,
+      maskSnapStrength,
+      renderMaskEditorCanvas,
+    ]
   );
 
   const paintMaskStrokeTo = useCallback(
@@ -2673,6 +2919,7 @@ function AiLabContent() {
         const changed = paintMaskAt(clientX, clientY, { skipRender: true });
         maskStrokeLastClientRef.current = { x: clientX, y: clientY };
         if (changed) {
+          markMaskEditStarted();
           renderMaskEditorCanvas();
         }
         return;
@@ -2695,10 +2942,11 @@ function AiLabContent() {
       }
       maskStrokeLastClientRef.current = { x: filteredX, y: filteredY };
       if (changed) {
+        markMaskEditStarted();
         renderMaskEditorCanvas();
       }
     },
-    [maskBrushSize, maskBrushSmoothing, paintMaskAt, renderMaskEditorCanvas]
+    [markMaskEditStarted, maskBrushSize, maskBrushSmoothing, paintMaskAt, renderMaskEditorCanvas]
   );
 
   const applyWandAt = useCallback(
@@ -2807,10 +3055,11 @@ function AiLabContent() {
       }
 
       if (changed) {
+        markMaskEditStarted();
         renderMaskEditorCanvas();
       }
     },
-    [maskWandOuterOnly, maskWandTolerance, renderMaskEditorCanvas]
+    [markMaskEditStarted, maskWandOuterOnly, maskWandTolerance, renderMaskEditorCanvas]
   );
 
   const applyMaskZoom = useCallback(
@@ -2893,6 +3142,7 @@ function AiLabContent() {
       }
       if (!maskAlphaRef.current) return;
       if (maskMode === "wand") {
+        setMaskEditorState("editing");
         pushMaskUndoSnapshot();
         const baseRestore = maskWandAction === "restore";
         const invert = event.altKey || event.button === 2;
@@ -2900,6 +3150,7 @@ function AiLabContent() {
         applyWandAt(event.clientX, event.clientY, restore);
         return;
       }
+      setMaskEditorState("editing");
       pushMaskUndoSnapshot();
       maskDrawingRef.current = true;
       maskStrokeLastClientRef.current = { x: event.clientX, y: event.clientY };
@@ -2986,9 +3237,11 @@ function AiLabContent() {
     maskAlphaRef.current = initialAlpha.slice();
     maskUndoStackRef.current = [];
     maskRedoStackRef.current = [];
+    setMaskEditorState("editing");
+    emitMaskEvent("mask_reset", { refId: maskEditorRefId });
     setMaskHistoryRevision((value) => value + 1);
     renderMaskEditorCanvas();
-  }, [renderMaskEditorCanvas]);
+  }, [emitMaskEvent, maskEditorRefId, renderMaskEditorCanvas]);
 
   const handleMaskInvert = useCallback(() => {
     const sourceAlpha = maskSourceAlphaRef.current;
@@ -2998,8 +3251,9 @@ function AiLabContent() {
     for (let i = 0; i < alphaMask.length; i += 1) {
       alphaMask[i] = clampNumber(sourceAlpha[i] - alphaMask[i], 0, sourceAlpha[i]);
     }
+    markMaskEditStarted();
     renderMaskEditorCanvas();
-  }, [pushMaskUndoSnapshot, renderMaskEditorCanvas]);
+  }, [markMaskEditStarted, pushMaskUndoSnapshot, renderMaskEditorCanvas]);
 
   useEffect(() => {
     if (!maskEditorOpen) return;
@@ -3027,7 +3281,9 @@ function AiLabContent() {
   const closeMaskEditor = useCallback(() => {
     if (maskApplying) return;
     maskDrawingRef.current = false;
+    maskEditStartedRef.current = false;
     setMaskEditorOpen(false);
+    setMaskEditorState("idle");
     setMaskEditorRefId(null);
     maskSourcePixelsRef.current = null;
     maskSourceAlphaRef.current = null;
@@ -3061,6 +3317,8 @@ function AiLabContent() {
         return;
       }
 
+      setMaskDiscoveryHintVisible(false);
+      setMaskEditorState("auto_mask_processing");
       setMaskEditorLoading(true);
       setMaskEditorError(null);
       try {
@@ -3113,6 +3371,7 @@ function AiLabContent() {
         maskHeightRef.current = height;
         maskUndoStackRef.current = [];
         maskRedoStackRef.current = [];
+        maskEditStartedRef.current = false;
         maskImageNameRef.current = targetRef.name || "reference";
         setMaskHistoryRevision((value) => value + 1);
 
@@ -3132,16 +3391,21 @@ function AiLabContent() {
         setMaskViewZoom(1);
         setMaskViewPanX(0);
         setMaskViewPanY(0);
+        setMaskEditorState("editing");
         setMaskEditorError(null);
         setMaskEditorRefId(refId);
         setMaskEditorOpen(true);
+        emitMaskEvent("mask_editor_opened", { refId });
         requestAnimationFrame(() => {
           handleMaskZoomFit();
           renderMaskEditorCanvas();
         });
       } catch (error) {
+        setMaskEditorState("error");
         setMaskEditorError("Не удалось открыть редактор маски.");
-        pushUiError(error instanceof Error ? error.message : "Failed to open mask editor.");
+        const message = error instanceof Error ? error.message : "Failed to open mask editor.";
+        emitMaskEvent("mask_error", { stage: "open", message });
+        pushUiError(message);
       } finally {
         setMaskEditorLoading(false);
       }
@@ -3149,6 +3413,7 @@ function AiLabContent() {
     [
       maskApplying,
       maskEditorLoading,
+      emitMaskEvent,
       handleMaskZoomFit,
       pushUiError,
       renderMaskEditorCanvas,
@@ -3166,10 +3431,13 @@ function AiLabContent() {
     const height = maskHeightRef.current;
     if (!sourcePixels || !alphaMask || width <= 0 || height <= 0) {
       showError("Mask editor data is unavailable.");
+      setMaskEditorState("error");
       setMaskEditorError("Не удалось применить маску: данные редактора недоступны.");
+      emitMaskEvent("mask_error", { stage: "apply", message: "Mask editor data is unavailable." });
       return;
     }
 
+    setMaskEditorState("saving");
     setMaskEditorError(null);
     setMaskApplying(true);
     try {
@@ -3195,6 +3463,7 @@ function AiLabContent() {
       }
       context.putImageData(new ImageData(output, width, height), 0, 0);
       const outputDataUrl = canvas.toDataURL("image/png");
+      const appliedAt = new Date().toISOString();
 
       setInputReferences((prev) => {
         const normalized = prev.filter(isAiReferenceItem);
@@ -3206,23 +3475,40 @@ function AiLabContent() {
                 previewUrl: outputDataUrl,
                 type: "image/png",
                 originalUrl: item.originalUrl ?? item.url,
+                hasManualMask: true,
+                maskVersion: Math.max(1, (item.maskVersion ?? 0) + 1),
+                maskUpdatedAt: appliedAt,
+                preprocessVersion: Math.max(1, (item.preprocessVersion ?? 0) + 1),
+                preprocessMeta: {
+                  ...(item.preprocessMeta ?? {}),
+                  source: "manual_mask",
+                  appliedAt,
+                  featherPx: maskFeatherPx,
+                  smooth: maskSmoothLevel,
+                  shiftEdge: maskShiftEdgePx,
+                },
               }
             : item
         );
         setUploadPreview(next[0]?.previewUrl ?? null);
         return next;
       });
+      setMaskEditorState("applied");
+      emitMaskEvent("mask_applied", { refId: maskEditorRefId, appliedAt });
       showSuccess("Ручная маска применена.");
       closeMaskEditor();
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to apply mask.";
+      setMaskEditorState("error");
       setMaskEditorError("Не удалось применить маску.");
+      emitMaskEvent("mask_error", { stage: "apply", message });
       pushUiError(message);
     } finally {
       setMaskApplying(false);
     }
   }, [
     closeMaskEditor,
+    emitMaskEvent,
     maskApplying,
     maskEditorRefId,
     maskFeatherPx,
@@ -3445,6 +3731,19 @@ function AiLabContent() {
       showError("Добавьте промпт или референс перед генерацией.");
       return;
     }
+    if (mode === "image") {
+      const hasManualMask = validInputReferences.some((ref) => ref.hasManualMask);
+      emitAiLabEvent(
+        hasManualMask ? "image_to_3d_started_with_mask" : "image_to_3d_started_without_mask",
+        {
+          references: validInputReferences.length,
+          hasPrompt: Boolean(prompt.trim()),
+          qualityPreset,
+          stylePreset,
+          advancedPreset,
+        }
+      );
+    }
 
     setServerJobLoading(true);
     setServerJobError(null);
@@ -3515,6 +3814,7 @@ function AiLabContent() {
       setServerJobLoading(false);
     }
   }, [
+    emitAiLabEvent,
     fetchJobHistory,
     fetchTokenHistory,
     fetchTokens,
@@ -3781,6 +4081,11 @@ function AiLabContent() {
                   : "image/*",
               previewUrl,
               originalUrl: previewUrl,
+              hasManualMask: false,
+              maskVersion: 0,
+              maskUpdatedAt: null,
+              preprocessVersion: 0,
+              preprocessMeta: null,
             } as AiReferenceItem;
           })
           .filter(Boolean) as AiReferenceItem[]
@@ -4877,9 +5182,10 @@ function AiLabContent() {
   const primaryReferenceIsLocalImage = primaryReferenceSource.startsWith("data:image/");
   const primaryReferenceHasMask = Boolean(
     primaryInputReference &&
-      typeof primaryInputReference.originalUrl === "string" &&
-      primaryInputReference.originalUrl.startsWith("data:image/") &&
-      primaryInputReference.originalUrl !== primaryReferenceSource
+      (primaryInputReference.hasManualMask ||
+        (typeof primaryInputReference.originalUrl === "string" &&
+          primaryInputReference.originalUrl.startsWith("data:image/") &&
+          primaryInputReference.originalUrl !== primaryReferenceSource))
   );
   const primaryRemoveBgDisabledReason = !primaryInputReference
     ? "Сначала загрузите изображение."
@@ -5849,6 +6155,7 @@ function AiLabContent() {
                               event.stopPropagation();
                               setPreviewToolsPinned(true);
                               setPreviewToolsHintVisible(false);
+                              setMaskDiscoveryHintVisible(false);
                               if (!primaryInputReference || primaryMaskDisabledReason) return;
                               void handleOpenMaskEditor(primaryInputReference.id);
                             }}
@@ -5879,8 +6186,27 @@ function AiLabContent() {
                         {previewToolsHintVisible && (
                           <div className="pointer-events-none absolute bottom-3 left-3 rounded-full border border-cyan-300/35 bg-[#07131a]/90 px-3 py-1 text-[10px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-cyan-100 shadow-[0_0_14px_rgba(34,211,238,0.18)]">
                             {isNarrowViewport
-                              ? "Нажмите на превью, чтобы открыть инструменты"
-                              : "Наведите на превью, чтобы открыть инструменты"}
+                              ? "Нажмите на превью: Убрать фон + Маска улучшают image->3D"
+                              : "Наведите на превью: Убрать фон + Маска улучшают image->3D"}
+                          </div>
+                        )}
+                        {maskDiscoveryHintVisible && (
+                          <div className="absolute left-3 top-3 max-w-[280px] rounded-xl border border-violet-300/35 bg-[#120a1d]/92 px-3 py-2 text-[10px] text-violet-100 shadow-[0_0_18px_rgba(167,139,250,0.24)]">
+                            <div className="flex items-start justify-between gap-2">
+                              <p className="leading-4">
+                                Редактор маски уточняет края объекта и обычно повышает качество image-&gt;3D.
+                              </p>
+                              <button
+                                type="button"
+                                onClick={(event) => {
+                                  event.stopPropagation();
+                                  setMaskDiscoveryHintVisible(false);
+                                }}
+                                className="rounded-full border border-violet-300/45 px-2 py-0.5 text-[9px] uppercase tracking-[0.12em] text-violet-100 transition hover:border-violet-200"
+                              >
+                                Ок
+                              </button>
+                            </div>
                           </div>
                         )}
                       </>
@@ -5932,6 +6258,11 @@ function AiLabContent() {
                                   <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/70">
                                     {ref.name}
                                   </p>
+                                  {Boolean(ref.hasManualMask) && (
+                                    <p className="mt-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-emerald-200/85">
+                                      mask v{Math.max(1, ref.maskVersion ?? 1)}
+                                    </p>
+                                  )}
                                   <div className="mt-1 flex flex-wrap gap-1">
                                     <button
                                       type="button"
@@ -5940,6 +6271,22 @@ function AiLabContent() {
                                       className="rounded-full border border-amber-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
                                     >
                                       MASK+
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setPreviewToolsHintVisible(false);
+                                        setMaskDiscoveryHintVisible(false);
+                                        void handleOpenMaskEditor(ref.id);
+                                      }}
+                                      disabled={
+                                        !((ref.previewUrl || ref.url || "").trim().startsWith("data:image/")) ||
+                                        maskEditorLoading ||
+                                        maskApplying
+                                      }
+                                      className="rounded-full border border-violet-300/45 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                      Маска
                                     </button>
                                     <button
                                       type="button"
@@ -7471,7 +7818,14 @@ function AiLabContent() {
                 <p className="mt-1 text-sm text-white/75">
                   {maskEditorReference?.name || maskImageNameRef.current || "reference"}
                 </p>
-                <p className="mt-1 text-[11px] text-amber-200/85">Умная маска скоро появится. Сейчас доступна ручная и магнитная доводка.</p>
+                <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <span
+                    className={`rounded-full border px-2.5 py-1 text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.18em] ${MASK_EDITOR_STATE_BADGE_CLASS[maskEditorState]}`}
+                  >
+                    {MASK_EDITOR_STATE_LABEL_RU[maskEditorState]}
+                  </span>
+                  <p className="text-[11px] text-amber-200/85">Умная маска скоро появится. Сейчас доступна ручная и магнитная доводка.</p>
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <button
@@ -7829,11 +8183,19 @@ function AiLabContent() {
             <div className="mt-4 flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button
                 type="button"
+                onClick={handleMaskReset}
+                disabled={maskApplying}
+                className="rounded-2xl border border-amber-300/45 bg-amber-500/10 px-4 py-3 text-xs font-semibold uppercase tracking-[0.26em] text-amber-100 transition hover:border-amber-200 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
+              >
+                Сбросить
+              </button>
+              <button
+                type="button"
                 onClick={closeMaskEditor}
                 disabled={maskApplying}
                 className="rounded-2xl border border-white/15 bg-white/5 px-4 py-3 text-xs font-semibold uppercase tracking-[0.26em] text-white/70 transition hover:border-white/40 hover:text-white disabled:cursor-not-allowed disabled:opacity-45"
               >
-                Закрыть
+                Отмена
               </button>
               <button
                 type="button"
