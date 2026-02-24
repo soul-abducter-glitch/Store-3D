@@ -195,11 +195,24 @@ const toPublicError = (error: unknown, fallback: string) => {
 };
 
 const isRecoverableListError = (error: unknown) => {
-  const raw = error instanceof Error ? error.message : String(error || "");
-  if (!raw) return false;
+  const raw =
+    [
+      error instanceof Error ? error.message : String(error || ""),
+      (error as any)?.cause instanceof Error
+        ? (error as any).cause.message
+        : String((error as any)?.cause || ""),
+      String((error as any)?.query || ""),
+    ]
+      .filter(Boolean)
+      .join(" | ")
+      .trim();
+  const code = String((error as any)?.code || (error as any)?.cause?.code || "").trim();
+  if (!raw && !code) return false;
   return (
+    code === "42703" ||
     /relation\\s+\"?.+\"?\\s+does not exist/i.test(raw) ||
     /column\\s+\"?.+\"?\\s+does not exist/i.test(raw) ||
+    /result_asset_id_id/i.test(raw) ||
     /payload_locked_documents/i.test(raw) ||
     /ECONNREFUSED/i.test(raw) ||
     /ENOTFOUND/i.test(raw) ||

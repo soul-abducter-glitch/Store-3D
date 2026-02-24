@@ -130,6 +130,7 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "retry_count" integer NOT NULL DEFAULT 0,
         "eta_seconds" integer,
         "result_asset_id" integer,
+        "result_asset_id_id" integer,
         "reserved_tokens" integer NOT NULL DEFAULT 0,
         "result_model_url" text,
         "result_preview_url" text,
@@ -220,6 +221,18 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "result_asset_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "result_asset_id_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `UPDATE ${aiJobsTable} SET "result_asset_id_id" = "result_asset_id" WHERE "result_asset_id_id" IS NULL AND "result_asset_id" IS NOT NULL`
+  );
+  await executeRaw(
+    payload,
+    `UPDATE ${aiJobsTable} SET "result_asset_id" = "result_asset_id_id" WHERE "result_asset_id" IS NULL AND "result_asset_id_id" IS NOT NULL`
   );
   await executeRaw(
     payload,
