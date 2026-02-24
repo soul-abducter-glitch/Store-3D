@@ -1,5 +1,7 @@
 import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import type { NextRequest } from "next/server";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { Readable } from "stream";
 
 const publicBucket = process.env.S3_PUBLIC_BUCKET || process.env.S3_BUCKET;
@@ -18,6 +20,8 @@ const uploadSecretAccessKey =
   process.env.S3_UPLOAD_SECRET_ACCESS_KEY || process.env.S3_SECRET_ACCESS_KEY;
 const uploadRegion = process.env.S3_UPLOAD_REGION || process.env.S3_REGION || "us-east-1";
 const prefix = "media";
+const LOCAL_MODELS_DIR = path.join(process.cwd(), "public", "models");
+const LOCAL_FALLBACK_MODEL = "DamagedHelmet.glb";
 const publicBase = publicEndpoint ? publicEndpoint.replace(/\/$/, "") : "";
 const uploadBase = uploadEndpoint ? uploadEndpoint.replace(/\/$/, "") : "";
 
@@ -49,12 +53,41 @@ const guessContentType = (filename: string) => {
   return "application/octet-stream";
 };
 
+const isModelAsset = (filename: string) =>
+  /\.(glb|gltf|stl)$/i.test(filename);
+
+const isSafeModelFilename = (filename: string) =>
+  /^[a-zA-Z0-9._-]+$/.test(filename) && isModelAsset(filename);
+
 const toWebStream = (body: any) => {
   if (!body) return null;
   if (body instanceof Readable) {
     return Readable.toWeb(body);
   }
   return body;
+};
+
+const serveLocalModel = async (filename: string) => {
+  if (!isSafeModelFilename(filename)) return null;
+  const fullPath = path.join(LOCAL_MODELS_DIR, filename);
+  try {
+    const bytes = await readFile(fullPath);
+    const headers = new Headers();
+    headers.set("Content-Type", guessContentType(filename));
+    headers.set("Cache-Control", "public, max-age=31536000, immutable");
+    return new Response(bytes, { headers });
+  } catch {
+    return null;
+  }
+};
+
+const serveLocalModelWithFallback = async (filename: string) => {
+  const exact = await serveLocalModel(filename);
+  if (exact) return exact;
+  if (isModelAsset(filename) && filename !== LOCAL_FALLBACK_MODEL) {
+    return serveLocalModel(LOCAL_FALLBACK_MODEL);
+  }
+  return null;
 };
 
 export const runtime = "nodejs";
@@ -105,6 +138,10 @@ export async function GET(
   const base = useUploadBucket ? uploadBase || publicBase : publicBase;
 
   if (!client || !bucket) {
+    const localModel = await serveLocalModelWithFallback(safeName);
+    if (localModel) {
+      return localModel;
+    }
     const fallback = await fetchPublicObject(base, bucket, key, safeName);
     if (fallback) {
       return fallback;
@@ -129,11 +166,19 @@ export async function GET(
     return new Response(body, { headers });
   } catch (error: any) {
     if (error?.name === "NoSuchKey" || error?.$metadata?.httpStatusCode === 404) {
+      const localModel = await serveLocalModelWithFallback(safeName);
+      if (localModel) {
+        return localModel;
+      }
       return new Response("Not found", { status: 404 });
     }
     const fallback = await fetchPublicObject(base, bucket, key, safeName);
     if (fallback) {
       return fallback;
+    }
+    const localModel = await serveLocalModelWithFallback(safeName);
+    if (localModel) {
+      return localModel;
     }
     console.error("S3 proxy error", error);
     return new Response("Failed to load file", { status: 500 });
