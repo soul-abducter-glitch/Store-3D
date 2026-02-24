@@ -22,7 +22,6 @@ const uploadRegion = process.env.S3_UPLOAD_REGION || process.env.S3_REGION || "u
 const prefix = "media";
 const LOCAL_MODELS_DIR = path.join(process.cwd(), "public", "models");
 const LOCAL_MEDIA_DIR = path.join(process.cwd(), "media");
-const LOCAL_FALLBACK_MODEL = "DamagedHelmet.glb";
 const publicBase = publicEndpoint ? publicEndpoint.replace(/\/$/, "") : "";
 const uploadBase = uploadEndpoint ? uploadEndpoint.replace(/\/$/, "") : "";
 
@@ -98,12 +97,7 @@ const serveLocalMediaFile = async (filename: string) => {
 };
 
 const serveLocalModelWithFallback = async (filename: string) => {
-  const exact = await serveLocalModel(filename);
-  if (exact) return exact;
-  if (isModelAsset(filename) && filename !== LOCAL_FALLBACK_MODEL) {
-    return serveLocalModel(LOCAL_FALLBACK_MODEL);
-  }
-  return null;
+  return serveLocalModel(filename);
 };
 
 export const runtime = "nodejs";

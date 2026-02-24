@@ -233,14 +233,13 @@ export async function GET(request: Request) {
         },
         {
           headers: {
-            "Cache-Control": "public, max-age=60, stale-while-revalidate=600",
+            "Cache-Control": "no-store",
           },
         }
       );
     }
 
     const fallback = buildFallbackCatalogData();
-    cacheStore[CACHE_KEY] = { ts: now, data: fallback };
     return NextResponse.json(
       {
         ...fallback,
@@ -251,7 +250,7 @@ export async function GET(request: Request) {
       },
       {
         headers: {
-          "Cache-Control": "public, max-age=60, stale-while-revalidate=600",
+          "Cache-Control": "no-store",
         },
       }
     );

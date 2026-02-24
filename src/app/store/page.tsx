@@ -951,7 +951,7 @@ const accentOptions: Array<{ value: string; label: string }> = [
   { value: "#94a3b8", label: "SLATE" },
 ];
 
-const CATALOG_CACHE_KEY = "store3d_catalog_cache";
+const CATALOG_CACHE_KEY = "store3d_catalog_cache_v2";
 const CATALOG_CACHE_TTL_MS = 5 * 60 * 1000;
 const CATALOG_REQUEST_TIMEOUT_MS = 15_000;
 const CATALOG_REQUEST_RETRY_DELAY_MS = 1200;
@@ -1504,6 +1504,7 @@ export default function Home() {
     const fetchCatalog = async (attempt = 0): Promise<{
       products: ProductDoc[];
       categories: CategoryDoc[];
+      degraded: boolean;
     }> => {
       const attemptController = new AbortController();
       const timeoutId = window.setTimeout(() => attemptController.abort(), CATALOG_REQUEST_TIMEOUT_MS);
@@ -1511,9 +1512,9 @@ export default function Home() {
       controller.signal.addEventListener("abort", handleAbort, { once: true });
 
       try {
-        const response = await fetch(buildApiUrl("/api/catalog"), {
+        const response = await fetch(buildApiUrl("/api/catalog?fresh=1"), {
           signal: attemptController.signal,
-          cache: "default",
+          cache: "no-store",
         });
         if (!response.ok) {
           throw response;
@@ -1522,6 +1523,7 @@ export default function Home() {
         return {
           products: Array.isArray(data?.products) ? data.products : data?.docs ?? [],
           categories: Array.isArray(data?.categories) ? data.categories : [],
+          degraded: Boolean(data?.degraded),
         };
       } catch (error) {
         if (attempt < CATALOG_REQUEST_MAX_RETRIES && !controller.signal.aborted) {
@@ -1557,6 +1559,17 @@ export default function Home() {
       }
 
       if (catalogResult.status === "fulfilled") {
+        if (catalogResult.value.degraded) {
+          if (!hasCache) {
+            setCategoriesData([]);
+            setProducts([]);
+          }
+          setCategoriesError(true);
+          setProductsError(true);
+          setDataLoading(false);
+          return;
+        }
+
         const nextCategories = Array.isArray(catalogResult.value?.categories)
           ? catalogResult.value.categories
           : [];
