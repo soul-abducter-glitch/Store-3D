@@ -10,6 +10,9 @@ import {
   parseAssetIdFromPipelineJobId,
   upsertPipelineJob,
 } from "@/lib/aiAssetPipeline";
+import { transitionJob } from "@/lib/aiJobStateMachine";
+import { normalizeAiJobStatus } from "@/lib/aiJobStatus";
+import { releaseAiJobTokens } from "@/lib/aiTokenLifecycle";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -120,23 +123,21 @@ export async function POST(
       return NextResponse.json({ success: false, error: "Forbidden." }, { status: 403 });
     }
 
-    const status = toNonEmptyString(job?.status).toLowerCase();
-    if (status === "completed" || status === "failed") {
+    const status = normalizeAiJobStatus(job?.status);
+    if (status === "completed" || status === "failed" || status === "cancelled") {
       return NextResponse.json(
         { success: true, canceled: false, message: "Job is already finished." },
         { status: 200 }
       );
     }
 
-    await payload.update({
-      collection: "ai_jobs",
-      id: job.id,
-      overrideAccess: true,
-      data: {
-        status: "failed",
-        errorMessage: "Canceled by user.",
-      },
+    const cancelled = await transitionJob(payload as any, job.id, "cancelled", {
+      eventType: "job.cancelled",
+      actor: "user",
+      errorCode: "CANCELLED_BY_USER",
+      errorMessage: "Canceled by user.",
     });
+    await releaseAiJobTokens(payload as any, cancelled);
 
     return NextResponse.json({ success: true, canceled: true, type: "generation" }, { status: 200 });
   } catch (error) {
@@ -144,4 +145,3 @@ export async function POST(
     return NextResponse.json({ success: false, error: "Failed to cancel job." }, { status: 500 });
   }
 }
-

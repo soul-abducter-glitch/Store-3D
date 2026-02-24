@@ -8,6 +8,7 @@ import {
   AbortMultipartUploadCommand,
 } from "@aws-sdk/client-s3";
 import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -15,6 +16,7 @@ export const runtime = "nodejs";
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const PART_SIZE_BYTES = 5 * 1024 * 1024;
 const SIGNED_URL_TTL_SECONDS = 900;
+const MULTIPART_WINDOW_MS = 10 * 60 * 1000;
 
 const ALLOWED_EXTENSIONS = new Set([".stl", ".obj", ".glb", ".gltf"]);
 const EXTENSION_CONTENT_TYPE: Record<string, string> = {
@@ -99,6 +101,14 @@ const parseJson = async (request: NextRequest) => {
   }
 };
 
+const resolveMultipartRate = (action: string) => {
+  if (action === "part") return { scope: "customer-upload:multipart:part", max: 240 };
+  if (action === "start") return { scope: "customer-upload:multipart:start", max: 16 };
+  if (action === "complete") return { scope: "customer-upload:multipart:complete", max: 40 };
+  if (action === "abort") return { scope: "customer-upload:multipart:abort", max: 40 };
+  return { scope: "customer-upload:multipart:other", max: 20 };
+};
+
 export async function POST(request: NextRequest) {
   const requestId = randomBytes(3).toString("hex");
   try {
@@ -112,6 +122,26 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { success: false, error: "Missing action." },
         { status: 400 }
+      );
+    }
+
+    const multipartRate = resolveMultipartRate(String(action));
+    const rate = checkRateLimit({
+      scope: multipartRate.scope,
+      key: resolveClientIp(request.headers),
+      max: multipartRate.max,
+      windowMs: MULTIPART_WINDOW_MS,
+    });
+    if (!rate.ok) {
+      const retryAfter = Math.max(1, Math.ceil(Math.max(0, rate.retryAfterMs) / 1000));
+      return NextResponse.json(
+        { success: false, error: "Too many upload requests. Please retry later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfter),
+          },
+        }
       );
     }
 

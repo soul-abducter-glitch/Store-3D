@@ -72,6 +72,10 @@ const ensureLockedDocsColumns = async (payload: PayloadLike, schema: string) => 
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_job_events_id" integer`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${lockRelsTable} ADD COLUMN IF NOT EXISTS "ai_subscriptions_id" integer`
   );
   await executeRaw(
@@ -89,6 +93,7 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   const aiJobsTable = qualifiedTable(schema, "ai_jobs");
   const aiAssetsTable = qualifiedTable(schema, "ai_assets");
   const aiTokenEventsTable = qualifiedTable(schema, "ai_token_events");
+  const aiJobEventsTable = qualifiedTable(schema, "ai_job_events");
   const aiSubscriptionsTable = qualifiedTable(schema, "ai_subscriptions");
   const processedWebhooksTable = qualifiedTable(schema, "processed_webhooks");
   const supportTicketsTable = qualifiedTable(schema, "support_tickets");
@@ -105,10 +110,13 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
       CREATE TABLE IF NOT EXISTS ${aiJobsTable} (
         "id" serial PRIMARY KEY,
         "user_id" integer NOT NULL,
+        "guest_token" varchar,
         "status" varchar NOT NULL DEFAULT 'queued',
         "mode" varchar NOT NULL DEFAULT 'image',
         "provider" varchar DEFAULT 'mock',
         "provider_job_id" varchar,
+        "idempotency_key" varchar,
+        "request_hash" varchar,
         "parent_job_id" integer,
         "parent_asset_id" integer,
         "progress" numeric NOT NULL DEFAULT 0,
@@ -116,12 +124,19 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
         "source_type" varchar DEFAULT 'none',
         "source_url" text,
         "input_refs" jsonb,
+        "error_code" varchar,
         "error_message" text,
+        "error_details" jsonb,
+        "retry_count" integer NOT NULL DEFAULT 0,
+        "eta_seconds" integer,
+        "result_asset_id" integer,
+        "reserved_tokens" integer NOT NULL DEFAULT 0,
         "result_model_url" text,
         "result_preview_url" text,
         "result_format" varchar DEFAULT 'unknown',
         "started_at" timestamptz,
         "completed_at" timestamptz,
+        "failed_at" timestamptz,
         "updated_at" timestamptz DEFAULT now(),
         "created_at" timestamptz DEFAULT now()
       )
@@ -138,6 +153,10 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "guest_token" varchar`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "mode" varchar DEFAULT 'image'`
   );
   await executeRaw(
@@ -147,6 +166,14 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "provider_job_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "idempotency_key" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "request_hash" varchar`
   );
   await executeRaw(
     payload,
@@ -176,6 +203,30 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "error_code" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "error_details" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "retry_count" integer DEFAULT 0`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "eta_seconds" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "result_asset_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "reserved_tokens" integer DEFAULT 0`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "result_model_url" text`
   );
   await executeRaw(
@@ -196,6 +247,10 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "failed_at" timestamptz`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${aiJobsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
   );
   await executeRaw(
@@ -206,6 +261,10 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_jobs_user_idx" ON ${aiJobsTable} ("user_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_jobs_guest_token_idx" ON ${aiJobsTable} ("guest_token")`
   );
   await executeRaw(
     payload,
@@ -226,6 +285,62 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_jobs_created_at_idx" ON ${aiJobsTable} ("created_at")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_jobs_idempotency_key_idx" ON ${aiJobsTable} ("idempotency_key")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_jobs_request_hash_idx" ON ${aiJobsTable} ("request_hash")`
+  );
+  await executeRaw(
+    payload,
+    `
+      WITH ranked AS (
+        SELECT
+          "id",
+          "user_id",
+          "idempotency_key",
+          ROW_NUMBER() OVER (
+            PARTITION BY "user_id", "idempotency_key"
+            ORDER BY "created_at" DESC, "id" DESC
+          ) AS rn
+        FROM ${aiJobsTable}
+        WHERE "user_id" IS NOT NULL AND "idempotency_key" IS NOT NULL
+      )
+      UPDATE ${aiJobsTable} AS t
+      SET "idempotency_key" = NULL
+      WHERE t."id" IN (SELECT "id" FROM ranked WHERE rn > 1)
+    `
+  );
+  await executeRaw(
+    payload,
+    `
+      WITH ranked AS (
+        SELECT
+          "id",
+          "guest_token",
+          "idempotency_key",
+          ROW_NUMBER() OVER (
+            PARTITION BY "guest_token", "idempotency_key"
+            ORDER BY "created_at" DESC, "id" DESC
+          ) AS rn
+        FROM ${aiJobsTable}
+        WHERE "guest_token" IS NOT NULL AND "idempotency_key" IS NOT NULL
+      )
+      UPDATE ${aiJobsTable} AS t
+      SET "idempotency_key" = NULL
+      WHERE t."id" IN (SELECT "id" FROM ranked WHERE rn > 1)
+    `
+  );
+  await executeRaw(
+    payload,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "ai_jobs_user_idem_uidx" ON ${aiJobsTable} ("user_id", "idempotency_key") WHERE "user_id" IS NOT NULL AND "idempotency_key" IS NOT NULL`
+  );
+  await executeRaw(
+    payload,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "ai_jobs_guest_idem_uidx" ON ${aiJobsTable} ("guest_token", "idempotency_key") WHERE "guest_token" IS NOT NULL AND "idempotency_key" IS NOT NULL`
   );
 
   await executeRaw(
@@ -373,8 +488,11 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
     `
       CREATE TABLE IF NOT EXISTS ${aiTokenEventsTable} (
         "id" serial PRIMARY KEY,
+        "job_id" integer,
         "user_id" integer NOT NULL,
         "reason" varchar NOT NULL DEFAULT 'adjust',
+        "type" varchar NOT NULL DEFAULT 'adjust',
+        "amount" integer NOT NULL DEFAULT 0,
         "delta" integer NOT NULL DEFAULT 0,
         "balance_after" integer NOT NULL DEFAULT 0,
         "source" varchar NOT NULL DEFAULT 'system',
@@ -393,7 +511,19 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "job_id" integer`
+  );
+  await executeRaw(
+    payload,
     `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "reason" varchar DEFAULT 'adjust'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "type" varchar DEFAULT 'adjust'`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiTokenEventsTable} ADD COLUMN IF NOT EXISTS "amount" integer DEFAULT 0`
   );
   await executeRaw(
     payload,
@@ -434,7 +564,15 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   );
   await executeRaw(
     payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_job_idx" ON ${aiTokenEventsTable} ("job_id")`
+  );
+  await executeRaw(
+    payload,
     `CREATE INDEX IF NOT EXISTS "ai_token_events_reason_idx" ON ${aiTokenEventsTable} ("reason")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_token_events_type_idx" ON ${aiTokenEventsTable} ("type")`
   );
   await executeRaw(
     payload,
@@ -447,6 +585,115 @@ export const ensureAiLabSchema = async (payload: PayloadLike) => {
   await executeRaw(
     payload,
     `CREATE INDEX IF NOT EXISTS "ai_token_events_created_at_idx" ON ${aiTokenEventsTable} ("created_at")`
+  );
+  await executeRaw(
+    payload,
+    `
+      WITH ranked AS (
+        SELECT
+          "id",
+          "idempotency_key",
+          ROW_NUMBER() OVER (
+            PARTITION BY "idempotency_key"
+            ORDER BY "created_at" DESC, "id" DESC
+          ) AS rn
+        FROM ${aiTokenEventsTable}
+        WHERE "idempotency_key" IS NOT NULL
+      )
+      UPDATE ${aiTokenEventsTable} AS t
+      SET "idempotency_key" = NULL
+      WHERE t."id" IN (SELECT "id" FROM ranked WHERE rn > 1)
+    `
+  );
+  await executeRaw(
+    payload,
+    `CREATE UNIQUE INDEX IF NOT EXISTS "ai_token_events_idempotency_uidx" ON ${aiTokenEventsTable} ("idempotency_key") WHERE "idempotency_key" IS NOT NULL`
+  );
+
+  await executeRaw(
+    payload,
+    `
+      CREATE TABLE IF NOT EXISTS ${aiJobEventsTable} (
+        "id" serial PRIMARY KEY,
+        "job_id" integer NOT NULL,
+        "user_id" integer NOT NULL,
+        "event_type" varchar NOT NULL,
+        "status_before" varchar,
+        "status_after" varchar,
+        "provider" varchar,
+        "trace_id" varchar,
+        "request_id" varchar,
+        "payload" jsonb,
+        "updated_at" timestamptz DEFAULT now(),
+        "created_at" timestamptz DEFAULT now()
+      )
+    `
+  );
+
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "job_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "user_id" integer`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "event_type" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "status_before" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "status_after" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "provider" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "trace_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "request_id" varchar`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "payload" jsonb`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "updated_at" timestamptz DEFAULT now()`
+  );
+  await executeRaw(
+    payload,
+    `ALTER TABLE ${aiJobEventsTable} ADD COLUMN IF NOT EXISTS "created_at" timestamptz DEFAULT now()`
+  );
+
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_job_events_job_idx" ON ${aiJobEventsTable} ("job_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_job_events_user_idx" ON ${aiJobEventsTable} ("user_id")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_job_events_event_type_idx" ON ${aiJobEventsTable} ("event_type")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_job_events_status_after_idx" ON ${aiJobEventsTable} ("status_after")`
+  );
+  await executeRaw(
+    payload,
+    `CREATE INDEX IF NOT EXISTS "ai_job_events_created_at_idx" ON ${aiJobEventsTable} ("created_at")`
   );
 
   await executeRaw(

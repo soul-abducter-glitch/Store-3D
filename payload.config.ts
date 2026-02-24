@@ -13,6 +13,7 @@ import { Users } from "./src/payload/collections/Users.ts";
 import { AiJobs } from "./src/payload/collections/AiJobs.ts";
 import { AiAssets } from "./src/payload/collections/AiAssets.ts";
 import { AiTokenEvents } from "./src/payload/collections/AiTokenEvents.ts";
+import { AiJobEvents } from "./src/payload/collections/AiJobEvents.ts";
 import { AiSubscriptions } from "./src/payload/collections/AiSubscriptions.ts";
 import { ProcessedWebhooks } from "./src/payload/collections/ProcessedWebhooks.ts";
 import { SupportTickets } from "./src/payload/collections/SupportTickets.ts";
@@ -332,6 +333,7 @@ export default buildConfig({
     AiJobs,
     AiAssets,
     AiTokenEvents,
+    AiJobEvents,
     AiSubscriptions,
     ProcessedWebhooks,
     SupportTickets,

@@ -2,12 +2,15 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_SOURCE_SIZE_BYTES = 12 * 1024 * 1024;
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+const BG_REMOVE_RATE_LIMIT_WINDOW_MS = 10 * 60 * 1000;
+const BG_REMOVE_RATE_LIMIT_MAX = 20;
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
 
@@ -55,6 +58,25 @@ const isAllowedImageType = (mimeType: string) =>
 
 export async function POST(request: NextRequest) {
   try {
+    const rate = checkRateLimit({
+      scope: "ai:bg-remove",
+      key: resolveClientIp(request.headers),
+      max: BG_REMOVE_RATE_LIMIT_MAX,
+      windowMs: BG_REMOVE_RATE_LIMIT_WINDOW_MS,
+    });
+    if (!rate.ok) {
+      const retryAfter = Math.max(1, Math.ceil(Math.max(0, rate.retryAfterMs) / 1000));
+      return NextResponse.json(
+        { success: false, error: "Too many requests. Please retry later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfter),
+          },
+        }
+      );
+    }
+
     const payload = await getPayloadClient();
     const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
     const userId = String((authResult as { user?: { id?: unknown } } | null)?.user?.id ?? "").trim();

@@ -15,15 +15,25 @@ const parsePositiveInt = (value: string | null, fallback: number) => {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 };
 
-const normalizeId = (value: string | null) => {
-  if (!value) return null;
-  const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (/^\d+$/.test(trimmed)) {
-    return Number.parseInt(trimmed, 10);
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  let current: unknown = value;
+  while (typeof current === "object" && current !== null) {
+    current =
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
   }
-  return trimmed;
+  if (current === null || current === undefined) return null;
+  if (typeof current === "number") return current;
+  const raw = String(current).trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return Number.parseInt(raw, 10);
+  return raw;
 };
+
+const normalizeEmail = (value: unknown) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const emptyOrdersResult = (limit: number) => ({
   docs: [],
@@ -63,17 +73,15 @@ export async function GET(request: NextRequest) {
       console.warn("[orders] ensureOrdersSchema failed, continue without schema patch", error);
     }
     const { searchParams } = new URL(request.url);
-    const limit = parsePositiveInt(searchParams.get("limit"), 20);
-    const depth = parsePositiveInt(searchParams.get("depth"), 0);
+    const limit = Math.min(100, parsePositiveInt(searchParams.get("limit"), 20));
+    const depth = Math.max(0, Math.min(2, parsePositiveInt(searchParams.get("depth"), 0)));
+    const auth = await payload.auth({ headers: request.headers }).catch(() => null);
+    const userId = normalizeRelationshipId(auth?.user?.id);
+    const emailTrimmed = normalizeEmail(auth?.user?.email);
+    if (userId === null && !emailTrimmed) {
+      return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    }
 
-    const userId =
-      normalizeId(searchParams.get("where[or][0][user][equals]")) ??
-      normalizeId(searchParams.get("where[user][equals]"));
-    const email =
-      searchParams.get("where[or][1][customer.email][equals]") ??
-      searchParams.get("where[customer.email][equals]");
-
-    const emailTrimmed = typeof email === "string" ? email.trim() : "";
     const where: any = {};
     const or: Array<Record<string, unknown>> = [];
     if (userId !== null) {

@@ -2,12 +2,20 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
+import {
+  attachCustomerUploadOwnerCookie,
+  ensureCustomerUploadOwnerToken,
+  hashCustomerUploadOwnerToken,
+} from "@/lib/customerUploadOwnership";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const UPLOAD_KEY_PREFIX = "media/customer-uploads/";
+const COMPLETE_WINDOW_MS = 10 * 60 * 1000;
+const COMPLETE_MAX_REQUESTS = 30;
 const ALLOWED_EXTENSIONS = new Set([".stl", ".obj", ".glb", ".gltf"]);
 const EXTENSION_CONTENT_TYPE: Record<string, string> = {
   ".stl": "model/stl",
@@ -28,6 +36,26 @@ const EXTENSION_ALLOWED_CONTENT_TYPES: Record<string, string[]> = {
 };
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
+
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  let current: unknown = value;
+  while (typeof current === "object" && current !== null) {
+    current =
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+  }
+  if (current === null || current === undefined) return null;
+  if (typeof current === "number") return current;
+  const raw = String(current).trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+};
+
+const normalizeEmail = (value: unknown) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const getExtension = (filename: string) => {
   const lower = filename.toLowerCase();
@@ -77,13 +105,30 @@ const buildPublicUrl = (bucket: string, key: string) => {
   return `${endpoint}/${bucket}/${key}`;
 };
 
-const buildExistingWhere = (filename: string, size: number, url?: string) => {
+const buildExistingWhere = (args: {
+  filename: string;
+  size: number;
+  url?: string;
+  ownerUserId: string | number | null;
+  ownerEmail: string;
+  ownerSessionHash: string;
+}) => {
+  const { filename, size, url, ownerUserId, ownerEmail, ownerSessionHash } = args;
   const base: any[] = [
     { filename: { equals: filename } },
     { isCustomerUpload: { equals: true } },
   ];
   if (size > 0) {
     base.push({ filesize: { equals: size } });
+  }
+  if (ownerUserId !== null) {
+    base.push({ ownerUser: { equals: ownerUserId as any } });
+  }
+  if (ownerEmail) {
+    base.push({ ownerEmail: { equals: ownerEmail } });
+  }
+  if (ownerSessionHash) {
+    base.push({ ownerSessionHash: { equals: ownerSessionHash } });
   }
 
   const candidates: any[] = [];
@@ -139,7 +184,31 @@ export async function POST(request: NextRequest) {
   const requestId = Math.random().toString(36).slice(2, 8);
   const startedAt = Date.now();
   try {
+    const rate = checkRateLimit({
+      scope: "customer-upload:complete",
+      key: resolveClientIp(request.headers),
+      max: COMPLETE_MAX_REQUESTS,
+      windowMs: COMPLETE_WINDOW_MS,
+    });
+    if (!rate.ok) {
+      const retryAfter = Math.max(1, Math.ceil(Math.max(0, rate.retryAfterMs) / 1000));
+      return NextResponse.json(
+        { success: false, error: "Too many upload finalize requests. Please retry later." },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfter),
+          },
+        }
+      );
+    }
+
     const payload = await getPayloadClient();
+    const auth = await payload.auth({ headers: request.headers }).catch(() => null);
+    const ownerUserId = normalizeRelationshipId(auth?.user?.id);
+    const ownerEmail = normalizeEmail(auth?.user?.email);
+    const ownerToken = ensureCustomerUploadOwnerToken(request);
+    const ownerSessionHash = hashCustomerUploadOwnerToken(ownerToken.token);
     const body = await request.json();
     const filename = typeof body?.filename === "string" ? body.filename : "";
     const size = typeof body?.size === "number" ? body.size : 0;
@@ -201,7 +270,14 @@ export async function POST(request: NextRequest) {
     const fileType = resolveFileType(filename);
     const url = buildPublicUrl(bucket, key);
 
-    const existingWhere = buildExistingWhere(filename, size, url);
+    const existingWhere = buildExistingWhere({
+      filename,
+      size,
+      url,
+      ownerUserId,
+      ownerEmail,
+      ownerSessionHash,
+    });
     const existing = await payload.find({
       collection: "media",
       depth: 0,
@@ -217,7 +293,7 @@ export async function POST(request: NextRequest) {
         id: existingDoc.id,
         url: existingDoc.url,
       });
-      return NextResponse.json(
+      const response = NextResponse.json(
         {
           success: true,
           doc: {
@@ -228,6 +304,8 @@ export async function POST(request: NextRequest) {
         },
         { status: 200 }
       );
+      attachCustomerUploadOwnerCookie(response, ownerToken.token);
+      return response;
     }
 
     console.log("[customer-upload:complete] creating media", {
@@ -248,6 +326,9 @@ export async function POST(request: NextRequest) {
           alt: filename,
           fileType,
           isCustomerUpload: true,
+          ownerUser: ownerUserId ?? undefined,
+          ownerEmail: ownerEmail || undefined,
+          ownerSessionHash: ownerSessionHash || undefined,
           filename: storedFilename,
           mimeType,
           filesize: size,
@@ -265,8 +346,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           success: false,
-          error: extractErrorMessage(error),
-          details: extractErrorDetails(error),
+          error: "Failed to finalize upload.",
         },
         { status: 500 }
       );
@@ -279,7 +359,7 @@ export async function POST(request: NextRequest) {
       ms: Date.now() - startedAt,
     });
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         success: true,
         doc: {
@@ -290,6 +370,8 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
+    attachCustomerUploadOwnerCookie(response, ownerToken.token);
+    return response;
   } catch (error) {
     console.error("[customer-upload:complete] error", {
       requestId,
@@ -300,8 +382,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: extractErrorMessage(error),
-        details: extractErrorDetails(error),
+        error: "Failed to finalize upload.",
       },
       { status: 500 }
     );

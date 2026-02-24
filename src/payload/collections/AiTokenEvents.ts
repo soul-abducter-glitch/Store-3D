@@ -45,6 +45,15 @@ export const AiTokenEvents: CollectionConfig = {
   },
   fields: [
     {
+      name: "job",
+      type: "relationship",
+      relationTo: "ai_jobs",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "user",
       type: "relationship",
       relationTo: "users",
@@ -65,6 +74,32 @@ export const AiTokenEvents: CollectionConfig = {
         { label: "Top Up", value: "topup" },
         { label: "Adjust", value: "adjust" },
       ],
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "type",
+      type: "select",
+      required: true,
+      defaultValue: "adjust",
+      options: [
+        { label: "Reserve", value: "reserve" },
+        { label: "Finalize", value: "finalize" },
+        { label: "Release", value: "release" },
+        { label: "Top Up", value: "topup" },
+        { label: "Adjust", value: "adjust" },
+      ],
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "amount",
+      type: "number",
+      min: 0,
+      defaultValue: 0,
       admin: {
         position: "sidebar",
       },

@@ -53,13 +53,27 @@ export const AiJobs: CollectionConfig = {
       },
     },
     {
+      name: "guestToken",
+      type: "text",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "status",
       type: "select",
       required: true,
       defaultValue: "queued",
       options: [
         { label: "Queued", value: "queued" },
-        { label: "Processing", value: "processing" },
+        { label: "Running", value: "running" },
+        { label: "Provider Pending", value: "provider_pending" },
+        { label: "Provider Processing", value: "provider_processing" },
+        { label: "Postprocessing", value: "postprocessing" },
+        { label: "Retrying", value: "retrying" },
+        { label: "Cancelled", value: "cancelled" },
+        { label: "Processing (legacy)", value: "processing" },
         { label: "Completed", value: "completed" },
         { label: "Failed", value: "failed" },
       ],
@@ -75,6 +89,8 @@ export const AiJobs: CollectionConfig = {
       options: [
         { label: "Image to 3D", value: "image" },
         { label: "Text to 3D", value: "text" },
+        { label: "Image to 3D (v2)", value: "image_to_3d" },
+        { label: "Text to 3D (v2)", value: "text_to_3d" },
       ],
       admin: {
         position: "sidebar",
@@ -94,6 +110,22 @@ export const AiJobs: CollectionConfig = {
       admin: {
         position: "sidebar",
         readOnly: true,
+      },
+    },
+    {
+      name: "idempotencyKey",
+      type: "text",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "requestHash",
+      type: "text",
+      index: true,
+      admin: {
+        position: "sidebar",
       },
     },
     {
@@ -155,6 +187,53 @@ export const AiJobs: CollectionConfig = {
       type: "textarea",
     },
     {
+      name: "errorCode",
+      type: "text",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "errorDetails",
+      type: "json",
+    },
+    {
+      name: "retryCount",
+      type: "number",
+      min: 0,
+      defaultValue: 0,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "etaSeconds",
+      type: "number",
+      min: 0,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "reservedTokens",
+      type: "number",
+      min: 0,
+      defaultValue: 0,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "resultAssetId",
+      type: "relationship",
+      relationTo: "ai_assets",
+      index: true,
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
       name: "result",
       type: "group",
       fields: [
@@ -189,6 +268,13 @@ export const AiJobs: CollectionConfig = {
     },
     {
       name: "completedAt",
+      type: "date",
+      admin: {
+        position: "sidebar",
+      },
+    },
+    {
+      name: "failedAt",
       type: "date",
       admin: {
         position: "sidebar",

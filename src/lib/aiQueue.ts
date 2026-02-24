@@ -37,9 +37,10 @@ const clampProgress = (value: unknown) => {
 
 const normalizeStatus = (value: unknown) => {
   const raw = typeof value === "string" ? value.trim().toLowerCase() : "";
-  if (raw === "queued" || raw === "processing" || raw === "completed" || raw === "failed") {
-    return raw;
-  }
+  if (raw === "queued") return "queued";
+  if (raw === "running" || raw === "provider_pending" || raw === "provider_processing" || raw === "postprocessing" || raw === "retrying" || raw === "processing") return "processing";
+  if (raw === "completed") return "completed";
+  if (raw === "failed" || raw === "cancelled") return "failed";
   return "queued";
 };
 
@@ -78,7 +79,7 @@ export const buildAiQueueSnapshot = async (payload: PayloadLike): Promise<AiQueu
     sort: "createdAt",
     where: {
       status: {
-        in: ["queued", "processing"],
+        in: ["queued", "running", "provider_pending", "provider_processing", "postprocessing", "retrying", "processing"],
       },
     },
     overrideAccess: true,

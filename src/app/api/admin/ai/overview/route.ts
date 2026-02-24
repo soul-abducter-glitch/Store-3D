@@ -321,9 +321,15 @@ export async function GET(request: NextRequest) {
 
     const statusCounts: Record<string, number> = {
       queued: 0,
+      running: 0,
+      provider_pending: 0,
+      provider_processing: 0,
+      postprocessing: 0,
+      retrying: 0,
       processing: 0,
       completed: 0,
       failed: 0,
+      cancelled: 0,
     };
     let staleJobs = 0;
     let oldestActiveAgeMinutes = 0;
@@ -336,7 +342,15 @@ export async function GET(request: NextRequest) {
         statusCounts[status] = (statusCounts[status] || 0) + 1;
       }
 
-      if (status === "queued" || status === "processing") {
+      if (
+        status === "queued" ||
+        status === "running" ||
+        status === "provider_pending" ||
+        status === "provider_processing" ||
+        status === "postprocessing" ||
+        status === "retrying" ||
+        status === "processing"
+      ) {
         const createdMs = parseDateMs(job?.createdAt);
         if (createdMs > 0) {
           const age = Date.now() - createdMs;
@@ -348,7 +362,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const finished = Math.max(0, (statusCounts.completed || 0) + (statusCounts.failed || 0));
+    const finished = Math.max(
+      0,
+      (statusCounts.completed || 0) + (statusCounts.failed || 0) + (statusCounts.cancelled || 0)
+    );
     const successRate = finished > 0 ? Number((((statusCounts.completed || 0) / finished) * 100).toFixed(2)) : 0;
 
     const topUsers = aggregateUsers(events).slice(0, 10);

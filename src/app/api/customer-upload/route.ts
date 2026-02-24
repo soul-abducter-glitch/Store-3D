@@ -2,6 +2,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../payload.config";
+import {
+  attachCustomerUploadOwnerCookie,
+  ensureCustomerUploadOwnerToken,
+  hashCustomerUploadOwnerToken,
+} from "@/lib/customerUploadOwnership";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -27,6 +33,28 @@ const resolveMimeType = (filename: string, fallback: string | undefined) => {
 
 const MAX_UPLOAD_BYTES = 100 * 1024 * 1024;
 const CREATE_TIMEOUT_MS = 300_000;
+const CUSTOMER_UPLOAD_WINDOW_MS = 10 * 60 * 1000;
+const CUSTOMER_UPLOAD_MAX_REQUESTS = 12;
+
+const normalizeRelationshipId = (value: unknown): string | number | null => {
+  let current: unknown = value;
+  while (typeof current === "object" && current !== null) {
+    current =
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).id ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown }).value ??
+      (current as { id?: unknown; value?: unknown; _id?: unknown })._id ??
+      null;
+  }
+  if (current === null || current === undefined) return null;
+  if (typeof current === "number") return current;
+  const raw = String(current).trim();
+  if (!raw) return null;
+  if (/^\d+$/.test(raw)) return Number(raw);
+  return raw;
+};
+
+const normalizeEmail = (value: unknown) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const extractErrorMessage = (error: unknown) => {
   if (!error) return "Failed to upload file.";
@@ -105,6 +133,9 @@ const withTimeout = async <T>(
   }
 };
 
+const toRetryAfterSec = (retryAfterMs: number) =>
+  Math.max(1, Math.ceil(Math.max(0, retryAfterMs) / 1000));
+
 export async function POST(request: NextRequest) {
   try {
     const requestStartedAt = Date.now();
@@ -118,7 +149,33 @@ export async function POST(request: NextRequest) {
         });
       });
     }
+    const rate = checkRateLimit({
+      scope: "customer-upload:direct",
+      key: resolveClientIp(request.headers),
+      max: CUSTOMER_UPLOAD_MAX_REQUESTS,
+      windowMs: CUSTOMER_UPLOAD_WINDOW_MS,
+    });
+    if (!rate.ok) {
+      const retryAfter = toRetryAfterSec(rate.retryAfterMs);
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many upload attempts. Please retry later.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfter),
+          },
+        }
+      );
+    }
     const payload = await getPayloadClient();
+    const auth = await payload.auth({ headers: request.headers }).catch(() => null);
+    const ownerUser = normalizeRelationshipId(auth?.user?.id);
+    const ownerEmail = normalizeEmail(auth?.user?.email);
+    const ownerToken = ensureCustomerUploadOwnerToken(request);
+    const ownerSessionHash = hashCustomerUploadOwnerToken(ownerToken.token);
     console.log("[customer-upload] parsing formData", { requestId });
     const formData = await request.formData();
     const file = formData.get("file");
@@ -184,6 +241,9 @@ export async function POST(request: NextRequest) {
             alt: filename,
             fileType,
             isCustomerUpload: true,
+            ownerUser: ownerUser ?? undefined,
+            ownerEmail: ownerEmail || undefined,
+            ownerSessionHash: ownerSessionHash || undefined,
           },
           file: {
             data: buffer,
@@ -212,6 +272,11 @@ export async function POST(request: NextRequest) {
           disableTransaction: true,
           data: {
             alt: filename,
+            fileType,
+            isCustomerUpload: true,
+            ownerUser: ownerUser ?? undefined,
+            ownerEmail: ownerEmail || undefined,
+            ownerSessionHash: ownerSessionHash || undefined,
           },
           file: {
             data: buffer,
@@ -235,7 +300,7 @@ export async function POST(request: NextRequest) {
       url: (created as any).url,
     });
 
-    return NextResponse.json(
+    const response = NextResponse.json(
       {
         success: true,
         doc: {
@@ -246,6 +311,8 @@ export async function POST(request: NextRequest) {
       },
       { status: 201 }
     );
+    attachCustomerUploadOwnerCookie(response, ownerToken.token);
+    return response;
   } catch (error: any) {
     const errorMessage = extractErrorMessage(error);
     const errorDetails = extractErrorDetails(error);
@@ -253,8 +320,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         success: false,
-        error: errorMessage,
-        details: errorDetails,
+        error: "Failed to upload file.",
       },
       { status: 500 }
     );

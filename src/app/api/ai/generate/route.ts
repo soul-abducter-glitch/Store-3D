@@ -1,14 +1,25 @@
-import { NextResponse, type NextRequest } from "next/server";
+import { type NextRequest } from "next/server";
 import { getPayload } from "payload";
 
 import payloadConfig from "../../../../../payload.config";
-import { resolveProvider, submitProviderJob, validateProviderInput } from "@/lib/aiProvider";
+import {
+  normalizeProviderError,
+  resolveProvider,
+  submitProviderJob,
+  validateProviderInput,
+} from "@/lib/aiProvider";
 import { runAiWorkerTick } from "@/lib/aiWorker";
-import { AI_TOKEN_COST, refundUserAiCredits, spendUserAiCredits } from "@/lib/aiCredits";
+import { AI_TOKEN_COST, getUserAiCredits } from "@/lib/aiCredits";
 import { buildAiQueueSnapshot, withAiQueueMeta } from "@/lib/aiQueue";
 import { ensureAiLabSchemaOnce } from "@/lib/ensureAiLabSchemaOnce";
 import { enforceUserAndIpQuota } from "@/lib/aiQuota";
 import { resolveClientIp } from "@/lib/rateLimit";
+import { aiError, aiOk } from "@/lib/aiApiContract";
+import { buildAiRequestHash } from "@/lib/aiRequestHash";
+import { normalizeAiJobStatus, toLegacyAiJobStatus } from "@/lib/aiJobStatus";
+import { getAiQueueAdapter } from "@/lib/aiQueueAdapter";
+import { createAiJobEvent } from "@/lib/aiJobEvents";
+import { releaseAiJobTokens, reserveAiJobTokens } from "@/lib/aiTokenLifecycle";
 import {
   canUseAiModeTier,
   getUserAiSubscriptionRecord,
@@ -54,7 +65,7 @@ const GENERATE_QUOTA = {
 };
 const ENABLE_PROVIDER_RUNTIME_FALLBACK = parseBoolean(
   process.env.AI_PROVIDER_RUNTIME_FALLBACK_TO_MOCK,
-  true
+  process.env.NODE_ENV !== "production"
 );
 
 const clampProgress = (value: unknown) => {
@@ -63,10 +74,11 @@ const clampProgress = (value: unknown) => {
 };
 
 const resolveStage = (status: string, progress: number) => {
-  const normalizedStatus = status.trim().toLowerCase();
-  if (normalizedStatus === "failed") return "SYNTHESIS_FAILED";
+  const normalizedStatus = normalizeAiJobStatus(status);
+  if (normalizedStatus === "failed" || normalizedStatus === "cancelled") return "SYNTHESIS_FAILED";
   if (normalizedStatus === "completed") return "SYNTHESIS_DONE";
   if (normalizedStatus === "queued") return "QUEUE_ASSIGNMENT";
+  if (normalizedStatus === "postprocessing") return "OPTICAL_SOLVER";
   if (progress >= 94) return "OPTICAL_SOLVER";
   if (progress >= 82) return "MATERIAL_BIND";
   if (progress >= 65) return "TOPOLOGY_SYNTH";
@@ -181,9 +193,70 @@ const toProviderFallbackHint = (provider: string, error: unknown) => {
   return `Provider ${provider} failed (${safeError}). Switched to mock mode.`;
 };
 
+const getIdempotencyKey = (request: NextRequest, body: any) =>
+  toNonEmptyString(
+    request.headers.get("Idempotency-Key") ||
+      request.headers.get("x-idempotency-key") ||
+      body?.idempotencyKey
+  ).slice(0, 160);
+
+const buildCreateJobRequestHash = (input: {
+  userId: string | number;
+  mode: string;
+  prompt: string;
+  sourceUrl: string;
+  sourceRefs: InputReference[];
+  providerRequested: string;
+  providerEffective: string;
+  parentJobId: string | number | null;
+  parentAssetId: string | number | null;
+}) =>
+  buildAiRequestHash({
+    userId: String(input.userId),
+    mode: input.mode,
+    prompt: input.prompt,
+    sourceUrl: input.sourceUrl,
+    sourceRefs: input.sourceRefs,
+    providerRequested: input.providerRequested,
+    providerEffective: input.providerEffective,
+    parentJobId: input.parentJobId === null ? null : String(input.parentJobId),
+    parentAssetId: input.parentAssetId === null ? null : String(input.parentAssetId),
+  });
+
+const findDedupedJob = async (
+  payload: Awaited<ReturnType<typeof getPayloadClient>>,
+  userId: string | number,
+  idempotencyKey: string
+) => {
+  if (!idempotencyKey) return null;
+  const found = await payload.find({
+    collection: "ai_jobs",
+    depth: 0,
+    limit: 1,
+    sort: "-createdAt",
+    where: {
+      and: [
+        {
+          user: {
+            equals: userId as any,
+          },
+        },
+        {
+          idempotencyKey: {
+            equals: idempotencyKey,
+          },
+        },
+      ],
+    },
+    overrideAccess: true,
+  });
+  return Array.isArray(found?.docs) ? found.docs[0] || null : null;
+};
+
 const serializeJob = (job: any) => ({
   id: String(job?.id ?? ""),
-  status: typeof job?.status === "string" ? job.status : "queued",
+  statusRaw: typeof job?.status === "string" ? normalizeAiJobStatus(job.status) : "queued",
+  status: toLegacyAiJobStatus(job?.status),
   mode: typeof job?.mode === "string" ? job.mode : "image",
   provider: typeof job?.provider === "string" ? job.provider : "mock",
   providerJobId:
@@ -208,6 +281,10 @@ const serializeJob = (job: any) => ({
     return id === null ? null : String(id);
   })(),
   errorMessage: typeof job?.errorMessage === "string" ? job.errorMessage : "",
+  errorCode: typeof job?.errorCode === "string" ? job.errorCode : "",
+  reservedTokens: typeof job?.reservedTokens === "number" ? Math.max(0, Math.trunc(job.reservedTokens)) : 0,
+  etaSeconds: typeof job?.etaSeconds === "number" ? Math.max(0, Math.trunc(job.etaSeconds)) : null,
+  idempotencyKey: typeof job?.idempotencyKey === "string" ? job.idempotencyKey : "",
   result: {
     modelUrl: typeof job?.result?.modelUrl === "string" ? job.result.modelUrl : "",
     previewUrl: typeof job?.result?.previewUrl === "string" ? job.result.previewUrl : "",
@@ -217,6 +294,7 @@ const serializeJob = (job: any) => ({
   updatedAt: job?.updatedAt,
   startedAt: job?.startedAt,
   completedAt: job?.completedAt,
+  failedAt: job?.failedAt,
 });
 
 export async function GET(request: NextRequest) {
@@ -226,7 +304,10 @@ export async function GET(request: NextRequest) {
     const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
     const userId = normalizeRelationshipId(authResult?.user?.id);
     if (!userId) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+      return aiError(
+        { code: "UNAUTHORIZED", message: "Unauthorized.", retryable: false },
+        { status: 401 }
+      );
     }
 
     const rawLimit = Number(request.nextUrl.searchParams.get("limit") || 8);
@@ -251,21 +332,25 @@ export async function GET(request: NextRequest) {
     const queueSnapshot = await buildAiQueueSnapshot(payload as any);
     const jobsWithQueue = withAiQueueMeta(serializedJobs, queueSnapshot);
 
-    return NextResponse.json(
+    return aiOk(
       {
-        success: true,
         jobs: jobsWithQueue,
         queueDepth: queueSnapshot.queueDepth,
         activeQueueJobs: queueSnapshot.activeCount,
       },
-      { status: 200 }
+      {
+        jobs: jobsWithQueue,
+        queueDepth: queueSnapshot.queueDepth,
+        activeQueueJobs: queueSnapshot.activeCount,
+      }
     );
   } catch (error) {
     console.error("[ai/generate:list] failed", error);
-    return NextResponse.json(
+    return aiError(
       {
-        success: false,
-        error: toPublicError(error, "Failed to fetch AI generation jobs."),
+        code: "INTERNAL_ERROR",
+        message: toPublicError(error, "Failed to fetch AI generation jobs."),
+        retryable: false,
       },
       { status: 500 }
     );
@@ -273,17 +358,16 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  let payloadRef: Awaited<ReturnType<typeof getPayloadClient>> | null = null;
-  let chargedUserId: string | number | null = null;
-  let chargedTokenCost = AI_TOKEN_COST;
   try {
     const payload = await getPayloadClient();
-    payloadRef = payload;
     await ensureAiLabSchemaOnce(payload as any);
     const authResult = await payload.auth({ headers: request.headers }).catch(() => null);
     const userId = normalizeRelationshipId(authResult?.user?.id);
     if (!userId) {
-      return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+      return aiError(
+        { code: "UNAUTHORIZED", message: "Unauthorized.", retryable: false },
+        { status: 401 }
+      );
     }
 
     const body = await request.json().catch(() => null);
@@ -291,7 +375,6 @@ export async function POST(request: NextRequest) {
     const generationProfile = normalizeAiGenerationProfile(body?.generationProfile);
     const aiMode = normalizeAiModeTier(body?.aiMode || resolveAiModeFromGenerationProfile(generationProfile));
     const requestedTokenCost = resolveGenerationTokenCost(AI_TOKEN_COST, generationProfile);
-    chargedTokenCost = requestedTokenCost;
     const prompt = toNonEmptyString(body?.prompt).slice(0, 800);
     const providerPrompt = buildProviderPromptWithGenerationProfile(
       prompt || "Reference import",
@@ -315,10 +398,11 @@ export async function POST(request: NextRequest) {
     const providerSourceUrl = pickProviderSourceUrl(sourceUrl, sourceRefs);
     const sourceType: "none" | "url" | "image" =
       providerSourceUrl ? "url" : hasImageReference ? "image" : "none";
+    const idempotencyKey = getIdempotencyKey(request, body);
 
     if (!prompt && sourceType === "none") {
-      return NextResponse.json(
-        { success: false, error: "Prompt or reference is required." },
+      return aiError(
+        { code: "VALIDATION_ERROR", message: "Prompt or reference is required.", retryable: false },
         { status: 400 }
       );
     }
@@ -326,10 +410,11 @@ export async function POST(request: NextRequest) {
     const subscriptionRecord = await getUserAiSubscriptionRecord(payload as any, userId);
     const subscription = toAiSubscriptionSummary(subscriptionRecord);
     if (!canUseAiModeTier(aiMode, subscription?.planCode || null, subscription?.status || "incomplete")) {
-      return NextResponse.json(
+      return aiError(
         {
-          success: false,
-          error: "AI mode pro is available only for active M/L subscription.",
+          code: "FORBIDDEN",
+          message: "AI mode pro is available only for active M/L subscription.",
+          retryable: false,
         },
         { status: 403 }
       );
@@ -343,27 +428,27 @@ export async function POST(request: NextRequest) {
       ...GENERATE_QUOTA,
     });
     if (!quota.ok) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: quota.message,
-          retryAfter: quota.retryAfterSec,
-        },
+      return aiError(
+        { code: "RATE_LIMITED", message: quota.message, retryable: true },
         {
           status: 429,
           headers: {
             "Retry-After": String(quota.retryAfterSec),
           },
+        },
+        {
+          retryAfter: quota.retryAfterSec,
         }
       );
     }
 
     const providerResolution = resolveProvider();
     if (!providerResolution.configured && !providerResolution.fallbackToMock) {
-      return NextResponse.json(
+      return aiError(
         {
-          success: false,
-          error: providerResolution.reason || "AI provider is not configured.",
+          code: "PROVIDER_UNAVAILABLE",
+          message: providerResolution.reason || "AI provider is not configured.",
+          retryable: false,
         },
         { status: 400 }
       );
@@ -383,86 +468,227 @@ export async function POST(request: NextRequest) {
       fallbackHint = inputValidationError;
     }
 
-    const chargeResult = await spendUserAiCredits(payload as any, userId, requestedTokenCost, {
-      reason: "spend",
-      source: "ai_generate:create",
-      meta: {
-        mode,
-        aiMode,
-        generationProfile,
-        requestedTokenCost,
-        providerRequested: providerResolution.requestedProvider,
-      },
+    const requestHash = buildCreateJobRequestHash({
+      userId,
+      mode,
+      prompt,
+      sourceUrl: sourceUrl || providerSourceUrl,
+      sourceRefs,
+      providerRequested: providerResolution.requestedProvider,
+      providerEffective: provider,
+      parentJobId,
+      parentAssetId,
     });
-    if (!chargeResult.ok) {
-      return NextResponse.json(
+
+    const dedupedJob = await findDedupedJob(payload, userId, idempotencyKey);
+    if (dedupedJob) {
+      const queueSnapshot = await buildAiQueueSnapshot(payload as any);
+      const [jobWithQueue] = withAiQueueMeta([serializeJob(dedupedJob)], queueSnapshot);
+      return aiOk(
         {
-          success: false,
-          error: `Insufficient AI tokens. Need ${requestedTokenCost}.`,
-          tokensRemaining: chargeResult.remaining,
-          tokenCost: requestedTokenCost,
+          jobId: String(dedupedJob.id),
+          status: jobWithQueue.statusRaw || jobWithQueue.status,
+          etaSeconds: jobWithQueue.etaSeconds ?? null,
+          deduped: true,
         },
-        { status: 402 }
+        {
+          job: jobWithQueue,
+          deduped: true,
+          providerRequested: providerResolution.requestedProvider,
+          providerEffective: provider,
+          queueDepth: queueSnapshot.queueDepth,
+          activeQueueJobs: queueSnapshot.activeCount,
+          tokenCost: requestedTokenCost,
+        }
       );
     }
-    chargedUserId = userId;
 
     const now = new Date().toISOString();
-    let submission = await submitProviderJob({
-      provider,
-      mode,
-      prompt: providerPrompt,
-      sourceType,
-      sourceUrl: providerSourceUrl,
-    }).catch(async (providerError) => {
-      if (!ENABLE_PROVIDER_RUNTIME_FALLBACK || provider === "mock") {
-        throw providerError;
-      }
-      const failedProvider = provider;
-      provider = "mock";
-      fallbackHint = toProviderFallbackHint(failedProvider, providerError);
-      return submitProviderJob({
-        provider: "mock",
+    let created = await payload
+      .create({
+        collection: "ai_jobs",
+        overrideAccess: true,
+        data: {
+          user: userId as any,
+          status: "queued",
+          mode,
+          provider,
+          progress: 0,
+          prompt: prompt || "Reference import",
+          sourceType,
+          sourceUrl: sourceUrl || providerSourceUrl || undefined,
+          inputRefs: sourceRefs.length > 0 ? sourceRefs : undefined,
+          idempotencyKey: idempotencyKey || undefined,
+          requestHash,
+          retryCount: 0,
+          etaSeconds: null,
+          reservedTokens: requestedTokenCost,
+          parentJob: parentJobId ?? undefined,
+          parentAsset: parentAssetId ?? undefined,
+          startedAt: undefined,
+          completedAt: undefined,
+          failedAt: undefined,
+          result: {
+            modelUrl: "",
+            previewUrl: "",
+            format: "unknown",
+          },
+          errorMessage: "",
+          errorCode: "",
+        },
+      })
+      .catch(async (error) => {
+        if (idempotencyKey) {
+          const existing = await findDedupedJob(payload, userId, idempotencyKey);
+          if (existing) return existing;
+        }
+        throw error;
+      });
+
+    const reserve = await reserveAiJobTokens(payload as any, created, requestedTokenCost);
+    if (!reserve.ok) {
+      const remaining = reserve.remaining ?? (await getUserAiCredits(payload as any, userId));
+      created = await payload.update({
+        collection: "ai_jobs",
+        id: created.id,
+        overrideAccess: true,
+        data: {
+          status: "failed",
+          failedAt: now,
+          errorCode: "INSUFFICIENT_TOKENS",
+          errorMessage: `Insufficient AI tokens. Need ${requestedTokenCost}.`,
+        },
+      });
+      return aiError(
+        {
+          code: "INSUFFICIENT_TOKENS",
+          message: `Insufficient AI tokens. Need ${requestedTokenCost}.`,
+          retryable: false,
+        },
+        { status: 402 },
+        {
+          tokensRemaining: remaining,
+          tokenCost: requestedTokenCost,
+          jobId: String(created.id),
+        }
+      );
+    }
+
+    let submission: Awaited<ReturnType<typeof submitProviderJob>>;
+    try {
+      submission = await submitProviderJob({
+        provider,
         mode,
         prompt: providerPrompt,
         sourceType,
         sourceUrl: providerSourceUrl,
       });
-    });
+    } catch (providerError) {
+      if (ENABLE_PROVIDER_RUNTIME_FALLBACK && provider !== "mock") {
+        const failedProvider = provider;
+        provider = "mock";
+        fallbackHint = toProviderFallbackHint(failedProvider, providerError);
+        await createAiJobEvent(payload as any, {
+          jobId: created.id,
+          userId,
+          eventType: "provider.fallback_to_mock",
+          statusBefore: normalizeAiJobStatus(created?.status || "queued"),
+          statusAfter: normalizeAiJobStatus(created?.status || "queued"),
+          provider: failedProvider,
+          payload: {
+            reason: fallbackHint,
+          },
+        });
+        submission = await submitProviderJob({
+          provider: "mock",
+          mode,
+          prompt: providerPrompt,
+          sourceType,
+          sourceUrl: providerSourceUrl,
+        });
+      } else {
+        const normalized = normalizeProviderError(providerError);
+        const failedJob = await payload.update({
+          collection: "ai_jobs",
+          id: created.id,
+          overrideAccess: true,
+          data: {
+            status: "failed",
+            failedAt: new Date().toISOString(),
+            errorCode: normalized.code,
+            errorMessage: normalized.providerMessage,
+            errorDetails: {
+              providerCode: normalized.providerCode,
+            },
+          },
+        });
+        await releaseAiJobTokens(payload as any, failedJob);
+        return aiError(
+          {
+            code: normalized.code as any,
+            message: normalized.providerMessage,
+            retryable: normalized.retryable,
+          },
+          { status: normalized.httpStatusSuggested || 502 },
+          {
+            jobId: String(created.id),
+          }
+        );
+      }
+    }
 
-    const created = await payload.create({
+    const normalizedProviderStatus =
+      submission.status === "failed"
+        ? "failed"
+        : submission.status === "completed"
+          ? "completed"
+          : submission.status === "processing"
+            ? "provider_processing"
+            : "queued";
+
+    created = await payload.update({
       collection: "ai_jobs",
+      id: created.id,
       overrideAccess: true,
       data: {
-        user: userId as any,
-        status: submission.status,
-        mode,
+        status: normalizedProviderStatus,
         provider,
         providerJobId: submission.providerJobId || undefined,
         progress: submission.progress,
-        prompt: prompt || "Reference import",
-        sourceType,
-        sourceUrl: sourceUrl || providerSourceUrl || undefined,
-        inputRefs: sourceRefs.length > 0 ? sourceRefs : undefined,
-        parentJob: parentJobId ?? undefined,
-        parentAsset: parentAssetId ?? undefined,
         startedAt:
-          submission.status === "processing" || submission.status === "completed" ? now : undefined,
-        completedAt: submission.status === "completed" ? now : undefined,
+          normalizedProviderStatus === "provider_processing" || normalizedProviderStatus === "completed"
+            ? now
+            : undefined,
+        completedAt: normalizedProviderStatus === "completed" ? now : undefined,
+        failedAt: normalizedProviderStatus === "failed" ? now : undefined,
         result: {
           modelUrl: submission.result?.modelUrl || "",
           previewUrl: submission.result?.previewUrl || "",
           format: submission.result?.format || "unknown",
         },
         errorMessage: submission.errorMessage || "",
+        errorCode:
+          normalizedProviderStatus === "failed" ? "PROVIDER_UNKNOWN" : "",
       },
     });
+
+    if (normalizedProviderStatus === "failed") {
+      await releaseAiJobTokens(payload as any, created);
+    }
+    await getAiQueueAdapter().enqueueJob(String(created.id));
+
     const queueSnapshot = await buildAiQueueSnapshot(payload as any);
     const [jobWithQueue] = withAiQueueMeta([serializeJob(created)], queueSnapshot);
+    const tokensRemaining = reserve.remaining ?? (await getUserAiCredits(payload as any, userId));
 
-    return NextResponse.json(
+    return aiOk(
       {
-        success: true,
+        jobId: String(created.id),
+        status: jobWithQueue.statusRaw || jobWithQueue.status,
+        etaSeconds: jobWithQueue.etaSeconds ?? null,
+        deduped: false,
+      },
+      {
         job: jobWithQueue,
         mock: provider === "mock",
         hint: fallbackHint
@@ -474,8 +700,9 @@ export async function POST(request: NextRequest) {
         providerEffective: provider,
         queueDepth: queueSnapshot.queueDepth,
         activeQueueJobs: queueSnapshot.activeCount,
-        tokensRemaining: chargeResult.remaining,
+        tokensRemaining,
         tokenCost: requestedTokenCost,
+        deduped: false,
         defaults: {
           modelUrl: process.env.AI_GENERATION_MOCK_MODEL_URL || DEFAULT_MOCK_MODEL_URL,
         },
@@ -483,21 +710,12 @@ export async function POST(request: NextRequest) {
       { status: 200 }
     );
   } catch (error) {
-    if (payloadRef && chargedUserId !== null) {
-      try {
-        await refundUserAiCredits(payloadRef as any, chargedUserId, chargedTokenCost, {
-          reason: "refund",
-          source: "ai_generate:create_error",
-        });
-      } catch (refundError) {
-        console.error("[ai/generate:create] token refund failed", refundError);
-      }
-    }
     console.error("[ai/generate:create] failed", error);
-    return NextResponse.json(
+    return aiError(
       {
-        success: false,
-        error: toPublicError(error, "Failed to create AI generation job."),
+        code: "INTERNAL_ERROR",
+        message: toPublicError(error, "Failed to create AI generation job."),
+        retryable: false,
       },
       { status: 500 }
     );

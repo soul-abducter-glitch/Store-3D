@@ -12,6 +12,10 @@ import { ensureOrdersSchema } from "@/lib/ensureOrdersSchema";
 import { computePrintPrice } from "@/lib/printPricing";
 import { applyPromoDiscountToItems, validatePromoCode } from "@/lib/promocodes";
 import { evaluateStlPreflight } from "@/lib/stlPreflight";
+import {
+  hashCustomerUploadOwnerToken,
+  readCustomerUploadOwnerToken,
+} from "@/lib/customerUploadOwnership";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +43,9 @@ const normalizeEmail = (value?: string) => {
   if (!value) return "";
   return value.trim().toLowerCase();
 };
+
+const normalizeOwnerSessionHash = (value: unknown) =>
+  typeof value === "string" ? value.trim().toLowerCase() : "";
 
 const normalizePrintSpecs = (value: any) => {
   if (!value || typeof value !== "object") {
@@ -397,6 +404,11 @@ export async function POST(request: NextRequest) {
     } catch {
       authUser = null;
     }
+    const requesterUserId = normalizeRelationshipId(authUser?.id);
+    const requesterEmail = normalizeEmail(authUser?.email);
+    const requesterOwnerSessionHash = hashCustomerUploadOwnerToken(
+      readCustomerUploadOwnerToken(request)
+    );
     const data = await request.json();
     const headerIdempotencyKey = sanitizeIdempotencyKey(
       request.headers.get(IDEMPOTENCY_HEADER) ?? undefined
@@ -702,14 +714,6 @@ export async function POST(request: NextRequest) {
     (orderData as any).paymentIntentId = idempotencyMarker;
 
     const productCache = new Map<string, any>();
-    const physicalUploadIds = new Set(
-      items
-        .filter(
-          (item: { format?: string; customerUpload?: unknown }) =>
-            item.format === "Physical" && item.customerUpload
-        )
-        .map((item: { customerUpload?: unknown }) => String(item.customerUpload))
-    );
 
     let fallbackPrintServiceProductId: string | number | null = null;
 
@@ -771,13 +775,37 @@ export async function POST(request: NextRequest) {
           depth: 0,
           overrideAccess: true,
         });
-        if (!mediaDoc?.isCustomerUpload && item.format !== "Physical") {
+        if (!mediaDoc?.isCustomerUpload) {
           return NextResponse.json(
             {
               success: false,
               error: `Customer upload ${String(item.customerUpload)} is not a customer file.`,
             },
             { status: 400 }
+          );
+        }
+        const mediaOwnerUserId = normalizeRelationshipId(mediaDoc?.ownerUser);
+        const mediaOwnerEmail = normalizeEmail(mediaDoc?.ownerEmail);
+        const mediaOwnerSessionHash = normalizeOwnerSessionHash(mediaDoc?.ownerSessionHash);
+        const ownedByUser =
+          requesterUserId !== null &&
+          mediaOwnerUserId !== null &&
+          String(requesterUserId) === String(mediaOwnerUserId);
+        const ownedByEmail =
+          Boolean(requesterEmail) &&
+          Boolean(mediaOwnerEmail) &&
+          requesterEmail === mediaOwnerEmail;
+        const ownedBySession =
+          Boolean(requesterOwnerSessionHash) &&
+          Boolean(mediaOwnerSessionHash) &&
+          requesterOwnerSessionHash === mediaOwnerSessionHash;
+        if (!ownedByUser && !ownedByEmail && !ownedBySession) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Customer upload ${String(item.customerUpload)} does not belong to current session.`,
+            },
+            { status: 403 }
           );
         }
       } catch {
@@ -799,14 +827,37 @@ export async function POST(request: NextRequest) {
           depth: 0,
           overrideAccess: true,
         });
-        const customFileId = String(orderData.customFile);
-        if (!mediaDoc?.isCustomerUpload && !physicalUploadIds.has(customFileId)) {
+        if (!mediaDoc?.isCustomerUpload) {
           return NextResponse.json(
             {
               success: false,
               error: `Custom file ${String(orderData.customFile)} is not a customer upload.`,
             },
             { status: 400 }
+          );
+        }
+        const mediaOwnerUserId = normalizeRelationshipId(mediaDoc?.ownerUser);
+        const mediaOwnerEmail = normalizeEmail(mediaDoc?.ownerEmail);
+        const mediaOwnerSessionHash = normalizeOwnerSessionHash(mediaDoc?.ownerSessionHash);
+        const ownedByUser =
+          requesterUserId !== null &&
+          mediaOwnerUserId !== null &&
+          String(requesterUserId) === String(mediaOwnerUserId);
+        const ownedByEmail =
+          Boolean(requesterEmail) &&
+          Boolean(mediaOwnerEmail) &&
+          requesterEmail === mediaOwnerEmail;
+        const ownedBySession =
+          Boolean(requesterOwnerSessionHash) &&
+          Boolean(mediaOwnerSessionHash) &&
+          requesterOwnerSessionHash === mediaOwnerSessionHash;
+        if (!ownedByUser && !ownedByEmail && !ownedBySession) {
+          return NextResponse.json(
+            {
+              success: false,
+              error: `Custom file ${String(orderData.customFile)} does not belong to current session.`,
+            },
+            { status: 403 }
           );
         }
       } catch {
@@ -997,7 +1048,6 @@ export async function POST(request: NextRequest) {
       {
         success: false,
         error: error.message || "Failed to create order",
-        details: error.data || {},
       },
       { status: 400 }
     );

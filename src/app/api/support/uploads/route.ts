@@ -6,11 +6,14 @@ import {
   SUPPORT_ALLOWED_ATTACHMENT_EXTENSIONS,
   SUPPORT_MAX_ATTACHMENT_BYTES,
 } from "@/lib/supportCenter";
+import { checkRateLimit, resolveClientIp } from "@/lib/rateLimit";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 const getPayloadClient = async () => getPayload({ config: payloadConfig });
+const SUPPORT_UPLOAD_WINDOW_MS = 10 * 60 * 1000;
+const SUPPORT_UPLOAD_MAX_REQUESTS = 20;
 
 const resolveExt = (fileName: string) => {
   const lower = fileName.toLowerCase();
@@ -44,6 +47,27 @@ export async function POST(request: NextRequest) {
     const auth = await payload.auth({ headers: request.headers }).catch(() => null);
     if (!auth?.user?.id) {
       return NextResponse.json({ success: false, error: "Unauthorized." }, { status: 401 });
+    }
+    const rate = checkRateLimit({
+      scope: "support-upload",
+      key: `${String(auth.user.id)}:${resolveClientIp(request.headers)}`,
+      max: SUPPORT_UPLOAD_MAX_REQUESTS,
+      windowMs: SUPPORT_UPLOAD_WINDOW_MS,
+    });
+    if (!rate.ok) {
+      const retryAfter = Math.max(1, Math.ceil(Math.max(0, rate.retryAfterMs) / 1000));
+      return NextResponse.json(
+        {
+          success: false,
+          error: "Too many upload attempts. Please retry later.",
+        },
+        {
+          status: 429,
+          headers: {
+            "Retry-After": String(retryAfter),
+          },
+        }
+      );
     }
 
     const formData = await request.formData();
@@ -81,6 +105,8 @@ export async function POST(request: NextRequest) {
         alt: fileName,
         fileType: resolveFileType(ext),
         isCustomerUpload: true,
+        ownerUser: auth.user.id,
+        ownerEmail: typeof auth.user.email === "string" ? auth.user.email.trim().toLowerCase() : undefined,
       },
       file: {
         data: buffer,

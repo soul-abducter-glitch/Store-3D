@@ -40,6 +40,40 @@ type ProviderJobResult = {
   errorMessage?: string;
 };
 
+export type ProviderCapabilities = {
+  supportsTextTo3D: boolean;
+  supportsImageTo3D: boolean;
+  supportsCancel: boolean;
+  supportsProgress: boolean;
+  supportsTextureGeneration?: boolean;
+  supportsRemesh?: boolean;
+};
+
+export type ProviderErrorCode =
+  | "PROVIDER_AUTH_ERROR"
+  | "PROVIDER_RATE_LIMIT"
+  | "PROVIDER_TIMEOUT"
+  | "PROVIDER_VALIDATION_ERROR"
+  | "PROVIDER_UNAVAILABLE"
+  | "PROVIDER_UNKNOWN";
+
+export type NormalizedProviderError = {
+  code: ProviderErrorCode;
+  retryable: boolean;
+  httpStatusSuggested: number;
+  providerCode: string | null;
+  providerMessage: string;
+};
+
+export interface AIProvider {
+  name: "mock" | "meshy" | "tripo";
+  capabilities: ProviderCapabilities;
+  createGenerationJob(input: SubmitJobInput): Promise<ProviderJobResult>;
+  getJobStatus(input: PollJobInput): Promise<ProviderJobResult>;
+  getJobResult?(input: PollJobInput): Promise<ProviderJobResult>;
+  cancelJob?(input: { providerJobId: string }): Promise<{ ok: boolean }>;
+}
+
 const MESHY_DEFAULT_BASE_URL = "https://api.meshy.ai/openapi/v2";
 const TRIPO_DEFAULT_BASE_URL = "https://api.tripo3d.ai/v2/openapi";
 const TRIPO_DEFAULT_SUBMIT_PATH = "/task";
@@ -51,6 +85,14 @@ const parseBoolean = (value: string | undefined, fallback: boolean) => {
   if (["1", "true", "yes", "on"].includes(normalized)) return true;
   if (["0", "false", "no", "off"].includes(normalized)) return false;
   return fallback;
+};
+
+const resolveAllowProviderFallback = () => {
+  const explicit = process.env.ALLOW_PROVIDER_FALLBACK_TO_MOCK;
+  if (explicit !== undefined) return parseBoolean(explicit, false);
+  const legacy = process.env.AI_PROVIDER_FALLBACK_TO_MOCK;
+  if (legacy !== undefined) return parseBoolean(legacy, false);
+  return process.env.NODE_ENV !== "production";
 };
 
 const toNonEmptyString = (value: unknown) => {
@@ -126,6 +168,105 @@ const fetchWithTimeout = async (url: string, init: RequestInit, timeoutMs = 2000
   }
 };
 
+const toProviderErrorCode = (status: number, message: string): ProviderErrorCode => {
+  const normalized = message.toLowerCase();
+  if (status === 401 || status === 403 || normalized.includes("unauthorized")) {
+    return "PROVIDER_AUTH_ERROR";
+  }
+  if (status === 429 || normalized.includes("rate")) {
+    return "PROVIDER_RATE_LIMIT";
+  }
+  if (status === 408 || status === 504 || normalized.includes("timeout")) {
+    return "PROVIDER_TIMEOUT";
+  }
+  if (status >= 400 && status < 500) {
+    return "PROVIDER_VALIDATION_ERROR";
+  }
+  if (status >= 500 && status < 600) {
+    return "PROVIDER_UNAVAILABLE";
+  }
+  return "PROVIDER_UNKNOWN";
+};
+
+const getRetryableByCode = (code: ProviderErrorCode) =>
+  code === "PROVIDER_RATE_LIMIT" ||
+  code === "PROVIDER_TIMEOUT" ||
+  code === "PROVIDER_UNAVAILABLE";
+
+export class AIProviderError extends Error {
+  normalized: NormalizedProviderError;
+
+  constructor(message: string, normalized: NormalizedProviderError) {
+    super(message);
+    this.name = "AIProviderError";
+    this.normalized = normalized;
+  }
+}
+
+const buildNormalizedProviderError = (input: {
+  code: ProviderErrorCode;
+  providerCode?: unknown;
+  providerMessage?: unknown;
+  httpStatusSuggested?: unknown;
+  retryable?: unknown;
+}): NormalizedProviderError => {
+  const providerMessage = toNonEmptyString(input.providerMessage) || "Provider request failed.";
+  const httpStatusSuggested = Number(input.httpStatusSuggested);
+  const retryable =
+    typeof input.retryable === "boolean" ? input.retryable : getRetryableByCode(input.code);
+  return {
+    code: input.code,
+    retryable,
+    httpStatusSuggested: Number.isFinite(httpStatusSuggested)
+      ? Math.max(400, Math.min(599, Math.trunc(httpStatusSuggested)))
+      : retryable
+        ? 503
+        : 400,
+    providerCode: toNonEmptyString(input.providerCode) || null,
+    providerMessage,
+  };
+};
+
+const throwNormalizedProviderError = (input: {
+  status?: number;
+  providerCode?: unknown;
+  providerMessage?: unknown;
+}): never => {
+  const status = Number(input.status);
+  const providerMessage = toNonEmptyString(input.providerMessage) || "Provider request failed.";
+  const code = Number.isFinite(status)
+    ? toProviderErrorCode(status, providerMessage)
+    : providerMessage.toLowerCase().includes("timeout")
+      ? "PROVIDER_TIMEOUT"
+      : "PROVIDER_UNKNOWN";
+  const normalized = buildNormalizedProviderError({
+    code,
+    providerCode: input.providerCode,
+    providerMessage,
+    httpStatusSuggested: Number.isFinite(status) ? status : undefined,
+  });
+  throw new AIProviderError(providerMessage, normalized);
+};
+
+export const normalizeProviderError = (error: unknown): NormalizedProviderError => {
+  if (error instanceof AIProviderError) {
+    return error.normalized;
+  }
+  const message = error instanceof Error ? error.message : String(error || "");
+  if ((error as any)?.name === "AbortError") {
+    return buildNormalizedProviderError({
+      code: "PROVIDER_TIMEOUT",
+      providerMessage: message || "Provider timed out.",
+      httpStatusSuggested: 504,
+    });
+  }
+  return buildNormalizedProviderError({
+    code: "PROVIDER_UNKNOWN",
+    providerMessage: message || "Provider request failed.",
+    httpStatusSuggested: 502,
+  });
+};
+
 const getMeshyApiKey = () =>
   toNonEmptyString(process.env.AI_MESHY_API_KEY) ||
   toNonEmptyString(process.env.MESHY_API_KEY);
@@ -142,12 +283,15 @@ const buildMeshyAuthHeaders = () => {
   };
 };
 
-const ensureMeshyConfigured = () => {
+const ensureMeshyConfigured = (): NonNullable<ReturnType<typeof buildMeshyAuthHeaders>> => {
   const headers = buildMeshyAuthHeaders();
   if (!headers) {
-    throw new Error("Meshy API key is missing (AI_MESHY_API_KEY).");
+    throwNormalizedProviderError({
+      status: 401,
+      providerMessage: "Meshy API key is missing (AI_MESHY_API_KEY).",
+    });
   }
-  return headers;
+  return headers as { Authorization: string; "Content-Type": string };
 };
 
 const mapMeshyStatus = (rawStatus: string): ProviderJobStatus => {
@@ -170,7 +314,10 @@ const mapMeshyStatus = (rawStatus: string): ProviderJobStatus => {
 
 const submitMeshyJob = async (input: SubmitJobInput): Promise<ProviderJobResult> => {
   if (input.mode === "image" && !toNonEmptyString(input.sourceUrl)) {
-    throw new Error("Meshy image mode requires a public sourceUrl.");
+    throwNormalizedProviderError({
+      status: 400,
+      providerMessage: "Meshy image mode requires a public sourceUrl.",
+    });
   }
   const headers = ensureMeshyConfigured();
   const baseUrl = getMeshyBaseUrl().replace(/\/$/, "");
@@ -197,7 +344,10 @@ const submitMeshyJob = async (input: SubmitJobInput): Promise<ProviderJobResult>
   const data = await safeParseJson(response);
   if (!response.ok) {
     const providerError = firstStringByPaths(data, ["message", "error", "detail"]);
-    throw new Error(providerError || `Meshy submit failed with status ${response.status}.`);
+    throwNormalizedProviderError({
+      status: response.status,
+      providerMessage: providerError || `Meshy submit failed with status ${response.status}.`,
+    });
   }
 
   const providerJobId = firstStringByPaths(data, [
@@ -209,7 +359,10 @@ const submitMeshyJob = async (input: SubmitJobInput): Promise<ProviderJobResult>
     "data.result",
   ]);
   if (!providerJobId) {
-    throw new Error("Meshy submit succeeded but provider job id is missing.");
+    throwNormalizedProviderError({
+      status: 502,
+      providerMessage: "Meshy submit succeeded but provider job id is missing.",
+    });
   }
 
   return {
@@ -232,7 +385,10 @@ const pollMeshyJob = async (input: PollJobInput): Promise<ProviderJobResult> => 
   const data = await safeParseJson(response);
   if (!response.ok) {
     const providerError = firstStringByPaths(data, ["message", "error", "detail"]);
-    throw new Error(providerError || `Meshy poll failed with status ${response.status}.`);
+    throwNormalizedProviderError({
+      status: response.status,
+      providerMessage: providerError || `Meshy poll failed with status ${response.status}.`,
+    });
   }
 
   const rawStatus = firstStringByPaths(data, ["status", "state", "task_status", "data.status"]);
@@ -332,12 +488,15 @@ const buildTripoHeaders = () => {
   };
 };
 
-const ensureTripoConfigured = () => {
+const ensureTripoConfigured = (): NonNullable<ReturnType<typeof buildTripoHeaders>> => {
   const headers = buildTripoHeaders();
   if (!headers) {
-    throw new Error("Tripo API key is missing (AI_TRIPO_API_KEY).");
+    throwNormalizedProviderError({
+      status: 401,
+      providerMessage: "Tripo API key is missing (AI_TRIPO_API_KEY).",
+    });
   }
-  return headers;
+  return headers as { Authorization: string; "Content-Type": string };
 };
 
 const mapTripoStatus = (rawStatus: string): ProviderJobStatus => {
@@ -368,7 +527,10 @@ const resolveUrl = (baseUrl: string, path: string) => {
 
 const submitTripoJob = async (input: SubmitJobInput): Promise<ProviderJobResult> => {
   if (input.mode === "image" && !toNonEmptyString(input.sourceUrl)) {
-    throw new Error("Tripo image mode requires a public sourceUrl.");
+    throwNormalizedProviderError({
+      status: 400,
+      providerMessage: "Tripo image mode requires a public sourceUrl.",
+    });
   }
   const headers = ensureTripoConfigured();
   const url = resolveUrl(getTripoBaseUrl(), getTripoSubmitPath());
@@ -393,7 +555,10 @@ const submitTripoJob = async (input: SubmitJobInput): Promise<ProviderJobResult>
   const data = await safeParseJson(response);
   if (!response.ok) {
     const providerError = firstStringByPaths(data, ["message", "error", "detail"]);
-    throw new Error(providerError || `Tripo submit failed with status ${response.status}.`);
+    throwNormalizedProviderError({
+      status: response.status,
+      providerMessage: providerError || `Tripo submit failed with status ${response.status}.`,
+    });
   }
 
   const providerJobId = firstStringByPaths(data, [
@@ -405,7 +570,10 @@ const submitTripoJob = async (input: SubmitJobInput): Promise<ProviderJobResult>
     "job_id",
   ]);
   if (!providerJobId) {
-    throw new Error("Tripo submit succeeded but provider job id is missing.");
+    throwNormalizedProviderError({
+      status: 502,
+      providerMessage: "Tripo submit succeeded but provider job id is missing.",
+    });
   }
 
   return {
@@ -430,7 +598,10 @@ const pollTripoJob = async (input: PollJobInput): Promise<ProviderJobResult> => 
   const data = await safeParseJson(response);
   if (!response.ok) {
     const providerError = firstStringByPaths(data, ["message", "error", "detail"]);
-    throw new Error(providerError || `Tripo poll failed with status ${response.status}.`);
+    throwNormalizedProviderError({
+      status: response.status,
+      providerMessage: providerError || `Tripo poll failed with status ${response.status}.`,
+    });
   }
 
   const rawStatus = firstStringByPaths(data, ["status", "state", "task_status", "data.status"]);
@@ -524,7 +695,7 @@ export const resolveProvider = (requested?: unknown): ProviderResolution => {
 
   const configured =
     requestedProvider === "meshy" ? Boolean(getMeshyApiKey()) : Boolean(getTripoApiKey());
-  const allowFallback = parseBoolean(process.env.AI_PROVIDER_FALLBACK_TO_MOCK, true);
+  const allowFallback = resolveAllowProviderFallback();
   if (configured) {
     return {
       requestedProvider,
@@ -554,30 +725,62 @@ export const resolveProvider = (requested?: unknown): ProviderResolution => {
   };
 };
 
+export const PROVIDER_CAPABILITIES: Record<AiProviderName, ProviderCapabilities> = {
+  mock: {
+    supportsTextTo3D: true,
+    supportsImageTo3D: true,
+    supportsCancel: false,
+    supportsProgress: true,
+  },
+  meshy: {
+    supportsTextTo3D: true,
+    supportsImageTo3D: true,
+    supportsCancel: false,
+    supportsProgress: true,
+    supportsTextureGeneration: true,
+  },
+  tripo: {
+    supportsTextTo3D: true,
+    supportsImageTo3D: true,
+    supportsCancel: false,
+    supportsProgress: true,
+  },
+};
+
 export const submitProviderJob = async (input: SubmitJobInput): Promise<ProviderJobResult> => {
-  if (input.provider === "mock") {
+  try {
+    if (input.provider === "mock") {
+      return { status: "queued", progress: 5 };
+    }
+    if (input.provider === "meshy") {
+      return submitMeshyJob(input);
+    }
+    if (input.provider === "tripo") {
+      return submitTripoJob(input);
+    }
     return { status: "queued", progress: 5 };
+  } catch (error) {
+    const normalized = normalizeProviderError(error);
+    throw new AIProviderError(normalized.providerMessage, normalized);
   }
-  if (input.provider === "meshy") {
-    return submitMeshyJob(input);
-  }
-  if (input.provider === "tripo") {
-    return submitTripoJob(input);
-  }
-  return { status: "queued", progress: 5 };
 };
 
 export const pollProviderJob = async (input: PollJobInput): Promise<ProviderJobResult> => {
-  if (input.provider === "mock") {
+  try {
+    if (input.provider === "mock") {
+      return { status: "queued", progress: 0 };
+    }
+    if (input.provider === "meshy") {
+      return pollMeshyJob(input);
+    }
+    if (input.provider === "tripo") {
+      return pollTripoJob(input);
+    }
     return { status: "queued", progress: 0 };
+  } catch (error) {
+    const normalized = normalizeProviderError(error);
+    throw new AIProviderError(normalized.providerMessage, normalized);
   }
-  if (input.provider === "meshy") {
-    return pollMeshyJob(input);
-  }
-  if (input.provider === "tripo") {
-    return pollTripoJob(input);
-  }
-  return { status: "queued", progress: 0 };
 };
 
 export const normalizeProviderStatus = (value: unknown): ProviderJobStatus => {

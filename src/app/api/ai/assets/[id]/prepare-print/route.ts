@@ -329,17 +329,27 @@ const findAuthorizedAsset = async (
   };
 };
 
-const findMediaByUrl = async (payload: any, modelUrl: string) => {
+const findMediaByUrl = async (
+  payload: any,
+  modelUrl: string,
+  ownerUserId: string | number | null
+) => {
+  const where: any = {
+    url: {
+      equals: modelUrl,
+    },
+  };
+  if (ownerUserId !== null) {
+    where.ownerUser = {
+      equals: ownerUserId as any,
+    };
+  }
   const found = await payload.find({
     collection: "media",
     depth: 0,
     limit: 1,
     sort: "-createdAt",
-    where: {
-      url: {
-        equals: modelUrl,
-      },
-    },
+    where,
     overrideAccess: true,
   });
   return found?.docs?.[0] ?? null;
@@ -418,7 +428,8 @@ export async function POST(
       );
     }
 
-    let media = await findMediaByUrl(payload, modelUrl);
+    const ownerUserId = normalizeRelationshipId(asset?.user);
+    let media = await findMediaByUrl(payload, modelUrl, ownerUserId);
     if (!media?.id) {
       const preferredExt =
         precheck.resolvedFormat === "glb" ||
@@ -432,6 +443,8 @@ export async function POST(
         alt: toNonEmptyString(asset?.title) || "AI model",
         fileType: "3d-model",
         isCustomerUpload: true,
+        ownerUser: ownerUserId ?? undefined,
+        ownerEmail: normalizeEmail(asset?.ownerEmail) || undefined,
         filename: safeFilename,
         mimeType: guessMimeType(safeFilename),
         url: modelUrl,
