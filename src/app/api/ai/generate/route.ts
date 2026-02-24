@@ -194,6 +194,22 @@ const toPublicError = (error: unknown, fallback: string) => {
   return fallback;
 };
 
+const isRecoverableListError = (error: unknown) => {
+  const raw = error instanceof Error ? error.message : String(error || "");
+  if (!raw) return false;
+  return (
+    /relation\\s+\"?.+\"?\\s+does not exist/i.test(raw) ||
+    /column\\s+\"?.+\"?\\s+does not exist/i.test(raw) ||
+    /payload_locked_documents/i.test(raw) ||
+    /ECONNREFUSED/i.test(raw) ||
+    /ENOTFOUND/i.test(raw) ||
+    /ETIMEDOUT/i.test(raw) ||
+    /timeout/i.test(raw) ||
+    /failed to connect/i.test(raw) ||
+    /database/i.test(raw)
+  );
+};
+
 const toProviderFallbackHint = (provider: string, error: unknown) => {
   const raw = error instanceof Error ? error.message : String(error || "");
   const safeError = raw.replace(/\s+/g, " ").trim().slice(0, 180);
@@ -375,6 +391,22 @@ export async function GET(request: NextRequest) {
       }
     );
   } catch (error) {
+    if (isRecoverableListError(error)) {
+      console.warn("[ai/generate:list] degraded response", error);
+      return aiOk(
+        {
+          jobs: [],
+          queueDepth: 0,
+          activeQueueJobs: 0,
+        },
+        {
+          jobs: [],
+          queueDepth: 0,
+          activeQueueJobs: 0,
+          degraded: true,
+        }
+      );
+    }
     console.error("[ai/generate:list] failed", error);
     return aiError(
       {

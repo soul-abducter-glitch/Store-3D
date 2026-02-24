@@ -2608,18 +2608,17 @@ function AiLabContent() {
         return;
       }
       try {
-        const hasAlphaCutout = await imageHasAlphaCutout(sourceDataUrl);
-        if (!hasAlphaCutout) {
-          showError("MASK+ работает после RM BG. Сначала удалите фон.");
-          return;
-        }
-
         setSmartMaskingReferenceId(refId);
-        const cleaned = await trimResidualBackground(sourceDataUrl, {
+        const hasAlphaCutout = await imageHasAlphaCutout(sourceDataUrl);
+        const baseDataUrl = hasAlphaCutout
+          ? sourceDataUrl
+          : await removeBackgroundFromImageDataUrl(sourceDataUrl);
+        const cleaned = await trimResidualBackground(baseDataUrl, {
           aggressive: true,
           allowSmallChange: true,
-          });
-        if (cleaned === sourceDataUrl) {
+        });
+        const finalDataUrl = cleaned !== baseDataUrl ? cleaned : baseDataUrl;
+        if (finalDataUrl === sourceDataUrl) {
           showError("Умная маска не нашла, что доработать на этом референсе.");
           return;
         }
@@ -2630,8 +2629,8 @@ function AiLabContent() {
             item.id === refId
               ? {
                 ...item,
-                url: cleaned,
-                previewUrl: cleaned,
+                url: finalDataUrl,
+                previewUrl: finalDataUrl,
                 type: "image/png",
                 originalUrl: item.originalUrl ?? item.url,
                 hasManualMask: false,
@@ -2640,6 +2639,7 @@ function AiLabContent() {
                   ...(item.preprocessMeta ?? {}),
                   source: "smart_mask",
                   appliedAt: new Date().toISOString(),
+                  autoRemovedBg: !hasAlphaCutout,
                 },
               }
             : item
@@ -3422,7 +3422,7 @@ function AiLabContent() {
     ]
   );
 
-  const handleApplyMaskEditor = useCallback(() => {
+  const handleApplyMaskEditor = useCallback(async () => {
     if (!maskEditorRefId || maskApplying) return;
     const sourcePixels = maskSourcePixelsRef.current;
     const alphaMask = maskAlphaRef.current;
@@ -3456,13 +3456,20 @@ function AiLabContent() {
       });
       for (let i = 0; i < finalAlpha.length; i += 1) {
         const idx = i * 4;
-        output[idx] = sourcePixels[idx];
-        output[idx + 1] = sourcePixels[idx + 1];
-        output[idx + 2] = sourcePixels[idx + 2];
+        const sourceAlphaValue = Math.max(1, sourceAlpha?.[i] ?? 255);
+        const ratio = clampNumber(finalAlpha[i] / sourceAlphaValue, 0, 1);
+        output[idx] = Math.round(sourcePixels[idx] * ratio);
+        output[idx + 1] = Math.round(sourcePixels[idx + 1] * ratio);
+        output[idx + 2] = Math.round(sourcePixels[idx + 2] * ratio);
         output[idx + 3] = finalAlpha[i];
       }
       context.putImageData(new ImageData(output, width, height), 0, 0);
       const outputDataUrl = canvas.toDataURL("image/png");
+      const optimizedDataUrl = await trimResidualBackground(outputDataUrl, {
+        aggressive: true,
+        allowSmallChange: true,
+      });
+      const finalOutputDataUrl = optimizedDataUrl || outputDataUrl;
       const appliedAt = new Date().toISOString();
 
       setInputReferences((prev) => {
@@ -3471,8 +3478,8 @@ function AiLabContent() {
           item.id === maskEditorRefId
             ? {
                 ...item,
-                url: outputDataUrl,
-                previewUrl: outputDataUrl,
+                url: finalOutputDataUrl,
+                previewUrl: finalOutputDataUrl,
                 type: "image/png",
                 originalUrl: item.originalUrl ?? item.url,
                 hasManualMask: true,
@@ -6258,11 +6265,6 @@ function AiLabContent() {
                                   <p className="truncate text-[9px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-white/70">
                                     {ref.name}
                                   </p>
-                                  {Boolean(ref.hasManualMask) && (
-                                    <p className="mt-1 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-emerald-200/85">
-                                      mask v{Math.max(1, ref.maskVersion ?? 1)}
-                                    </p>
-                                  )}
                                   <div className="mt-1 flex flex-wrap gap-1">
                                     <button
                                       type="button"
@@ -6271,22 +6273,6 @@ function AiLabContent() {
                                       className="rounded-full border border-amber-400/40 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-amber-100 transition hover:border-amber-300 disabled:cursor-not-allowed disabled:opacity-45"
                                     >
                                       MASK+
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setPreviewToolsHintVisible(false);
-                                        setMaskDiscoveryHintVisible(false);
-                                        void handleOpenMaskEditor(ref.id);
-                                      }}
-                                      disabled={
-                                        !((ref.previewUrl || ref.url || "").trim().startsWith("data:image/")) ||
-                                        maskEditorLoading ||
-                                        maskApplying
-                                      }
-                                      className="rounded-full border border-violet-300/45 px-2 py-0.5 text-[8px] font-[var(--font-jetbrains-mono)] uppercase tracking-[0.14em] text-violet-100 transition hover:border-violet-200 disabled:cursor-not-allowed disabled:opacity-45"
-                                    >
-                                      Маска
                                     </button>
                                     <button
                                       type="button"
