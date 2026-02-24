@@ -24,6 +24,7 @@ import { GiftTransfers } from "./src/payload/collections/GiftTransfers.ts";
 import { ensureAiLabSchema } from "./src/lib/ensureAiLabSchema.ts";
 import { ensureOrdersSchema } from "./src/lib/ensureOrdersSchema.ts";
 import { ensureDigitalDownloadsSchema } from "./src/lib/ensureDigitalDownloadsSchema.ts";
+import { ensureCatalogSchema } from "./src/lib/ensureCatalogSchema.ts";
 
 const normalizeOrigin = (value?: string | null) => {
   if (!value) return null;
@@ -357,6 +358,11 @@ export default buildConfig({
       await ensureDigitalDownloadsSchema(payload as any);
     } catch (error) {
       payload.logger?.error({ err: error, msg: "Failed to ensure digital downloads schema" });
+    }
+    try {
+      await ensureCatalogSchema(payload as any);
+    } catch (error) {
+      payload.logger?.error({ err: error, msg: "Failed to ensure catalog schema" });
     }
 
     if (!enableBootstrapSeed) {
