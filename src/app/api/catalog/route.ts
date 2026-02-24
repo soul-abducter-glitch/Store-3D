@@ -183,8 +183,11 @@ export async function GET(request: Request) {
     );
   }
 
+  let degradedReason = "unknown";
   try {
+    degradedReason = "payload:init";
     const payload = await getPayloadClient();
+    degradedReason = "payload:find";
     const [productsResult, categoriesResult] = await Promise.all([
       payload.find({
         collection: "products",
@@ -212,8 +215,11 @@ export async function GET(request: Request) {
       },
     });
   } catch (error) {
+    const errorMessage =
+      error instanceof Error ? error.message.replace(/\s+/g, " ").trim().slice(0, 180) : String(error);
     console.error("[catalog] failed to load from DB, using fallback", {
-      error: error instanceof Error ? error.message : String(error),
+      reason: degradedReason,
+      error: errorMessage,
     });
 
     if (cacheStore[CACHE_KEY]) {
@@ -222,6 +228,8 @@ export async function GET(request: Request) {
           ...cacheStore[CACHE_KEY].data,
           degraded: true,
           source: "stale-cache",
+          degradedReason,
+          degradedError: errorMessage,
         },
         {
           headers: {
@@ -238,6 +246,8 @@ export async function GET(request: Request) {
         ...fallback,
         degraded: true,
         source: "seed-fallback",
+        degradedReason,
+        degradedError: errorMessage,
       },
       {
         headers: {
