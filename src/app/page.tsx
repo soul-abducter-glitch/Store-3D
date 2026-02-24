@@ -355,7 +355,7 @@ export default function Home() {
               <span>Access Modules</span>
               <span>CORE_LINKS: 03</span>
             </div>
-            <div className="grid gap-3 md:grid-cols-3">
+            <div className="grid gap-4 lg:gap-5 md:grid-cols-3">
               {heroActions.map((action) => (
                 <Link
                   key={action.label}
@@ -386,23 +386,23 @@ export default function Home() {
                     )}
                     {action.visual === "blueprint" && (
                       <div className="bp-wrap" aria-hidden="true">
-                        <svg className="bp" viewBox="0 0 260 120" fill="none" xmlns="http://www.w3.org/2000/svg">
-                          <rect x="6" y="6" width="248" height="108" rx="12" className="bp-frame" />
+                        <svg className="bp" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                          <rect x="6" y="6" width="308" height="108" rx="12" className="bp-frame" />
                           <g className="bp-guides">
-                            <rect x="40" y="20" width="180" height="80" rx="2" />
-                            <line x1="130" y1="20" x2="130" y2="100" />
-                            <line x1="40" y1="60" x2="220" y2="60" />
+                            <rect x="66" y="14" width="188" height="92" rx="2" />
+                            <line x1="160" y1="14" x2="160" y2="106" />
+                            <line x1="66" y1="60" x2="254" y2="60" />
                           </g>
                           <g className="bp-grid">
-                            <path d="M22 26H238M22 46H238M22 66H238M22 86H238" />
-                            <path d="M42 18V102M72 18V102M102 18V102M132 18V102M162 18V102M192 18V102M222 18V102" />
+                            <path d="M22 18H298M22 32H298M22 46H298M22 60H298M22 74H298M22 88H298M22 102H298" />
+                            <path d="M34 10V110M56 10V110M78 10V110M100 10V110M122 10V110M144 10V110M166 10V110M188 10V110M210 10V110M232 10V110M254 10V110M276 10V110" />
                           </g>
                           <g className="bp-cross">
-                            <path d="M130 26V94" />
-                            <path d="M90 60H170" />
-                            <circle cx="130" cy="60" r="2.5" />
+                            <path d="M160 20V100" />
+                            <path d="M112 60H208" />
+                            <circle cx="160" cy="60" r="2.8" />
                           </g>
-                          <g className="bp-gear">
+                          <g className="bp-gear" transform="translate(160 60) scale(1.45) translate(-130 -60)">
                             <path d="M130 30 l10 -4 7 8 11 1 2 11 9 6 -5 10 5 10 -9 6 -2 11 -11 1 -7 8 -10 -4 -10 4 -7 -8 -11 -1 -2 -11 -9 -6 5 -10 -5 -10 9 -6 2 -11 11 -1 7 -8 10 4z" className="bp-gear-detail" />
                             <circle cx="130" cy="60" r="22" className="bp-gear-detail" />
                             <circle cx="130" cy="60" r="16" className="bp-core" />
@@ -410,31 +410,37 @@ export default function Home() {
                             <circle cx="130" cy="60" r="5" className="bp-hole" />
                           </g>
                           <g className="bp-dim">
-                            <path d="M54 104H206" />
-                            <path d="M54 100V108M206 100V108" />
-                            <path d="M54 104l8 -4M54 104l8 4" />
-                            <path d="M206 104l-8 -4M206 104l-8 4" />
-                            <text x="130" y="112" textAnchor="middle" className="bp-text">
+                            <path d="M64 104H256" />
+                            <path d="M64 100V108M256 100V108" />
+                            <path d="M64 104l8 -4M64 104l8 4" />
+                            <path d="M256 104l-8 -4M256 104l-8 4" />
+                            <text x="160" y="112" textAnchor="middle" className="bp-text">
                               Ø 36mm
                             </text>
                           </g>
-                          <rect x="10" y="10" width="240" height="10" className="bp-scan" />
+                          <rect x="10" y="10" width="300" height="9" className="bp-scan" />
                         </svg>
                       </div>
                     )}
                     {action.visual === "counter" && (
                       <div className="catalog-widget" aria-hidden="true">
-                        <svg className="catalog-map" viewBox="0 0 260 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <svg className="catalog-map" viewBox="0 0 320 120" fill="none" xmlns="http://www.w3.org/2000/svg">
                           <g className="catalog-grid">
-                            <path d="M10 24H250M10 44H250M10 64H250M10 84H250M10 104H250" />
-                            <path d="M24 10V110M52 10V110M80 10V110M108 10V110M136 10V110M164 10V110M192 10V110M220 10V110" />
+                            <path d="M10 20H310M10 34H310M10 48H310M10 62H310M10 76H310M10 90H310M10 104H310" />
+                            <path d="M20 10V110M44 10V110M68 10V110M92 10V110M116 10V110M140 10V110M164 10V110M188 10V110M212 10V110M236 10V110M260 10V110M284 10V110" />
                           </g>
-                          <path className="catalog-orbit" d="M30 78C76 56 126 52 180 64C205 70 225 74 248 74" />
-                          <path className="catalog-orbit" d="M46 92C88 73 132 72 174 82C206 89 226 94 246 98" />
-                          <circle className="catalog-globe" cx="138" cy="66" r="40" />
-                          <path className="catalog-globe" d="M98 66H178M104 48C115 55 126 58 138 58C150 58 161 55 172 48M104 84C115 77 126 74 138 74C150 74 161 77 172 84" />
-                          <path className="catalog-globe" d="M138 26V106M120 32C127 43 131 54 131 66C131 78 127 89 120 100M156 32C149 43 145 54 145 66C145 78 149 89 156 100" />
-                          <rect x="8" y="10" width="244" height="12" className="catalog-scan" />
+                          <g className="catalog-links">
+                            <path className="catalog-link" d="M26 88C82 56 150 48 218 62C252 70 278 80 304 84" />
+                            <path className="catalog-link" d="M24 102C78 78 132 76 182 84C228 92 268 102 308 106" />
+                            <path className="catalog-link" d="M38 66L74 62L96 50L126 54L146 42L174 48L198 38L228 46" />
+                          </g>
+                          <g className="catalog-orbital">
+                            <circle className="catalog-globe" cx="214" cy="66" r="46" />
+                            <path className="catalog-globe" d="M168 66H260M176 48C188 55 200 58 214 58C228 58 240 55 252 48M176 84C188 77 200 74 214 74C228 74 240 77 252 84" />
+                            <path className="catalog-globe" d="M214 20V112M194 26C202 39 207 52 207 66C207 80 202 93 194 106M234 26C226 39 221 52 221 66C221 80 226 93 234 106" />
+                          </g>
+                          <path className="catalog-hud" d="M24 18h22M24 18v12M296 18h-22M296 18v12M24 102h22M24 102v-12" />
+                          <rect x="8" y="10" width="304" height="10" className="catalog-scan" />
                         </svg>
                         <span className="hero-action-counter">
                           <span className="hero-action-counter-key">TOTAL_ASSETS</span>
